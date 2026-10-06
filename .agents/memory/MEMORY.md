@@ -1,1 +1,2 @@
 - [Tasama import constraints](tasama-import.md) — preserve imported application code, schema, seed data, and model calls; setup changes only.
+- [Tasama publishing constraints](tasama-publishing.md) — production first-run seeding can exceed the observed 60-second port-opening limit.
