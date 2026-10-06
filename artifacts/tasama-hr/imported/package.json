@@ -1,0 +1,19 @@
+{
+  "name": "rafeeq",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tasama HR - an agentic HR services layer that Tasama runs for several client companies, over each client's own HRMS (simulated Oracle HCM and Odoo). Demo prototype on synthetic data.",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "start": "npm run start --workspace @rafeeq/server",
+    "build": "npm run build --workspace @rafeeq/web",
+    "dev:web": "npm run dev --workspace @rafeeq/web",
+    "dev:server": "npm run dev --workspace @rafeeq/server",
+    "seed": "npm run seed --workspace @rafeeq/server",
+    "typecheck": "npm run typecheck --workspace @rafeeq/web && npm run typecheck --workspace @rafeeq/server",
+    "tokens": "npm run tokens --workspace @cognirise/atelier",
+    "contrast": "npm run contrast --workspace @cognirise/atelier",
+    "replit": "bash tools/replit-run.sh"
+  },
+  "engines": { "node": ">=20" }
+}

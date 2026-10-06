@@ -1,0 +1,205 @@
+/**
+ * The 21 agentic workflows, hire to retire, under Saudi Labor Law and each
+ * client's handbook, plus three Tasama-level workflows (WF-22 to WF-24) that
+ * run across clients.
+ *
+ * Every step states its actor, inputs, outputs and the decision it makes (the
+ * Atelier workflow contract). `actor_type` is AGENT, HUMAN or SYSTEM; a HUMAN
+ * step's `actor` is a ROLE, resolved to a person by the engine. SYSTEM steps
+ * are the connector: the only place anything is written to the client's HRMS
+ * (Oracle HCM or Odoo). TASAMA_OPS is Tasama HR Operations.
+ *
+ * Coverage is honest: `implemented` runs end to end in the engine;
+ * `partial` has screens and data, with some steps manual; `designed` is
+ * specified only.
+ */
+export type StepDef = {
+  key: string;
+  actor_type: 'AGENT' | 'HUMAN' | 'SYSTEM';
+  actor: string;
+  label: string;
+  label_ar: string;
+  inputs: string;
+  outputs: string;
+  decision: string;
+};
+export type WorkflowDef = {
+  id: string; num: number; name: string; name_ar: string; stage: string; coverage: 'implemented' | 'partial' | 'designed';
+  trigger: string; agents: string[]; decision_by: string; steps: StepDef[];
+};
+
+const S = (key: string, actor_type: StepDef['actor_type'], actor: string, label: string, label_ar: string, inputs: string, outputs: string, decision: string): StepDef =>
+  ({ key, actor_type, actor, label, label_ar, inputs, outputs, decision });
+
+export const WORKFLOWS: WorkflowDef[] = [
+  { id: 'WF-01', num: 1, name: 'Position request', name_ar: 'طلب وظيفة', stage: 'Plan', coverage: 'implemented', trigger: 'A manager asks for a new or backfill position', agents: ['saeed'], decision_by: 'HRBP; CHRO at G11+',
+    steps: [
+      S('intake', 'HUMAN', 'LINE_MANAGER', 'Manager describes the need', 'المدير يصف الاحتياج', 'Role, reason, grade sought, start date', 'Draft position request', 'Whether to ask'),
+      S('check', 'AGENT', 'saeed', 'Check budget, grade and Saudization', 'التحقق من الميزانية والدرجة والتوطين', 'Department headcount plan, grade structure, workforce, Nitaqat band', 'Budget position, grade fit, Saudization (Nitaqat) effect, draft job description', 'Within budget or not'),
+      S('hrbp', 'HUMAN', 'HRBP', 'HRBP approves', 'اعتماد شريك الأعمال', 'Saeed\'s check, the draft', 'Approved or returned', 'Approve the position'),
+      S('chro', 'HUMAN', 'CHRO', 'CHRO approves (G11+ or unbudgeted)', 'اعتماد الرئيس التنفيذي للموارد البشرية', 'The approved request', 'Approved or declined', 'Approve a senior or unbudgeted position'),
+      S('post', 'SYSTEM', 'connector', 'Create the position in the HRMS', 'إنشاء الوظيفة في النظام', 'Approved position', 'POST /positions; empupdate event', 'None'),
+    ] },
+  { id: 'WF-02', num: 2, name: 'Requisition and job ad', name_ar: 'طلب التوظيف والإعلان', stage: 'Attract', coverage: 'implemented', trigger: 'A position is approved (HRMS event)', agents: ['hessa'], decision_by: 'Talent acquisition',
+    steps: [
+      S('draft', 'AGENT', 'hessa', 'Draft requisition and bilingual ad', 'صياغة طلب التوظيف والإعلان باللغتين', 'Position, job description', 'Requisition, criteria (must / nice), ad in English and Arabic', 'None'),
+      S('internal', 'AGENT', 'hessa', 'Match internal talent and Jadarat first', 'مطابقة المواهب الداخلية وجدارات أولاً', 'Criteria, talent profiles', 'Internal matches to invite', 'None'),
+      S('approve', 'HUMAN', 'TA', 'Talent acquisition approves posting', 'اعتماد النشر', 'Draft requisition', 'Approved or edited', 'Post the requisition'),
+      S('post', 'SYSTEM', 'connector', 'Open the requisition', 'فتح طلب التوظيف', 'Approved requisition', 'POST /recruitingJobRequisitions', 'None'),
+    ] },
+  { id: 'WF-03', num: 3, name: 'Screening evidence', name_ar: 'أدلة الفرز', stage: 'Select', coverage: 'implemented', trigger: 'Applications arrive', agents: ['hessa'], decision_by: 'Recruiter, hiring manager',
+    steps: [
+      S('evidence', 'AGENT', 'hessa', 'Extract evidence against each criterion', 'استخراج الأدلة لكل معيار', 'Applications, criteria', 'Evidence table per candidate; no score, no rank', 'None. Hessa does not reject'),
+      S('shortlist', 'HUMAN', 'TA', 'Recruiter shortlists', 'مسؤول التوظيف يعد القائمة المختصرة', 'Evidence', 'Shortlist with reasons', 'Who goes forward'),
+      S('agree', 'HUMAN', 'LINE_MANAGER', 'Hiring manager agrees the shortlist', 'المدير يوافق على القائمة', 'Shortlist', 'Agreed shortlist', 'Agree or add'),
+      S('update', 'SYSTEM', 'connector', 'Update candidate phases', 'تحديث مراحل المرشحين', 'Decisions', 'PATCH /recruitingCandidateApplications', 'None'),
+    ] },
+  { id: 'WF-04', num: 4, name: 'Interviews and assessment centre', name_ar: 'المقابلات ومركز التقييم', stage: 'Select', coverage: 'partial', trigger: 'Shortlist agreed', agents: ['hessa', 'tamkeen'], decision_by: 'Panel',
+    steps: [
+      S('schedule', 'AGENT', 'hessa', 'Schedule panels from calendars', 'جدولة المقابلات من التقويمات', 'Shortlist, panel calendars (M365)', 'Invitations', 'None'),
+      S('score', 'HUMAN', 'LINE_MANAGER', 'Panel scores each competency', 'اللجنة تقيّم كل كفاءة', 'Interview', 'Scores 1-5 with notes', 'Scores'),
+      S('integrate', 'AGENT', 'tamkeen', 'Flag assessor spread, draft integration report', 'رصد تباين المقيمين وصياغة تقرير الدمج', 'All scores', 'Integration report', 'None'),
+      S('decide', 'HUMAN', 'LINE_MANAGER', 'Integration session selects', 'جلسة الدمج تختار', 'Report', 'Selected candidate', 'Who receives an offer'),
+    ] },
+  { id: 'WF-05', num: 5, name: 'Offer', name_ar: 'عرض العمل', stage: 'Hire', coverage: 'implemented', trigger: 'A candidate is selected', agents: ['hessa', 'tarqiya'], decision_by: 'HRBP to midpoint; CHRO above',
+    steps: [
+      S('propose', 'AGENT', 'tarqiya', 'Propose pay within grade and check peer equity', 'اقتراح الأجر ضمن الدرجة والتحقق من العدالة', 'Grade range, peers in grade, candidate expectation', 'Offer package, compa-ratio, peer comparison', 'None'),
+      S('approve', 'HUMAN', 'HRBP', 'Approve the offer (CHRO above midpoint)', 'اعتماد العرض', 'Proposal', 'Approved offer', 'Make the offer'),
+      S('letter', 'AGENT', 'hessa', 'Prepare the offer letter in English and Arabic', 'إعداد خطاب العرض باللغتين', 'Approved offer', 'Offer letter', 'None'),
+      S('extend', 'SYSTEM', 'connector', 'Extend the offer; on acceptance create the pending worker', 'إرسال العرض وإنشاء سجل الموظف المرتقب', 'Offer, acceptance', 'POST /recruitingJobOffers; POST /workers (pending)', 'None'),
+    ] },
+  { id: 'WF-06', num: 6, name: 'Pre-boarding: Qiwa, GOSI and Muqeem', name_ar: 'ما قبل الالتحاق: قوى والتأمينات ومقيم', stage: 'Onboard', coverage: 'implemented', trigger: 'Offer accepted; pending worker created', agents: ['dalil'], decision_by: 'HR Ops clears blockers',
+    steps: [
+      S('journey', 'AGENT', 'dalil', 'Open the pre-boarding journey', 'فتح رحلة ما قبل الالتحاق', 'Pending worker, nationality', 'Tasks: documents, Qiwa contract, work visa, medical, CCHI insurance, GOSI registration, Muqeem (iqama), IT', 'Which tasks apply'),
+      S('immigration', 'SYSTEM', 'connector', 'Submit Qiwa, GOSI and Muqeem steps', 'تقديم إجراءات قوى والتأمينات ومقيم', 'Documents', 'Qiwa employment contract, GOSI registration, work visa and iqama via Muqeem', 'None'),
+      S('blockers', 'HUMAN', 'PAYROLL', 'HR Ops clears blockers', 'عمليات الموارد البشرية تعالج العوائق', 'Blocked tasks', 'Resolved tasks', 'How to unblock'),
+      S('ready', 'AGENT', 'dalil', 'Confirm day-one readiness', 'تأكيد الجاهزية لليوم الأول', 'All tasks', 'Day-one plan, buddy, introductions', 'Ready or at risk'),
+    ] },
+  { id: 'WF-07', num: 7, name: 'Onboarding journey and 30/60/90', name_ar: 'رحلة التهيئة والمتابعة', stage: 'Onboard', coverage: 'partial', trigger: 'Newhire event', agents: ['dalil'], decision_by: 'Manager',
+    steps: [
+      S('day1', 'AGENT', 'dalil', 'Day-one plan and introductions', 'خطة اليوم الأول والتعارف', 'Newhire event', 'Calendar invites, checklist', 'None'),
+      S('checkins', 'AGENT', 'dalil', '30, 60 and 90-day check-ins', 'المتابعة بعد 30 و60 و90 يوماً', 'Pulse answers', 'Concerns flagged to manager', 'Whether to flag'),
+      S('confirm', 'HUMAN', 'LINE_MANAGER', 'Manager reviews check-ins', 'المدير يراجع المتابعات', 'Check-in summary', 'Actions', 'Act on concerns'),
+    ] },
+  { id: 'WF-08', num: 8, name: 'Probation review', name_ar: 'مراجعة فترة التجربة', stage: 'Onboard', coverage: 'implemented', trigger: '30 days before probation ends (Art. 53)', agents: ['amin', 'mezan'], decision_by: 'Manager with HRBP',
+    steps: [
+      S('flag', 'AGENT', 'amin', 'Flag probation end in 30 days', 'التنبيه بانتهاء التجربة خلال 30 يوماً', 'Assignment probation date', 'Probation case', 'None'),
+      S('evidence', 'AGENT', 'mezan', 'Prepare evidence: goals, check-ins, attendance', 'إعداد الأدلة: الأهداف والمتابعات والحضور', 'HRMS records', 'Evidence summary', 'None'),
+      S('decide', 'HUMAN', 'LINE_MANAGER', 'Manager confirms or ends employment', 'المدير يثبت التعيين أو ينهيه', 'Evidence', 'Confirm / end within probation (Art. 54)', 'Confirm the employee'),
+      S('concur', 'HUMAN', 'HRBP', 'HRBP concurs', 'موافقة شريك الأعمال', 'Decision', 'Concurred', 'Concur'),
+      S('post', 'SYSTEM', 'connector', 'Update the assignment', 'تحديث التعيين', 'Decision', 'POST assignment PROBATION_CONFIRM; empassignment event', 'None'),
+    ] },
+  { id: 'WF-09', num: 9, name: 'Goals and check-ins', name_ar: 'الأهداف والمتابعات', stage: 'Perform', coverage: 'partial', trigger: 'Cycle opens; quarterly', agents: ['mezan'], decision_by: 'Manager and employee',
+    steps: [
+      S('cascade', 'AGENT', 'mezan', 'Suggest goals from the division plan', 'اقتراح الأهداف من خطة القطاع', 'Division goals', 'Draft goals', 'None'),
+      S('agree', 'HUMAN', 'LINE_MANAGER', 'Agree goals', 'اعتماد الأهداف', 'Draft goals', 'Goals', 'Agree'),
+      S('prep', 'AGENT', 'mezan', 'Prepare each check-in', 'التحضير لكل متابعة', 'Goal progress, last notes', 'Talking points', 'None'),
+    ] },
+  { id: 'WF-10', num: 10, name: 'Annual review and calibration', name_ar: 'المراجعة السنوية والمعايرة', stage: 'Perform', coverage: 'implemented', trigger: 'Review window opens', agents: ['mezan'], decision_by: 'Manager rates; panel finalises',
+    steps: [
+      S('draft', 'AGENT', 'mezan', 'Draft review evidence for each employee', 'إعداد أدلة المراجعة لكل موظف', 'Goals, check-ins, feedback', 'Evidence for the manager', 'None'),
+      S('rate', 'HUMAN', 'LINE_MANAGER', 'Manager rates', 'المدير يقيّم', 'Evidence, self-evaluation', 'Rating 1-5 and comment', 'The rating'),
+      S('check', 'AGENT', 'mezan', 'Check distribution and consistency', 'التحقق من التوزيع والاتساق', 'All ratings in the division', 'Flags: skew, leniency, rating vs goals, gender gap', 'None'),
+      S('calibrate', 'HUMAN', 'HRBP', 'Calibration panel finalises', 'لجنة المعايرة تعتمد', 'Ratings with flags', 'Calibrated ratings with reasons', 'Final ratings'),
+      S('post', 'SYSTEM', 'connector', 'Write calibrated ratings', 'تسجيل التقييمات المعايرة', 'Final ratings', 'PATCH /performanceDocuments', 'None'),
+    ] },
+  { id: 'WF-11', num: 11, name: 'Talent review and succession', name_ar: 'مراجعة المواهب والتعاقب', stage: 'Grow', coverage: 'partial', trigger: 'After calibration', agents: ['tarqiya'], decision_by: 'Talent committee',
+    steps: [
+      S('grid', 'AGENT', 'tarqiya', 'Place everyone on the 9-box from rating and potential', 'وضع الجميع على مصفوفة التسعة', 'Ratings, potential', '9-box', 'None'),
+      S('bench', 'AGENT', 'tarqiya', 'Update succession bench for critical roles', 'تحديث قائمة التعاقب للوظائف الحرجة', '9-box, readiness', 'Bench strength', 'None'),
+      S('review', 'HUMAN', 'CHRO', 'Talent committee reviews', 'لجنة المواهب تراجع', 'Grid, bench', 'Agreed actions', 'Development and succession actions'),
+    ] },
+  { id: 'WF-12', num: 12, name: 'Promotion', name_ar: 'الترقية', stage: 'Grow', coverage: 'implemented', trigger: 'Nomination or calibration outcome', agents: ['tarqiya'], decision_by: 'HRBP; CHRO for two grades',
+    steps: [
+      S('case', 'AGENT', 'tarqiya', 'Build the promotion case', 'إعداد ملف الترقية', 'Ratings, time in grade, grade ranges, peers', 'Eligibility, proposed salary, compa-ratio, peer comparison', 'Eligible or not'),
+      S('approve', 'HUMAN', 'HRBP', 'Approve (CHRO for two grades or above midpoint)', 'الاعتماد', 'Case', 'Approved', 'Promote'),
+      S('post', 'SYSTEM', 'connector', 'Post assignment, salary and element entries', 'تسجيل التعيين والراتب وعناصر الرواتب', 'Approved promotion', 'POST assignment PROMOTION, POST /salaries, element entries; payupdate event', 'None'),
+    ] },
+  { id: 'WF-13', num: 13, name: 'Payroll pre-run check', name_ar: 'التحقق قبل تشغيل الرواتب', stage: 'Pay', coverage: 'implemented', trigger: 'Five working days before cut-off and the Mudad upload', agents: ['hisab'], decision_by: 'Payroll specialist',
+    steps: [
+      S('check', 'AGENT', 'hisab', 'Run the pre-run checks', 'تشغيل الفحوصات', 'Draft results, salaries, element entries, absences, terminations, GOSI', 'Findings by severity with the record behind each', 'Release blocked or clear'),
+      S('resolve', 'HUMAN', 'PAYROLL', 'Payroll resolves each finding and releases', 'فريق الرواتب يعالج الملاحظات ويعتمد', 'Findings', 'Fixes, explanations, release', 'Release the run'),
+      S('release', 'SYSTEM', 'connector', 'Release payroll and upload the wage file to Mudad', 'اعتماد الرواتب ورفع ملف الأجور إلى مدد', 'Released run', 'Payroll release; wage file to Mudad (wage protection) and the bank', 'None'),
+    ] },
+  { id: 'WF-14', num: 14, name: 'Letters and certificates', name_ar: 'الخطابات والشهادات', stage: 'Everyday', coverage: 'implemented', trigger: 'Employee request', agents: ['wathiqa'], decision_by: 'None, or HR Ops for salary transfer',
+    steps: [
+      S('intake', 'AGENT', 'rafeeq', 'Take the request', 'استلام الطلب', 'Type, addressee, purpose, language', 'Request', 'None'),
+      S('validate', 'AGENT', 'wathiqa', 'Validate against policy and HRMS', 'التحقق من السياسة والنظام', 'Employment status, salary record', 'Valid, or needs HR Ops', 'Standard or not'),
+      S('approve', 'HUMAN', 'PAYROLL', 'HR Ops approves (salary transfer only)', 'اعتماد عمليات الموارد البشرية (تحويل الراتب فقط)', 'Draft letter', 'Approved', 'Commit salary to the bank'),
+      S('issue', 'SYSTEM', 'connector', 'Generate and record the letter', 'إصدار الخطاب وتسجيله', 'Letter', 'documentRecords.generateDraftLetter; POST /documentRecords', 'None'),
+    ] },
+  { id: 'WF-15', num: 15, name: 'Leave', name_ar: 'الإجازات', stage: 'Everyday', coverage: 'implemented', trigger: 'Employee request', agents: ['ajaza'], decision_by: 'Line manager',
+    steps: [
+      S('intake', 'AGENT', 'rafeeq', 'Take the request', 'استلام الطلب', 'Type, dates', 'Request', 'None'),
+      S('validate', 'AGENT', 'ajaza', 'Check balance, rules and team cover', 'التحقق من الرصيد والقواعد وتغطية الفريق', 'Balance, Saudi Labor Law rules, team calendar', 'Within policy / conflicts', 'None'),
+      S('approve', 'HUMAN', 'LINE_MANAGER', 'Line manager approves', 'المدير المباشر يعتمد', 'Prepared request', 'Approved or declined', 'Approve the leave'),
+      S('post', 'SYSTEM', 'connector', 'Record the absence', 'تسجيل الغياب', 'Approved leave', 'POST /absences', 'None'),
+    ] },
+  { id: 'WF-16', num: 16, name: 'Salary advance', name_ar: 'سلفة الراتب', stage: 'Everyday', coverage: 'implemented', trigger: 'Employee request', agents: ['ajaza', 'hisab'], decision_by: 'Manager; HR Ops; CHRO for exceptions',
+    steps: [
+      S('intake', 'AGENT', 'rafeeq', 'Take the request', 'استلام الطلب', 'Amount, months, reason', 'Request', 'None'),
+      S('eligibility', 'AGENT', 'ajaza', 'Check eligibility (HR-07)', 'التحقق من الأهلية', 'Probation status, outstanding advances, basic salary', 'Eligible / eligible with changes / ineligible', 'Whether an exception is needed'),
+      S('recovery', 'AGENT', 'hisab', 'Schedule recovery and test the Art. 92 and 93 caps', 'جدولة الاسترداد واختبار حدود المادتين 92 و93', 'Amount, months, current deductions', 'Monthly recovery, cap test', 'None'),
+      S('manager', 'HUMAN', 'LINE_MANAGER', 'Manager supports', 'تأييد المدير', 'Prepared request', 'Supported or not', 'Support the advance'),
+      S('approve', 'HUMAN', 'PAYROLL', 'HR Ops approves (CHRO for exceptions)', 'اعتماد عمليات الموارد البشرية', 'Supported request', 'Approved', 'Pay the advance'),
+      S('post', 'SYSTEM', 'connector', 'Post payment and recovery entries', 'تسجيل الدفعة والاسترداد', 'Approved advance', 'POST /elementEntries ADVANCE_PAY, ADVANCE_REC', 'None'),
+    ] },
+  { id: 'WF-17', num: 17, name: 'Policy answers', name_ar: 'الإجابة عن السياسات', stage: 'Everyday', coverage: 'implemented', trigger: 'Any question', agents: ['rafeeq', 'murshid'], decision_by: 'None; escalates without a source',
+    steps: [
+      S('answer', 'AGENT', 'rafeeq', 'Answer from cited policy and HRMS data', 'الإجابة من السياسة والنظام', 'Question, policy clauses, the person\'s records', 'Answer with clause and version', 'Answer or route to HR'),
+    ] },
+  { id: 'WF-18', num: 18, name: 'Employee relations case', name_ar: 'حالة علاقات الموظفين', stage: 'Relate', coverage: 'partial', trigger: 'Grievance or concern', agents: ['sanad'], decision_by: 'HRBP, Legal',
+    steps: [
+      S('triage', 'AGENT', 'sanad', 'Triage and build the chronology', 'الفرز وإعداد التسلسل الزمني', 'Report, HRMS records', 'Case file', 'Severity'),
+      S('investigate', 'HUMAN', 'HRBP', 'HRBP investigates', 'شريك الأعمال يحقق', 'Case file', 'Findings', 'Outcome'),
+    ] },
+  { id: 'WF-19', num: 19, name: 'Resignation and final settlement', name_ar: 'الاستقالة والتسوية النهائية', stage: 'Exit', coverage: 'implemented', trigger: 'Employee resigns', agents: ['wadaa', 'dalil'], decision_by: 'Manager; HR Ops',
+    steps: [
+      S('intake', 'AGENT', 'wadaa', 'Take the resignation, propose last working day', 'استلام الاستقالة واقتراح آخر يوم عمل', 'Resignation, contract notice', 'Proposed last working day', 'None'),
+      S('accept', 'HUMAN', 'LINE_MANAGER', 'Manager accepts; regretted or not', 'المدير يقبل الاستقالة', 'Resignation', 'Accepted, regretted flag', 'Accept'),
+      S('settlement', 'AGENT', 'wadaa', 'Calculate the final settlement', 'احتساب التسوية النهائية', 'Salary, leave balance, service, end-of-service award (Arts. 84-85), advances', 'Settlement lines with rule for each; due within 14 days (Art. 88)', 'None'),
+      S('approve', 'HUMAN', 'PAYROLL', 'HR Ops approves the settlement', 'اعتماد التسوية', 'Settlement', 'Approved', 'Pay the settlement'),
+      S('terminate', 'SYSTEM', 'connector', 'Post termination; close the Qiwa contract; final exit', 'تسجيل إنهاء الخدمة وإنهاء العقد في قوى والخروج النهائي', 'Approved exit', 'Work relationship end; termination event; Qiwa contract closure; GOSI deregistration; final exit visa via Muqeem (expatriates)', 'None'),
+    ] },
+  { id: 'WF-20', num: 20, name: 'Involuntary exit', name_ar: 'إنهاء الخدمة من قبل الشركة', stage: 'Exit', coverage: 'implemented', trigger: 'Manager or HR initiates', agents: ['sanad', 'wadaa'], decision_by: 'HRBP, Legal, CHRO',
+    steps: [
+      S('intake', 'HUMAN', 'LINE_MANAGER', 'Manager or HR states the grounds', 'المدير أو الموارد البشرية يحدد الأسباب', 'Grounds, evidence', 'Case', 'Start'),
+      S('check', 'AGENT', 'sanad', 'Check documentation, legal grounds and protections', 'التحقق من التوثيق والأسس القانونية والحماية', 'Warnings, improvement plan, ratings, leave, protected status (Saudi Labor Law Arts. 77, 80)', 'Complete / missing steps', 'Proceed or stop'),
+      S('review', 'HUMAN', 'HRBP', 'HRBP reviews the case file', 'شريك الأعمال يراجع الملف', 'Sanad\'s check', 'Recommendation', 'Recommend'),
+      S('approve', 'HUMAN', 'CHRO', 'CHRO and Legal approve', 'اعتماد الرئيس التنفيذي للموارد البشرية والقانونية', 'Recommendation', 'Approved or stopped', 'End employment'),
+      S('settlement', 'AGENT', 'wadaa', 'Calculate the final settlement', 'احتساب التسوية النهائية', 'HRMS data', 'Settlement (Art. 84); due within 7 days (Art. 88)', 'None'),
+      S('terminate', 'SYSTEM', 'connector', 'Post termination; close the Qiwa contract; final exit', 'تسجيل إنهاء الخدمة وإنهاء العقد في قوى والخروج النهائي', 'Approved exit', 'Work relationship end; termination event; Qiwa contract closure; GOSI deregistration; final exit visa via Muqeem (expatriates)', 'None'),
+    ] },
+  { id: 'WF-21', num: 21, name: 'Compliance watch', name_ar: 'رقابة الامتثال', stage: 'Always on', coverage: 'implemented', trigger: 'Daily', agents: ['amin'], decision_by: 'Owner of each alert',
+    steps: [
+      S('scan', 'AGENT', 'amin', 'Scan dates and ratios', 'فحص التواريخ والنسب', 'Persons (iqama, national ID, passport), assignments, Qiwa contracts, payroll periods, Nitaqat band', 'Alerts with owner and due date (Muqeem, Qiwa, Mudad, GOSI)', 'Severity'),
+      S('assign', 'HUMAN', 'PAYROLL', 'Owner acts on the alert', 'المسؤول يتعامل مع التنبيه', 'Alert', 'Resolved', 'Action'),
+    ] },
+  { id: 'WF-22', num: 22, name: 'SLA watch and escalation', name_ar: 'مراقبة مستوى الخدمة والتصعيد', stage: 'Tasama', coverage: 'implemented', trigger: 'Hourly, across every client', agents: ['raqeeb'], decision_by: 'Tasama HR Operations',
+    steps: [
+      S('scan', 'AGENT', 'raqeeb', 'Scan open cases against the contract SLA', 'فحص الحالات المفتوحة مقابل مستوى الخدمة في العقد', 'Open cases per client, SLA due times, client contracts', 'Cases at risk and breached, by client', 'At risk or not'),
+      S('nudge', 'AGENT', 'raqeeb', 'Nudge the person the case waits on', 'تذكير صاحب الاعتماد', 'Cases at risk', 'Reminder with the due time', 'None'),
+      S('escalate', 'HUMAN', 'TASAMA_OPS', 'Escalate to Tasama HR Operations', 'التصعيد إلى عمليات الموارد البشرية في تسامى', 'Breached or repeatedly delayed cases', 'Owner and action agreed with the client', 'How to recover the case'),
+      S('resolve', 'HUMAN', 'TASAMA_OPS', 'Tasama HR Operations resolves', 'عمليات الموارد البشرية في تسامى تعالج', 'Escalated case', 'Resolved; service credit noted if breached', 'Close the escalation'),
+    ] },
+  { id: 'WF-23', num: 23, name: 'Monthly client invoice', name_ar: 'الفاتورة الشهرية للعميل', stage: 'Tasama', coverage: 'implemented', trigger: 'Month end, per client', agents: ['fatoora', 'raqeeb'], decision_by: 'Tasama HR Operations Manager',
+    steps: [
+      S('volumes', 'AGENT', 'fatoora', 'Compute volumes', 'احتساب الأحجام', 'Headcount served, completed hires, client contract', 'Fee lines: employees served x fee per employee per month; hires x fee per hire', 'None'),
+      S('credits', 'AGENT', 'fatoora', 'Apply service credits for missed SLAs', 'تطبيق خصومات الخدمة عن مستويات الخدمة غير المحققة', 'Monthly SLA results (Raqeeb), credit rates, credit cap', 'Service credits, capped at the contract limit', 'None'),
+      S('approve', 'HUMAN', 'TASAMA_OPS', 'Tasama HR Operations Manager approves', 'اعتماد مدير عمليات الموارد البشرية في تسامى', 'Draft invoice', 'Approved invoice', 'Issue the invoice'),
+      S('issue', 'SYSTEM', 'connector', 'Issue to the client', 'الإصدار إلى العميل', 'Approved invoice', 'Invoice issued to the client', 'None'),
+    ] },
+  { id: 'WF-24', num: 24, name: 'New client transition', name_ar: 'انتقال عميل جديد', stage: 'Tasama', coverage: 'partial', trigger: 'A new client contract starts (build, operate, transfer)', agents: ['intiqal'], decision_by: 'Tasama HR Operations',
+    steps: [
+      S('map', 'AGENT', 'intiqal', 'Map the client\'s HRMS data to the standard model', 'مطابقة بيانات نظام العميل مع النموذج الموحد', 'Client HRMS extract (Oracle HCM or Odoo)', 'Field mapping and gaps', 'None'),
+      S('validate', 'AGENT', 'intiqal', 'Validate payroll master data', 'التحقق من البيانات الأساسية للرواتب', 'Workers, salaries, element entries, IBANs, GOSI registration, iqama and national ID', 'Data issues by severity', 'Ready for parallel run or not'),
+      S('parallel', 'AGENT', 'intiqal', 'Parallel run against the client\'s last payroll', 'تشغيل موازٍ مقابل آخر رواتب العميل', 'Client\'s last payroll, computed payroll', 'Differences by employee with reasons', 'None'),
+      S('golive', 'HUMAN', 'TASAMA_OPS', 'Go-live approval', 'اعتماد بدء التشغيل', 'Mapping, data issues, parallel-run differences', 'Approved go-live date', 'Go live'),
+    ] },
+];
+
+export const wf = (id: string) => {
+  const w = WORKFLOWS.find((x) => x.id === id);
+  if (!w) throw new Error(`unknown workflow ${id}`);
+  return w;
+};

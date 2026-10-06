@@ -1,0 +1,1 @@
+- [Tasama import constraints](tasama-import.md) — preserve imported application code, schema, seed data, and model calls; setup changes only.

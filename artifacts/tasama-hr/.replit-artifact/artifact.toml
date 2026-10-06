@@ -1,0 +1,26 @@
+kind = "web"
+previewPath = "/"
+title = "Tasama HR"
+description = "Imported Tasama HR multi-client agentic HR demo, running its original Express server and React UI unchanged."
+version = "1.0.0"
+id = "artifacts/tasama-hr"
+router = "path"
+
+[[services]]
+name = "web"
+paths = ["/"]
+localPort = 5000
+
+[services.development]
+run = "bash tools/replit-run.sh"
+
+[services.production]
+build = ["bash", "-c", "if [ -d imported ]; then cd imported; else cd artifacts/tasama-hr/imported; fi; npm install --include=dev --no-audit --no-fund && npm run build"]
+run = ["bash", "-c", "if [ -d imported ]; then cd imported; else cd artifacts/tasama-hr/imported; fi; exec npm start"]
+
+[services.production.health.startup]
+path = "/api/health"
+
+[services.env]
+PORT = "5000"
+BASE_PATH = "/"

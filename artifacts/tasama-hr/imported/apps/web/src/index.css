@@ -1,0 +1,42 @@
+/* Tasama typography, self-hosted (government and enterprise networks often block font CDNs).
+ *   Alexandria — tasama.com.sa's own typeface, drawn for Arabic and Latin together:
+ *                display, headings, wordmark, and every Arabic glyph.
+ *   Inter      — body, tables and figures (tabular numerals). */
+@import "@fontsource/alexandria/latin-400.css";
+@import "@fontsource/alexandria/latin-500.css";
+@import "@fontsource/alexandria/latin-600.css";
+@import "@fontsource/alexandria/latin-700.css";
+@import "@fontsource/alexandria/arabic-400.css";
+@import "@fontsource/alexandria/arabic-500.css";
+@import "@fontsource/alexandria/arabic-600.css";
+@import "@fontsource/alexandria/arabic-700.css";
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/inter/latin-800.css";
+
+@import "@cognirise/atelier/styles.css";
+
+/* Arabic: Alexandria at every size, headings included (Inter has no Arabic). */
+[dir="rtl"] body, [dir="rtl"] .font-sans { font-family: Alexandria, Inter, system-ui, sans-serif; }
+[dir="rtl"] h1, [dir="rtl"] h2, [dir="rtl"] h3, [dir="rtl"] .font-wordmark, [dir="rtl"] .headline { font-family: Alexandria, system-ui, sans-serif; letter-spacing: 0; }
+/* Identifiers and figures stay left-to-right inside Arabic text. */
+/* Arabic letters must join: no tracking, no forced caps, no monospace on Arabic runs. */
+[dir="rtl"] * { letter-spacing: 0 !important; }
+[dir="rtl"] .font-mono, [dir="rtl"] .eyebrow, [dir="rtl"] .mono-chip, [dir="rtl"] [class*="chip"], [dir="rtl"] [class*="uppercase"] { font-family: Alexandria, ui-monospace, monospace; text-transform: none; }
+[dir="rtl"] .font-mono, [dir="rtl"] .tabular-nums, [dir="rtl"] .ltr { direction: ltr; unicode-bidi: isolate; }
+[dir="rtl"] p, [dir="rtl"] li, [dir="rtl"] dd, [dir="rtl"] figcaption { unicode-bidi: plaintext; }
+/* The lifecycle ring reads clockwise in English and counter-clockwise in Arabic. */
+[dir="rtl"] .mirror-rtl { transform: scaleX(-1); }
+
+.scroll-thin { scrollbar-width: thin; }
+.table-clean { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table-clean th { text-align: start; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-muted-foreground); padding: 8px 10px; border-bottom: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent); white-space: nowrap; }
+.table-clean td { padding: 9px 10px; border-bottom: 1px solid color-mix(in oklab, var(--color-border) 45%, transparent); vertical-align: top; }
+.table-clean tr:last-child td { border-bottom: 0; }
+.table-clean tbody tr.clickable { cursor: pointer; }
+.table-clean tbody tr.clickable:hover td { background: color-mix(in oklab, var(--color-primary) 6%, transparent); }
+.field { display: grid; gap: 6px; }
+.field > span { font-size: 12px; color: var(--color-muted-foreground); }
+.input { height: 38px; border-radius: 10px; border: 1px solid var(--color-border); background: color-mix(in oklab, var(--color-background) 55%, transparent); padding: 0 12px; font-size: 14px; color: var(--color-foreground); }
+.input:focus { outline: none; border-color: var(--color-primary); }
+textarea.input { height: auto; padding: 8px 12px; min-height: 72px; }
