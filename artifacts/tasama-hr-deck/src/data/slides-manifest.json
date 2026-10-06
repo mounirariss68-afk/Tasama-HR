@@ -1,0 +1,83 @@
+[
+  {
+    "id": "tasama-cover",
+    "position": 1,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-cover.sdm.yaml",
+    "title": "Tasama HR",
+    "description": "Tasama HR",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-two-levels",
+    "position": 2,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-two-levels.sdm.yaml",
+    "title": "One platform. Two levels of HR operations.",
+    "description": "One platform. Two levels of HR operations.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-clients",
+    "position": 3,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-clients.sdm.yaml",
+    "title": "Five client accounts in one demo",
+    "description": "Five client accounts in one demo",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-client-ai",
+    "position": 4,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-client-ai.sdm.yaml",
+    "title": "AI support from employee request to exit",
+    "description": "AI support from employee request to exit",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-portfolio",
+    "position": 5,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-portfolio.sdm.yaml",
+    "title": "Portfolio oversight for Tasama",
+    "description": "Portfolio oversight for Tasama",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-demo-boundaries",
+    "position": 6,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-demo-boundaries.sdm.yaml",
+    "title": "A working workflow layer—not live HRMS connections",
+    "description": "A working workflow layer—not live HRMS connections",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-technology",
+    "position": 7,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-technology.sdm.yaml",
+    "title": "Built on Node, TypeScript and PostgreSQL",
+    "description": "Built on Node, TypeScript and PostgreSQL",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-walkthrough",
+    "position": 8,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-walkthrough.sdm.yaml",
+    "title": "Demonstrate the platform in three steps",
+    "description": "Demonstrate the platform in three steps",
+    "speakerNotes": ""
+  },
+  {
+    "id": "tasama-publishing",
+    "position": 9,
+    "kind": "sdm",
+    "filepath": "src/data/slides/tasama-publishing.sdm.yaml",
+    "title": "Development is running. Publishing needs seeded data.",
+    "description": "Development is running. Publishing needs seeded data.",
+    "speakerNotes": ""
+  }
+]

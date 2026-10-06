@@ -1,0 +1,28 @@
+kind = "slides"
+previewPath = "/tasama-hr-deck/"
+title = "Tasama HR — Platform Overview"
+description = "Nine-slide overview of the Tasama HR demo, using the visual language of the supplied Tasama presentation."
+version = "1.0.0"
+id = "artifacts/tasama-hr-deck"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/tasama-hr-deck/" ]
+localPort = 25482
+
+[services.development]
+run = "pnpm --filter @workspace/tasama-hr-deck run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tasama-hr-deck", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/tasama-hr-deck/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25482"
+BASE_PATH = "/tasama-hr-deck/"

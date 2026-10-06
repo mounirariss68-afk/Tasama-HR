@@ -1,0 +1,293 @@
+format: replit.sdm
+version: 1
+size:
+  width: 1920
+  height: 1080
+background:
+  kind: solid
+  color:
+    kind: token
+    token: background
+theme:
+  colors:
+    background: "#FEFFFE"
+    foreground: "#10069E"
+    accent: "#B59D5E"
+    surface: "#FEFFFE"
+    muted: "#10069E"
+    light: "#FEFFFE"
+  fonts:
+    display: Montserrat
+    body: Montserrat
+assets:
+  image-1:
+    src: assets/imported-eadf4bcf-447f-445b-a90d-1e5934aba3c7/image_1.png
+  image-4:
+    src: assets/imported-eadf4bcf-447f-445b-a90d-1e5934aba3c7/image_4.png
+  image-5:
+    src: assets/imported-eadf4bcf-447f-445b-a90d-1e5934aba3c7/image_5.png
+elements:
+  - id: tasamaLogo
+    name: Graphic 6
+    frame:
+      x: 1572
+      y: 60.23
+      width: 284.69
+      height: 59.59
+    altText: Graphic 6
+    type: image
+    assetId: image-1
+    fit: contain
+  - id: headline
+    type: text
+    frame:
+      x: 80
+      y: 60
+      width: 1450
+      height: 170
+    body:
+      paragraphs:
+        - runs:
+            - text: Portfolio oversight for Tasama
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 30
+            weight: 600
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.1
+          spaceAfterPt: 0
+  - id: headerRule
+    type: shape
+    frame:
+      x: 80
+      y: 230
+      width: 100
+      height: 5
+    geometry:
+      kind: preset
+      preset: rect
+    fill:
+      kind: solid
+      color:
+        kind: token
+        token: accent
+  - id: agentPanel0
+    type: shape
+    frame:
+      x: 80
+      y: 300
+      width: 825
+      height: 180
+    geometry:
+      kind: preset
+      preset: rect
+    fill:
+      kind: none
+    stroke:
+      color:
+        kind: token
+        token: foreground
+      widthPt: 1
+  - id: agentName0
+    type: text
+    frame:
+      x: 115
+      y: 345
+      width: 755
+      height: 155
+    body:
+      paragraphs:
+        - runs:
+            - text: "Raqeeb: service-level monitoring"
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.25
+          spaceAfterPt: 14
+          bullet:
+            kind: character
+            character: •
+  - id: agentPanel1
+    type: shape
+    frame:
+      x: 985
+      y: 300
+      width: 855
+      height: 180
+    geometry:
+      kind: preset
+      preset: rect
+    fill:
+      kind: none
+    stroke:
+      color:
+        kind: token
+        token: foreground
+      widthPt: 1
+  - id: agentName1
+    type: text
+    frame:
+      x: 1020
+      y: 345
+      width: 785
+      height: 120
+    body:
+      paragraphs:
+        - runs:
+            - text: "Fatoora: billing"
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.25
+          spaceAfterPt: 14
+          bullet:
+            kind: character
+            character: •
+  - id: agentPanel2
+    type: shape
+    frame:
+      x: 80
+      y: 530
+      width: 825
+      height: 180
+    geometry:
+      kind: preset
+      preset: rect
+    fill:
+      kind: none
+    stroke:
+      color:
+        kind: token
+        token: foreground
+      widthPt: 1
+  - id: agentName2
+    type: text
+    frame:
+      x: 115
+      y: 575
+      width: 755
+      height: 120
+    body:
+      paragraphs:
+        - runs:
+            - text: "Tawzee: workload allocation"
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.25
+          spaceAfterPt: 14
+          bullet:
+            kind: character
+            character: •
+  - id: agentPanel3
+    type: shape
+    frame:
+      x: 985
+      y: 530
+      width: 855
+      height: 180
+    geometry:
+      kind: preset
+      preset: rect
+    fill:
+      kind: none
+    stroke:
+      color:
+        kind: token
+        token: foreground
+      widthPt: 1
+  - id: agentName3
+    type: text
+    frame:
+      x: 1020
+      y: 575
+      width: 785
+      height: 120
+    body:
+      paragraphs:
+        - runs:
+            - text: "Intiqal: client transition"
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.25
+          spaceAfterPt: 14
+          bullet:
+            kind: character
+            character: •
+  - id: operationsView
+    type: text
+    frame:
+      x: 80
+      y: 810
+      width: 1760
+      height: 180
+    body:
+      paragraphs:
+        - runs:
+            - text: Operations Manager view brings together contracts, escalations, invoices
+                and delivery staffing
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.25
+          spaceAfterPt: 14
+          bullet:
+            kind: character
+            character: •
+  - id: pageNumber
+    type: text
+    frame:
+      x: 1760
+      y: 1010
+      width: 80
+      height: 50
+    body:
+      paragraphs:
+        - runs:
+            - text: "5"
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 15
+            weight: 400
+            color:
+              kind: token
+              token: foreground
+          lineHeight: 1.25
+          spaceAfterPt: 0

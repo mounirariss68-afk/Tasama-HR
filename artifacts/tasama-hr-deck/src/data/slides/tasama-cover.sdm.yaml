@@ -1,0 +1,136 @@
+format: replit.sdm
+version: 1
+size:
+  width: 1920
+  height: 1080
+background:
+  kind: solid
+  color:
+    kind: rgb
+    value: "#fefffe"
+theme:
+  colors:
+    background: "#FEFFFE"
+    foreground: "#10069E"
+    accent: "#B59D5E"
+    surface: "#FEFFFE"
+    muted: "#10069E"
+    light: "#FEFFFE"
+  fonts:
+    display: Montserrat
+    body: Montserrat
+assets:
+  image-1:
+    src: assets/imported-eadf4bcf-447f-445b-a90d-1e5934aba3c7/image_1.png
+  image-2:
+    src: assets/imported-eadf4bcf-447f-445b-a90d-1e5934aba3c7/image_2.png
+  image-3:
+    src: assets/imported-eadf4bcf-447f-445b-a90d-1e5934aba3c7/image_3.png
+elements:
+  - id: e1
+    name: Picture 7
+    frame:
+      x: 0
+      y: 0
+      width: 1920
+      height: 1080
+    altText: A blue and white background&#xA;&#xA;Description automatically
+      generated with medium confidence
+    type: image
+    assetId: image-2
+    fit: contain
+  - id: e2
+    name: Rectangle 6
+    frame:
+      x: 83.54
+      y: 83.54
+      width: 318.78
+      height: 68.15
+    type: shape
+    geometry:
+      kind: preset
+      preset: rect
+    fill:
+      kind: solid
+      color:
+        kind: rgb
+        value: "#10069e"
+    body:
+      paragraphs:
+        - runs: []
+          align: center
+      verticalAlign: middle
+      overflow: visible
+      insetsPt:
+        top: 3.6
+        right: 7.2
+        bottom: 3.6
+        left: 7.2
+  - id: e3
+    name: Graphic 8
+    frame:
+      x: 80.04
+      y: 60.23
+      width: 284.69
+      height: 59.59
+    altText: Graphic 8
+    type: image
+    assetId: image-3
+    fit: contain
+  - id: coverTitle
+    type: text
+    frame:
+      x: 240
+      y: 375
+      width: 1440
+      height: 160
+    body:
+      paragraphs:
+        - runs:
+            - text: Tasama HR
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 64
+            weight: 600
+            color:
+              kind: token
+              token: light
+          lineHeight: 1.1
+          spaceAfterPt: 0
+  - id: coverSubtitle
+    type: text
+    frame:
+      x: 240
+      y: 570
+      width: 1440
+      height: 160
+    body:
+      paragraphs:
+        - runs:
+            - text: A multi-client agentic HR services platform
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: accent
+          lineHeight: 1.25
+          spaceAfterPt: 10
+        - runs:
+            - text: "Demo prototype: AI-assisted delivery, human decisions."
+          defaultRunStyle:
+            font:
+              kind: token
+              token: body
+            sizePt: 22
+            weight: 400
+            color:
+              kind: token
+              token: accent
+          lineHeight: 1.25
+          spaceAfterPt: 10
