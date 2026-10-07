@@ -1,3 +1,5 @@
-- [Tasama import constraints](tasama-import.md) — preserve imported application code, schema, seed data, and model calls; setup changes only.
+- [Tasama import constraints](tasama-import.md) — setup-only preservation; later requested features may change app code, not schema, seed data or model calls.
+- [Official logo sourcing](official-logo-sourcing.md) — corporate sites may block raw HTTP while rendered branding and public official assets remain accessible.
+- [Tasama component tests](tasama-component-tests.md) — use the imported frontend's JSX configuration for Node/tsx component tests, not the outer workspace defaults.
 - [Tasama publishing constraints](tasama-publishing.md) — production first-run seeding can exceed the observed 60-second port-opening limit.
 - [Tasama presentation style](tasama-presentation-style.md) — use the user's previous Tasama finance deck as the HR presentation's visual reference.

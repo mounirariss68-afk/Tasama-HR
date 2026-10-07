@@ -15,6 +15,9 @@ import { useLang } from '../lib/i18n';
 import { aed, ago, date, dateTime, until } from '../lib/format';
 import { useApp } from './state';
 import { AgentTag, Bar, Btn, Chip, Empty, Kv, Ref, StatusChip, Table, AGENT_NAMES } from './ui';
+import { DocumentPreview } from './document-preview';
+import { DocumentDownload } from './document-download';
+import { caseDocument, letterDocument } from '../lib/documents';
 
 export const KIND: Record<string, TrailKind> = {
   READ: 'observed', CHECK: 'observed', RECOMMEND: 'proposed', PREPARE: 'proposed', WRITE: 'acted', NOTIFY: 'acted', ANSWER: 'acted',
@@ -71,17 +74,16 @@ function Steps({ steps }: { steps: any[] }) {
   );
 }
 
-function Letter({ body }: { body: string }) {
-  return <pre dir="auto" className="whitespace-pre-wrap rounded-lg border border-border/60 bg-card/60 p-4 font-sans text-[13px] leading-relaxed">{body}</pre>;
-}
-
 /** What each workflow shows as its evidence. Read-only. */
 function Details({ c }: { c: any }) {
   const { t, lang, bi } = useLang();
   const p = c.payload ?? {}, r = c.result ?? {};
   const out = (key: string) => c.steps.find((s: any) => s.step_key === key)?.outputs ?? {};
   switch (c.workflow_id) {
-    case 'WF-14': return p.body ? <ReaderSection label={t('Letter')}><Letter body={p.body} /></ReaderSection> : null;
+    case 'WF-14': return p.body ? <ReaderSection label={t('Letter')}><DocumentPreview document={letterDocument({
+      ...p, type: p.letter_type, document_number: r.document_number ?? p.document_number ?? c.ref,
+      status: r.document_number ? 'ISSUED' : 'DRAFT',
+    })} /></ReaderSection> : null;
     case 'WF-15': {
       const o = out('validate');
       return (
@@ -120,6 +122,7 @@ function Details({ c }: { c: any }) {
         <ul className="space-y-1 text-sm">{(p.criteria ?? []).map((cr: any) => <li key={cr.key}><Chip tone={cr.kind === 'must' ? 'primary' : undefined}>{cr.kind === 'must' ? t('Must') : t('Nice')}</Chip> {cr.label}</li>)}</ul>
         {p.ad ? <p dir="auto" className="mt-3 text-sm">{bi(p.ad.en, p.ad.ar)}</p> : null}
         {(p.internal ?? []).length ? <p className="mt-3 text-sm"><span className="text-muted-foreground">{t('Internal matches')}:</span> {p.internal.map((m: any) => `${m.display_name} (${m.grade})`).join(', ')}</p> : null}
+          {p.ad ? <DocumentDownload document={{ title: t('Job advertisement'), reference: c.ref, body: bi(p.ad.en, p.ad.ar), language: lang, status: c.status }} /> : null}
       </ReaderSection>
     );
     case 'WF-05': {
@@ -128,6 +131,7 @@ function Details({ c }: { c: any }) {
         <ReaderSection label={t('Offer proposal')}>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Kv k={t('Basic')} v={aed(o.basic, lang)} /><Kv k={t('Grade range')} v={`${aed(o.range?.[0], lang)} – ${aed(o.range?.[2], lang)}`} /><Kv k={t('Compa-ratio')} v={o.compa} /><Kv k={t('Peer median')} v={`${aed(o.median, lang)} (${o.peers})`} /></dl>
           <p className="mt-2 text-sm text-muted-foreground">{t('Package')}: {aed(p.basic, lang)} + {t('housing')} {aed(p.housing, lang)} + {t('transport')} {aed(p.transport, lang)} + {t('other')} {aed(p.other_allowance, lang)} · {t('Start')} {date(p.start_date, lang)}</p>
+          {p.offer_letter ? <DocumentPreview document={{ title: lang === 'ar' ? 'عرض توظيف' : 'Offer of employment', reference: r.offer_number ?? c.ref, body: p.offer_letter, language: 'en', status: r.offer_number ? 'ISSUED' : 'DRAFT' }} /> : null}
         </ReaderSection>
       ) : null;
     }
@@ -167,6 +171,16 @@ function Details({ c }: { c: any }) {
               {st.note ? <p className="mt-2 text-sm text-muted-foreground">{st.note}</p> : null}
               <p className="mt-2 text-sm text-muted-foreground">{t('Last working day')}: {date(st.lastDay, lang)} · {st.years} {t('years of service')} · {t(st.kind === 'RESIGNATION' ? 'Resignation' : 'Ended by the employer')}</p>
               {st.visa ? <p className="mt-1 text-sm text-muted-foreground">{st.visa}</p> : null}
+              <DocumentDownload document={{
+                title: t('Final settlement'), reference: c.ref, language: lang, status: c.status,
+                body: [
+                  `${t('Employee')}: ${bi(c.subject_name, c.subject_name_ar)}`,
+                  `${t('Last working day')}: ${date(st.lastDay, lang)}`,
+                  ...st.lines.map((l: any) => `${bi(l.label, l.label_ar)}: ${aed(l.amount, lang)} (${l.rule})`),
+                  `${t('Total')}: ${aed(st.total, lang)}`, `${t('Pay by')}: ${date(st.payBy, lang)}`,
+                  `${st.years} ${t('years of service')}`, st.note, st.visa,
+                ].filter(Boolean).join('\n'),
+              }} />
             </ReaderSection>
           ) : p.last_day ? <ReaderSection label={t('Notice')}><p className="text-sm">{t('Last working day')}: {date(p.last_day, lang)} ({p.notice_days} {t('days notice')})</p></ReaderSection> : null}
         </>
@@ -317,6 +331,7 @@ export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2"><Ref>{c.ref}</Ref><StatusChip status={c.status} />{c.priority !== 'NORMAL' ? <StatusChip status={c.priority} /> : null}<Chip>{c.workflow_id} · {bi(c.workflow_name, c.workflow_name_ar)}</Chip></div>
         <h2 className="text-xl font-semibold leading-snug">{bi(c.title, c.title_ar)}</h2>
+        <DocumentDownload small document={caseDocument(c, lang)} />
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Kv k={t('About')} v={bi(c.subject_name, c.subject_name_ar)} />
           <Kv k={t('Raised by')} v={c.requester_name} />

@@ -13,6 +13,8 @@ import { useLang } from '../lib/i18n';
 import { aed, aedShort, ago, date, dateTime, month, num } from '../lib/format';
 import { useApp } from '../app/state';
 import { AgentTag, Bar, Btn, Chip, Empty, Hero, Kv, Ref, Screen, StatusChip, Table } from '../app/ui';
+import { DocumentDownload } from '../app/document-download';
+import { invoiceDocument, TASAMA_ISSUER } from '../lib/documents';
 
 const EYEBROW = 'Tasama HR Services';
 const pctTone = (att: number | null, target: number) => (att === null ? undefined : att >= target ? 'success' : att >= target - 2 ? 'warn' : 'danger');
@@ -297,7 +299,12 @@ export function TasamaFinance() {
                 <td><StatusChip status={i.status} /></td>
                 <td onClick={(e) => e.stopPropagation()}>{i.status === 'PREPARED' ? <div className="flex gap-1"><Btn small kind="primary" onClick={() => act(i.id, 'approve')} disabled={!!busy}>{t('Approve and issue')}</Btn><Btn small onClick={() => { const r = prompt(t('Reason for returning it to Fatoora')); if (r) act(i.id, 'return', { reason: r }); }}>{t('Return')}</Btn></div> : i.status === 'OVERDUE' || i.status === 'ISSUED' ? <Btn small onClick={() => act(i.id, 'paid')}>{t('Mark paid')}</Btn> : null}</td>
               </tr>
-              {open === i.id ? <tr><td colSpan={10} className="bg-muted/30"><ul className="list-disc space-y-0.5 ps-5 text-xs">{(i.notes ?? []).map((n: string, k: number) => <li key={k}>{n}</li>)}</ul></td></tr> : null}
+              {open === i.id ? <tr><td colSpan={10} className="bg-muted/30">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <ul className="list-disc space-y-0.5 ps-5 text-xs">{(i.notes ?? []).map((n: string, k: number) => <li key={k}>{n}</li>)}</ul>
+                  <DocumentDownload small issuer={TASAMA_ISSUER} document={invoiceDocument(i, lang)} />
+                </div>
+              </td></tr> : null}
             </Fragment>))}</tbody></Table>
       </Panel>
       <Panel icon={<Banknote size={16} />} title="Margin by client and month">

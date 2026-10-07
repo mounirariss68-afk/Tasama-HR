@@ -7,4 +7,4 @@ Preserve the imported Node/TypeScript application code, database schema, seed da
 
 **Why:** The user requested environment setup only and explicitly prohibited application rewrites or schema/seed workarounds.
 
-**How to apply:** Change only hosting configuration or external setup adapters. If the original app fails, report the error and its source file rather than editing the application to work around it.
+**How to apply:** For import/setup and hosting troubleshooting, change only hosting configuration or external setup adapters. If the original app fails, report the error and its source file rather than editing the application to work around it. This setup-only restriction is not a permanent ban on later application features explicitly requested by the user; keep those edits focused and preserve the schema, seed data and model calls unless the user explicitly authorises changes to them.

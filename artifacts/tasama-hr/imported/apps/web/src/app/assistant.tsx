@@ -11,6 +11,7 @@ import { api, bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { useApp } from './state';
 import { Btn, Chip, useClient } from './ui';
+import { AgentMessage } from './agent-message';
 
 type Msg = { id: number; role: 'user' | 'assistant'; content: string; mode?: string; citations?: { id: string; heading: string }[]; tool_calls?: { name: string }[]; pending?: any };
 
@@ -34,7 +35,7 @@ function Answer({ m, onConfirmed }: { m: Msg; onConfirmed: () => void }) {
   const pending = m.pending;
   return (
     <div className="space-y-2">
-      <p className="whitespace-pre-wrap text-foreground">{m.content}</p>
+      <AgentMessage content={m.content} />
       {m.citations?.length ? (
         <div className="flex flex-wrap gap-1">{m.citations.map((c) => <button key={c.id} type="button" onClick={() => go('policies', c.id)} className="mono-chip is-primary hover:opacity-80" title={c.heading}>{c.id}</button>)}</div>
       ) : null}

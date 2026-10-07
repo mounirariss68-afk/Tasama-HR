@@ -11,6 +11,9 @@ import { useApp } from '../app/state';
 import { Bar, Btn, Chip, Empty, Field, Hero, Kv, Ref, Screen, SourceStamp, StatusChip, Table, useClientName } from '../app/ui';
 import { CaseBody } from '../app/case';
 import { LifecycleRing, stageCounts } from '../app/ring';
+import { DocumentDownload } from '../app/document-download';
+import { DocumentPreview } from '../app/document-preview';
+import { letterDocument, payslipDocument } from '../lib/documents';
 
 // ------------------------------------------------------------------ the request catalog
 
@@ -251,10 +254,12 @@ export function MyLeave() {
 
 export function MyPay() {
   const { t, bi, lang } = useLang();
+  const { client, persona } = useApp();
   const { data: me } = useMe();
   const [slip, setSlip] = useState<any>(null);
   const [doc, setDoc] = useState<any>(null);
   const [nr, setNr] = useState<string | null>(null);
+  useEffect(() => { setSlip(null); setDoc(null); }, [client?.key, persona?.key]);
   if (!me) return null;
   const w = me.worker;
   const total = w.basic + w.housing + w.transport + w.other_allowance;
@@ -286,11 +291,12 @@ export function MyPay() {
         <DialogContent className="max-w-lg"><DialogTitle>{t('Payslip')} · {slip ? month(slip.period_name, lang) : ''}</DialogTitle>
           {slip ? <Table><tbody>{slip.lines.map((l: any) => <tr key={l.code}><td>{l.name}</td><td className="text-end tabular-nums">{l.kind === 'DEDUCTION' ? '−' : ''}{aed(l.amount, lang)}</td></tr>)}<tr><td className="font-semibold">{t('Net')}</td><td className="text-end font-semibold tabular-nums">{aed(slip.net, lang)}</td></tr></tbody></Table> : null}
           <ProvenanceNote>{t('Synthetic payroll result. Employer contributions are shown but not paid to you.')}</ProvenanceNote>
+          {slip ? <DocumentDownload document={payslipDocument(slip, bi(w.display_name, w.display_name_ar), lang)} /> : null}
         </DialogContent>
       </Dialog>
       <Dialog open={!!doc} onOpenChange={(o) => !o && setDoc(null)}>
-        <DialogContent className="max-w-xl"><DialogTitle>{doc?.document_number}</DialogTitle>
-          {doc ? <pre dir="auto" className="whitespace-pre-wrap rounded-lg border border-border/60 bg-card/60 p-4 font-sans text-[13px] leading-relaxed">{doc.body}</pre> : null}
+        <DialogContent className="w-[calc(100vw-2rem)] min-w-0 max-w-3xl max-h-[90vh] overflow-x-hidden overflow-y-auto"><DialogTitle>{doc?.document_number}</DialogTitle>
+          {doc ? <DocumentPreview document={letterDocument(doc)} /> : null}
         </DialogContent>
       </Dialog>
       <NewRequest open={nr !== null} initial={nr ?? undefined} onClose={() => setNr(null)} />
