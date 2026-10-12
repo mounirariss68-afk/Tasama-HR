@@ -488,7 +488,6 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
       booked = len;
       absRows.push({ absence_number: `DEMO-ABS-${String(an++).padStart(5, '0')}`, person_id: pid, type_code: 'ANNUAL', start_date: iso(st), end_date: iso(addDays(st, len - 1)), days: len, status: 'APPROVED', approver_person_id: managerOf.get(pid) ?? null, submitted_at: addDays(A, -10), comments: null, source: 'HRMS' });
     }
-    if (pid === persona.employee) { taken = Math.max(0, ent - 12.5); booked = 0; }
     balRows.push({ person_id: pid, year, type_code: 'ANNUAL', entitlement: ent, carried_over: pid === persona.employee ? 2 : carried, taken, booked });
     balRows.push({ person_id: pid, year, type_code: 'SICK', entitlement: 120, carried_over: 0, taken: sick, booked: 0 });
   }

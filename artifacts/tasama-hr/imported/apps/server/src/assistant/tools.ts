@@ -6,7 +6,7 @@
  */
 import { pool } from '../db.js';
 import type { Persona } from '../api/session.js';
-import { has, isHR, personScope } from '../api/session.js';
+import { has, isHR, isTasama, personScope, caseScope } from '../api/session.js';
 import { worker, team, balances, WORKER_SQL, ACTIVE } from '../hcm/queries.js';
 import { read, type Ctx } from '../hcm/connector.js';
 import { precheck } from '../agents/hisab.js';
@@ -35,6 +35,9 @@ export const TOOLS: Tool[] = [
   { name: 'workforce_stats', description: 'HR only: headcount by division, Saudization ratio (Nitaqat), nationalities, gender, turnover, open requisitions and vacancies.', input_schema: { type: 'object', properties: {} }, roles: isHR },
   { name: 'payroll_precheck', description: 'Payroll or CHRO: Hisab\'s pre-run check of the open payroll period before the Mudad upload (pay, GOSI, deductions), with findings.', input_schema: { type: 'object', properties: {} }, roles: (p) => has(p, 'PAYROLL') || has(p, 'CHRO') },
   { name: 'calibration_summary', description: 'HRBP or CHRO: Mezan\'s calibration check for a division: distribution and flags.', input_schema: { type: 'object', properties: { division: { type: 'string', description: 'e.g. Commercial' } } }, roles: (p) => has(p, 'HRBP') || has(p, 'CHRO') },
+  { name: 'compliance_alerts', description: 'HR only: Amin\'s compliance flags for this company: iqama, national ID and passport expiries, probation end dates, fixed-term contract renewals, the Mudad pay date and the Saudization (Nitaqat) position. Each flag has a reference (DEMO-ALR-…), the person, the due date, days left, severity, owner and the action to take. Amin flags iqama, national ID, probation and contract dates 60 days ahead (30 for probation and contracts) and passports 180 days ahead; it does not see further than that.', input_schema: { type: 'object', properties: { kinds: { type: 'array', items: { type: 'string', enum: ['IQAMA_EXPIRY', 'NATIONAL_ID_EXPIRY', 'PASSPORT_EXPIRY', 'PROBATION_DUE', 'CONTRACT_RENEWAL', 'MUDAD_DUE', 'SAUDIZATION'] }, description: 'Leave out for all kinds' }, within_days: { type: 'number', description: 'Only flags due within this many days from today' }, include_resolved: { type: 'boolean' } } }, roles: isHR },
+  { name: 'search_cases', description: 'HR only: search the HR cases (requests and workflow cases) this person may see, with their references (e.g. RSN-CASE-26-04318). Filter by status, workflow, type, overdue against the service level, who it is waiting on, age, or free text (reference, title or employee name). Use it for any question that asks for a list of cases, issues, approvals or overdue items.', input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'waiting', 'escalated', 'completed', 'rejected', 'any'], description: 'open = waiting, running or escalated (default)' }, workflow: { type: 'string', description: 'Workflow id, e.g. WF-15' }, type: { type: 'string', description: 'Case type, e.g. LEAVE, ADVANCE, SALARY_CERTIFICATE, RESIGNATION, PROMOTION' }, overdue: { type: 'boolean', description: 'Only cases past their service-level due time' }, waiting_on: { type: 'string', description: 'Name or role of the person the case waits on' }, text: { type: 'string' }, created_within_days: { type: 'number' }, limit: { type: 'number' } } }, roles: isHR },
+  { name: 'tasama_escalations', description: 'Tasama HR Operations Manager only: Raqeeb\'s service-level escalations across all Tasama clients, with the escalation id, client, case reference, service level, state (AT_RISK or BREACHED), who it waits on, due time and status.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'Client key or name, e.g. riyadhair or Riyadh Air' }, kind: { type: 'string', enum: ['AT_RISK', 'BREACHED'] }, include_resolved: { type: 'boolean' } } }, roles: isTasama },
   { name: 'propose_request', description: 'Prepare an HR request for the person to CONFIRM ON SCREEN. Nothing is submitted until they press confirm. Types: SALARY_CERTIFICATE, EMPLOYMENT_CERTIFICATE, SALARY_TRANSFER (needs addressee bank), NOC_TRAVEL, NOC_DRIVING, EXPERIENCE, LEAVE (type_code ANNUAL|SICK|UNPAID|PARENTAL|BEREAVEMENT|STUDY, start, end as YYYY-MM-DD), ADVANCE (amount, months), RESIGNATION (notice_date, reason).', input_schema: { type: 'object', properties: { type: { type: 'string' }, addressee: { type: 'string' }, language: { type: 'string', enum: ['en', 'ar'] }, type_code: { type: 'string' }, start: { type: 'string' }, end: { type: 'string' }, amount: { type: 'number' }, months: { type: 'number' }, reason: { type: 'string' }, notice_date: { type: 'string' } }, required: ['type'] } },
   { name: 'open_screen', description: `Navigate the app to a screen. One of: ${SCREENS.join(', ')}.`, input_schema: { type: 'object', properties: { screen: { type: 'string', enum: SCREENS } }, required: ['screen'] } },
 ];
@@ -134,6 +137,51 @@ export async function runTool(p: Persona, name: string, input: any, lang: 'en' |
       const period = (await pool.query(`SELECT review_period FROM hcm.performance_documents WHERE status <> 'COMPLETED' ORDER BY review_period DESC LIMIT 1`)).rows[0]?.review_period;
       const cal = await calibration(ctx, period, input.division ?? 'Commercial');
       return { result: { period, division: cal.division, n: cal.n, average: cal.average, distribution: cal.distribution, flags: cal.flags.map((f: any) => lang === 'ar' ? f.text_ar : f.text) } };
+    }
+    case 'compliance_alerts': {
+      const where = [`a.status <> 'RESOLVED' OR $1::boolean`];
+      const params: unknown[] = [!!input.include_resolved];
+      if (Array.isArray(input.kinds) && input.kinds.length) { params.push(input.kinds); where.push(`a.kind = ANY($${params.length})`); }
+      if (Number(input.within_days) > 0) { params.push(Number(input.within_days)); where.push(`a.due_date <= CURRENT_DATE + $${params.length}::int`); }
+      const rows = (await pool.query(
+        `SELECT a.ref, a.kind, a.severity, a.status, a.due_date, (a.due_date - CURRENT_DATE) AS days_left, a.owner_role, a.title, a.detail, p.display_name AS person, p.person_number
+           FROM layer.alerts a LEFT JOIN hcm.persons p ON p.id=a.person_id
+          WHERE ${where.map((w) => `(${w})`).join(' AND ')}
+          ORDER BY a.due_date NULLS LAST`, params)).rows;
+      let later = 0;
+      if (Number(input.within_days) > 0) {
+        const lp: unknown[] = [!!input.include_resolved, Number(input.within_days)];
+        if (Array.isArray(input.kinds) && input.kinds.length) lp.push(input.kinds);
+        later = (await pool.query(`SELECT COUNT(*)::int n FROM layer.alerts a WHERE (a.status <> 'RESOLVED' OR $1::boolean) AND a.due_date > CURRENT_DATE + $2::int${lp.length > 2 ? ' AND a.kind = ANY($3)' : ''}`, lp)).rows[0].n;
+      }
+      return { result: { count: rows.length, flagged_later: later, horizon: 'Iqama and national ID: 60 days ahead. Passport: 180 days. Probation and contract end: 30 days.', flags: rows.map((r: any) => ({ ref: r.ref, kind: r.kind, person: r.person, person_number: r.person_number, due_date: r.due_date, days_left: r.days_left, severity: r.severity, status: r.status, owner: r.owner_role, action: r.detail })) } };
+    }
+    case 'search_cases': {
+      const [scope, sp] = caseScope(p, 1);
+      const params: unknown[] = [...sp];
+      const where = [scope];
+      const st = String(input.status ?? 'open');
+      const S: Record<string, string[]> = { open: ['WAITING', 'RUNNING', 'ESCALATED'], waiting: ['WAITING'], escalated: ['ESCALATED'], completed: ['COMPLETED'], rejected: ['REJECTED'] };
+      if (S[st]) { params.push(S[st]); where.push(`r.status = ANY($${params.length})`); }
+      if (input.workflow) { params.push(String(input.workflow).toUpperCase()); where.push(`r.workflow_id = $${params.length}`); }
+      if (input.type) { params.push(String(input.type).toUpperCase()); where.push(`r.type = $${params.length}`); }
+      if (input.overdue) where.push(`r.sla_due < now() AND r.status IN ('WAITING','RUNNING','ESCALATED')`);
+      if (input.waiting_on) { params.push(`%${input.waiting_on}%`); where.push(`(w.display_name ILIKE $${params.length} OR r.waiting_on_role ILIKE $${params.length})`); }
+      if (input.text) { params.push(`%${input.text}%`); where.push(`(r.ref ILIKE $${params.length} OR r.title ILIKE $${params.length} OR s.display_name ILIKE $${params.length})`); }
+      if (Number(input.created_within_days) > 0) { params.push(Number(input.created_within_days)); where.push(`r.created_at >= now() - make_interval(days => $${params.length}::int)`); }
+      const lim = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
+      const sql = `FROM layer.requests r JOIN hcm.persons s ON s.id=r.subject_person_id LEFT JOIN hcm.persons w ON w.id=r.waiting_on_person_id WHERE ${where.map((x) => `(${x})`).join(' AND ')}`;
+      const total = (await pool.query(`SELECT COUNT(*)::int n ${sql}`, params)).rows[0].n;
+      const rows = (await pool.query(`SELECT r.ref, r.workflow_id, r.type, r.title, r.status, r.current_step, r.waiting_on_role, w.display_name AS waiting_on, s.display_name AS about, r.created_at, r.sla_due, (r.sla_due < now() AND r.status IN ('WAITING','RUNNING','ESCALATED')) AS overdue, r.closed_at ${sql} ORDER BY r.sla_due NULLS LAST, r.created_at DESC LIMIT ${lim}`, params)).rows;
+      return { result: { total, shown: rows.length, cases: rows } };
+    }
+    case 'tasama_escalations': {
+      const params: unknown[] = [!!input.include_resolved];
+      const where = [`(e.status <> 'RESOLVED' OR $1::boolean)`];
+      if (input.client) { params.push(`%${input.client}%`); where.push(`(e.client_key ILIKE $${params.length} OR c.name ILIKE $${params.length})`); }
+      if (input.kind) { params.push(input.kind); where.push(`e.kind = $${params.length}`); }
+      const rows = (await pool.query(`SELECT e.id, c.name AS client, e.case_ref, e.title, e.sla_key, e.kind, e.status, e.waiting_on, e.due_at, e.detected_at, e.action, s.name AS owner FROM tasama.escalations e JOIN tasama.clients c ON c.key=e.client_key LEFT JOIN tasama.staff s ON s.id=e.owner_staff_id WHERE ${where.join(' AND ')} ORDER BY e.due_at NULLS LAST`, params)).rows;
+      return { result: { count: rows.length, escalations: rows.map((r: any) => ({ escalation: `ESC-${r.id}`, ...r })) } };
     }
     case 'propose_request': {
       try {

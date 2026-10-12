@@ -110,6 +110,15 @@ export async function seedHistory(c: PoolClient, base: BaseResult, client: Clien
     const lwd = r2.result?.last_working_day ?? iso(addDays(notice, 30));
     if (r2.status === 'WAITING') await decideAs(req, workday(addDays(lwd, Math.round(R.int(2, 9) * slow)), 11));
   }
+  // These leavers have gone: their clearance is finished. Each task is done on its due date; the settlement on the day the case closed.
+  for (const who of resigners) {
+    const done = (await c.query(`SELECT closed_at FROM layer.requests WHERE subject_person_id=$1 AND workflow_id='WF-19' AND status='COMPLETED' ORDER BY id DESC LIMIT 1`, [who])).rows[0];
+    if (!done) continue;
+    const j = (await c.query(`SELECT id FROM hcm.journeys WHERE person_id=$1 AND template='OFFBOARDING' ORDER BY id DESC LIMIT 1`, [who])).rows[0];
+    if (!j) continue;
+    await c.query(`UPDATE hcm.journey_tasks SET status='DONE', completed_at = CASE WHEN task_key='settlement' THEN $2::date ELSE due_date END WHERE journey_id=$1`, [j.id, done.closed_at]);
+    await c.query(`UPDATE hcm.journeys SET status='COMPLETED' WHERE id=$1`, [j.id]);
+  }
 
   // ---------------------------------------------------------------- open cases (today)
   const live = (hoursAgo: number) => at(new Date(Date.now() - hoursAgo * slow * H));
@@ -215,6 +224,12 @@ export async function seedHistory(c: PoolClient, base: BaseResult, client: Clien
     }
   }
   setClock(null);
+  // Balances agree with the absence records: taken = completed leave this year, booked = approved leave not yet taken.
+  await c.query(`UPDATE hcm.absence_balances b SET
+      taken  = COALESCE((SELECT SUM(a.days) FROM hcm.absences a WHERE a.person_id=b.person_id AND a.type_code=b.type_code AND EXTRACT(YEAR FROM a.start_date)=b.year AND a.status='COMPLETED'), 0),
+      booked = COALESCE((SELECT SUM(a.days) FROM hcm.absences a WHERE a.person_id=b.person_id AND a.type_code=b.type_code AND EXTRACT(YEAR FROM a.start_date)=b.year AND a.status='APPROVED'), 0)`);
+  // Where a manager approved leave beyond the balance (overriding Ajaza: "carry-over approved by HR"), record that carry-over so no balance is negative.
+  await c.query(`UPDATE hcm.absence_balances SET carried_over = taken + booked - entitlement WHERE entitlement + carried_over - taken - booked < 0`);
   await c.query(`INSERT INTO layer.meta (key, value) VALUES ('open_cases', $1)`, [JSON.stringify(results)]);
   return results;
 }
