@@ -303,14 +303,20 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
   return null;
 }
 
+const REJECT_REASONS: [string, string, string][] = [
+  ['OUTSIDE_POLICY', 'Outside policy', 'خارج السياسة'], ['TEAM_COVER', 'Team cover', 'تغطية الفريق'],
+  ['DOCUMENT_MISSING', 'Supporting document missing', 'المستند الداعم غير مرفق'], ['DUPLICATE', 'Duplicate request', 'طلب مكرر'],
+];
+
 export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => void }) {
   const { t, bi, lang } = useLang();
   const { data: c, error, reload } = useApi<any>(`/requests/${caseRef}`, { poll: 4000 });
   const [reason, setReason] = useState('');
+  const [reasonCode, setReasonCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [edits, setEdits] = useEditor(c);
-  useEffect(() => { setReason(''); setErr(null); }, [caseRef]);
+  useEffect(() => { setReason(''); setReasonCode(''); setErr(null); }, [caseRef]);
   const waitingStep = useMemo(() => c?.steps?.find((s: any) => s.status === 'WAITING'), [c]);
   if (error) return <Empty>{error}</Empty>;
   if (!c) return <div className="p-6 text-sm text-muted-foreground">{t('Loading…')}</div>;
@@ -320,7 +326,8 @@ export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => 
     try {
       const e = { ...edits };
       if (c.workflow_id === 'WF-03' && e.shortlist === undefined) delete e.shortlist;
-      await post(`/requests/${c.ref}/decide`, { decision, reason: reason || undefined, edits: Object.keys(e).length ? e : undefined });
+      if (decision === 'REJECTED' && !escalated && !reasonCode) { setErr(t('Choose why you are declining: the reason is what lets Basira find rising problems and their causes.')); return; }
+      await post(`/requests/${c.ref}/decide`, { decision, reason: reason || undefined, reason_code: decision === 'REJECTED' ? reasonCode || undefined : undefined, edits: Object.keys(e).length ? e : undefined });
       bump(); await reload(); onDone?.();
     } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
   };
@@ -358,6 +365,12 @@ export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => 
       {c.canDecide ? (
         <div className="sticky bottom-0 -mx-1 space-y-2 rounded-xl glass-chrome p-3">
           <textarea className="input w-full" rows={2} placeholder={t('Reason (required if you go against the recommendation)')} value={reason} onChange={(e) => setReason(e.target.value)} />
+          {!escalated ? (
+            <select className="input h-9 w-full text-sm" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} aria-label={t('If you decline, why')}>
+              <option value="">{t('If you decline, why')}…</option>
+              {REJECT_REASONS.map(([k, en, ar]) => <option key={k} value={k}>{bi(en, ar)}</option>)}
+            </select>
+          ) : null}
           {err ? <p className="text-sm text-danger">{err}</p> : null}
           <DecisionBar prompt={<span>{t('Your decision as')} {roleName(c.waiting_on_role, bi)}: <span className="font-medium text-foreground">{escalated ? t('Resolve the escalation') : decisionLabel}</span></span>}>
             {!escalated ? <Btn onClick={() => decide('RETURNED')} disabled={busy}>{t('Return')}</Btn> : null}
@@ -371,11 +384,12 @@ export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => 
 }
 
 export function CaseDrawer() {
-  const { caseRef, openCase } = useApp();
+  const { caseRef, openCase, director } = useApp();
   const { dir, t } = useLang();
+  // While the Demo Director plays, the drawer is not modal so the Director bar stays usable.
   return (
-    <Sheet open={!!caseRef} onOpenChange={(o) => !o && openCase(null)}>
-      <SheetContent side={dir === 'rtl' ? 'left' : 'right'} className="w-full overflow-y-auto p-6 sm:max-w-[780px]">
+    <Sheet open={!!caseRef} onOpenChange={(o) => !o && openCase(null)} modal={!director}>
+      <SheetContent side={dir === 'rtl' ? 'left' : 'right'} className={`w-full overflow-y-auto p-6 sm:max-w-[780px] ${director ? 'pb-64 shadow-2xl' : ''}`} onInteractOutside={(e) => { if (director) e.preventDefault(); }}>
         <SheetTitle className="sr-only">{t('Case')}</SheetTitle>
         {caseRef ? <CaseBody caseRef={caseRef} /> : null}
       </SheetContent>

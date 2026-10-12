@@ -189,12 +189,20 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('approve', 'HUMAN', 'TASAMA_OPS', 'Tasama HR Operations Manager approves', 'اعتماد مدير عمليات الموارد البشرية في تسامى', 'Draft invoice', 'Approved invoice', 'Issue the invoice'),
       S('issue', 'SYSTEM', 'connector', 'Issue to the client', 'الإصدار إلى العميل', 'Approved invoice', 'Invoice issued to the client', 'None'),
     ] },
-  { id: 'WF-24', num: 24, name: 'New client transition', name_ar: 'انتقال عميل جديد', stage: 'Tasama', coverage: 'partial', trigger: 'A new client contract starts (build, operate, transfer)', agents: ['intiqal'], decision_by: 'Tasama HR Operations',
+  { id: 'WF-24', num: 24, name: 'New client transition', name_ar: 'انتقال عميل جديد', stage: 'Tasama', coverage: 'designed', trigger: 'A new client contract starts (build, operate, transfer)', agents: ['intiqal'], decision_by: 'Tasama HR Operations',
     steps: [
       S('map', 'AGENT', 'intiqal', 'Map the client\'s HRMS data to the standard model', 'مطابقة بيانات نظام العميل مع النموذج الموحد', 'Client HRMS extract (Oracle HCM or Odoo)', 'Field mapping and gaps', 'None'),
       S('validate', 'AGENT', 'intiqal', 'Validate payroll master data', 'التحقق من البيانات الأساسية للرواتب', 'Workers, salaries, element entries, IBANs, GOSI registration, iqama and national ID', 'Data issues by severity', 'Ready for parallel run or not'),
       S('parallel', 'AGENT', 'intiqal', 'Parallel run against the client\'s last payroll', 'تشغيل موازٍ مقابل آخر رواتب العميل', 'Client\'s last payroll, computed payroll', 'Differences by employee with reasons', 'None'),
       S('golive', 'HUMAN', 'TASAMA_OPS', 'Go-live approval', 'اعتماد بدء التشغيل', 'Mapping, data issues, parallel-run differences', 'Approved go-live date', 'Go live'),
+    ] },
+  { id: 'WF-25', num: 25, name: 'Pattern watch and root cause', name_ar: 'مراقبة الأنماط والسبب الجذري', stage: 'Tasama', coverage: 'implemented', trigger: 'Weekly, across every client; or on demand', agents: ['basira'], decision_by: 'Tasama HR Operations Manager',
+    steps: [
+      S('measure', 'AGENT', 'basira', 'Measure each kind of problem per 100 cases', 'قياس كل نوع من المشكلات لكل 100 حالة', 'Issues with reason codes; cases per week', 'Weekly rate per client and across clients', 'None'),
+      S('flag', 'AGENT', 'basira', 'Flag rises that hold for two weeks', 'التنبيه إلى الارتفاع المستمر أسبوعين', 'Rates against each one\'s own baseline', 'Patterns; rises looked at and not flagged, with the reason', 'Whether a rise is a pattern'),
+      S('explain', 'AGENT', 'basira', 'Contrast recent cases with earlier ones and state likely causes', 'مقارنة الحالات الأخيرة بالسابقة وبيان الأسباب المرجحة', 'The issues behind the pattern, absences, cut-off dates', 'Likely causes with evidence', 'None: causes are hypotheses'),
+      S('assign', 'HUMAN', 'TASAMA_OPS', 'Assign an owner and an action', 'إسناد مالك وإجراء', 'Pattern, causes, issues', 'Owner, action, date to measure again', 'What to do about the cause'),
+      S('recheck', 'AGENT', 'basira', 'Measure again after the fix', 'إعادة القياس بعد المعالجة', 'Rate since the action', 'Closed, or kept open', 'None'),
     ] },
 ];
 

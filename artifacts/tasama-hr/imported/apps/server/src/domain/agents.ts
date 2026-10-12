@@ -1,6 +1,6 @@
 /**
  * The agent registry: fourteen named colleagues working inside each client,
- * and four at Tasama level.
+ * and five at Tasama level.
  *
  * `autonomy` is the rung the PROTOTYPE runs at (A0 observe, A1 recommend,
  * A2 acts on approval, A3 acts and reports, A4 autonomous). None is A4.
@@ -162,4 +162,12 @@ export const AGENTS: AgentDef[] = [
     superpower: 'Finds master-data gaps before the first payroll, not in it.',
     impact: 'New clients go live on their first cycle without payroll corrections.',
     tools: ['workers', 'salaries', 'elementEntries', 'payrollResults'], reads: ['workers', 'salaries', 'elementEntries', 'payrollResults'], writes: [], decides: 'Tasama HR Operations approves go-live' },
+  { id: 'basira', name: 'Basira', name_ar: 'بصيرة', title: 'Pattern Watch', title_ar: 'مراقبة الأنماط', stage: 'Tasama',
+    purpose: 'Each week, compares the rate of every kind of problem (escalations, rejections, returns, payroll findings) with its own baseline, client by client and across clients. Flags a rise that holds for two weeks, shows what is different about the recent cases and states likely causes with the evidence. Never acts on a cause.',
+    purpose_ar: 'تقارن أسبوعياً معدل كل نوع من المشكلات بخط الأساس الخاص به لكل عميل وعبر العملاء، وتنبه إلى الارتفاع الذي يستمر أسبوعين، وتبين ما يميز الحالات الأخيرة والأسباب المرجحة مع الأدلة. لا تتصرف في السبب بنفسها.',
+    autonomy: 'A1', owner: 'chro',
+    functions: ['Measure each kind of problem per 100 cases, every week, per client and across clients', 'Flag a rise only when it holds for two weeks and involves enough cases; record one-week bursts as not flagged', 'Contrast the recent cases with earlier ones: who they waited on, when the data arrived, who entered it', 'State likely causes with the evidence, for a person to test', 'Measure the rate again after the fix'],
+    superpower: 'Sees the same problem rising at several clients at once, which points at Tasama\'s own process rather than one client.',
+    impact: 'Root causes are fixed once, before they become missed service levels and service credits.',
+    tools: ['issues', 'weekly_volume', 'absences'], reads: ['issues', 'absences'], writes: [], decides: 'Tasama HR Operations Manager assigns each pattern and decides the action' },
 ];

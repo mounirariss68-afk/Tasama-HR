@@ -18,6 +18,7 @@ import { me } from './api/me.js';
 import { hr } from './api/hr.js';
 import { control } from './api/control.js';
 import { assistant } from './assistant/index.js';
+import { director } from './api/director.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WEB = resolve(here, '../../web/dist');
@@ -32,9 +33,12 @@ app.use('/api', (req, _res, next) => {
 });
 app.get('/api/health', async (_req, res) => {
   const ok = await pool.query('SELECT 1').then(() => true).catch(() => false);
-  res.json({ ok, ai: aiStatus().mode });
+  res.json({ ok, ai: aiStatus().mode, seeding });
 });
-app.use('/api', me, cases, hr, control, assistant, tasama);
+// While the demo data is being built, everything but /health answers 503 and the web app waits.
+let seeding = false;
+app.use('/api', (req, res, next) => (seeding && req.path !== '/health' ? res.status(503).json({ error: 'The demo data is being prepared. This takes about a minute.', seeding: true }) : next()));
+app.use('/api', me, cases, hr, control, assistant, tasama, director);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[api]', err);
@@ -49,13 +53,15 @@ if (existsSync(WEB)) {
 }
 
 async function main() {
-  if (!(await isSeeded())) {
-    console.log('First run: building the synthetic Tasama client accounts (about a minute)...');
-    await reseed();
-  }
+  // Open the port first: a hosting platform that waits for the port must not time out while the data is built.
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Tasama HR platform is running on port ${PORT}. AI: ${aiConfigured() ? 'Claude via Replit AI Integrations' : 'offline (Replit AI Integrations not connected)'}`);
   });
+  if (!(await isSeeded())) {
+    seeding = true;
+    console.log('Building the synthetic Tasama client accounts (about a minute); the app answers once this is done...');
+    try { await reseed(); } finally { seeding = false; }
+  }
 }
 main().catch((e) => { console.error(e); process.exit(1); });
 

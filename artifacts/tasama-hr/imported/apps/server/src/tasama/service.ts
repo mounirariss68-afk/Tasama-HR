@@ -10,6 +10,7 @@
  *   Fatoora (A1)  prepares the monthly invoice; a person approves before issue.
  *   Tawzee  (A3)  balances delivery staff across clients by skill and capacity.
  */
+import { recordIssue } from './basira.js';
 import { pool, withClient, type Q } from '../db.js';
 import { CLIENTS, clientByKey, slasFor, type ClientConfig } from '../domain/clients.js';
 import { addDays, iso, monthStart, monthEnd, round2, parse } from '../domain/rules.js';
@@ -114,6 +115,11 @@ export async function raqeebScan(at = now()) {
         [cl.key, r.ref, r.title, r.title_ar, key, kind, r.waiting_name, r.waiting_on_role, due, at]);
       if (ins.rows[0].inserted) {
         found.push({ client: cl.key, ref: r.ref, kind });
+        // An issue for Basira: why it is late, as far as the records show.
+        const away = r.waiting_on_person_id ? await withClient(cl.key, async () => (await pool.query(`SELECT 1 FROM hcm.absences WHERE person_id=$1 AND status IN ('APPROVED','COMPLETED') AND start_date <= $2::date AND end_date >= $2::date`, [r.waiting_on_person_id, iso(at)])).rows.length > 0) : false;
+        await recordIssue(cl.key, { category: 'ESCALATION', workflow_id: r.workflow_id, reason_code: away ? 'APPROVER_UNAVAILABLE' : 'APPROVER_SLOW', case_ref: r.ref, at,
+          summary: `${r.title} ${kind === 'BREACHED' ? 'breached' : 'at risk'}: waiting on ${r.waiting_name ?? r.waiting_on_role}${away ? ' (away, no delegate set)' : ''}`,
+          attrs: { approver: r.waiting_name ?? r.waiting_on_role, approver_id: r.waiting_on_person_id, approver_away: away, step: 'Manager approval' } });
         await tasamaTrail(pool, { client_key: cl.key, actor_type: 'AGENT', actor_id: 'raqeeb', actor_name: 'Raqeeb', act: 'FLAG', autonomy: 'A1', ref: r.ref, at,
           summary: `${kind === 'BREACHED' ? 'SLA breached' : 'SLA at risk'}: ${r.title} at ${cl.short}, waiting on ${r.waiting_name ?? r.waiting_on_role}, due ${iso(due)}.`,
           summary_ar: `${kind === 'BREACHED' ? 'تجاوز مستوى الخدمة' : 'مستوى الخدمة معرض للتجاوز'}: ${r.title_ar} لدى ${cl.name_ar}.` });

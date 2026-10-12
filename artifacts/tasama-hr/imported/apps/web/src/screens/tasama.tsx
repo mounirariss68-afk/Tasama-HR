@@ -4,7 +4,7 @@
  * finance, the delivery team, and every client's HR handbook.
  * Every figure comes from the server, computed from the clients' own records.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { HeroFeature, PageColumns, Panel, PanelAction, StatRow, StatTile, StatusRow } from '@cognirise/atelier/layout';
 import { ProvenanceNote } from '@cognirise/atelier/archetypes';
 import { AlertTriangle, Banknote, BookOpen, Building2, CalendarClock, ClipboardList, Gauge, Network, Receipt, Scale, Users, Workflow } from 'lucide-react';
@@ -385,6 +385,136 @@ export function TasamaPolicies() {
             </section>);
         })}</div> : null}
       </Panel>
+    </Screen>
+  );
+}
+
+// ------------------------------------------------------------------ Patterns (Basira)
+
+/** Weekly rate per 100 cases against the baseline; the last two weeks are the ones judged. */
+function RateChart({ series, baseline }: { series: { week: string; rate: number; issues: number }[]; baseline: number }) {
+  const W = 420, H = 96, max = Math.max(baseline * 1.6, ...series.map((s) => s.rate), 1);
+  const bw = W / series.length;
+  const y = (v: number) => H - (v / max) * (H - 8);
+  return (
+    <svg viewBox={`0 0 ${W} ${H + 14}`} className="h-28 w-full" role="img" aria-label="Weekly rate per 100 cases against the baseline">
+      {series.map((s, i) => {
+        const recent = i >= series.length - 2;
+        return (
+          <g key={s.week}>
+            <rect x={i * bw + 2} y={y(s.rate)} width={bw - 4} height={H - y(s.rate)} rx={2} className={recent ? 'fill-[var(--danger)]' : 'fill-[hsl(var(--primary))] opacity-50'}><title>{`${s.week}: ${s.rate} per 100 (${s.issues})`}</title></rect>
+          </g>
+        );
+      })}
+      <line x1={0} x2={W} y1={y(baseline)} y2={y(baseline)} strokeDasharray="4 3" className="stroke-[hsl(var(--foreground))] opacity-60" strokeWidth={1} />
+      <text x={2} y={Math.max(10, y(baseline) - 4)} className="fill-[hsl(var(--muted-foreground))] text-[9px]">baseline {baseline}</text>
+      <text x={0} y={H + 12} className="fill-[hsl(var(--muted-foreground))] text-[9px]">{series[0]?.week}</text>
+      <text x={W} y={H + 12} textAnchor="end" className="fill-[hsl(var(--muted-foreground))] text-[9px]">{series[series.length - 1]?.week}</text>
+    </svg>
+  );
+}
+
+function PatternCard({ p, staff, focus }: { p: any; staff: any[]; focus: boolean }) {
+  const { t, bi, lang } = useLang();
+  const { switchClient, openCase } = useApp();
+  const [showIssues, setShowIssues] = useState(false);
+  const issues = useApi<any[]>(showIssues ? `/tasama/patterns/${p.id}/issues` : null);
+  const [owner, setOwner] = useState('');
+  const [action, setAction] = useState('');
+  const [days, setDays] = useState('14');
+  const [outcome, setOutcome] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const act = async (path: string, body: any) => { setBusy(true); setErr(null); try { await post(`/tasama/patterns/${p.id}/${path}`, body); bump(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
+  const unit = p.workflow_id === 'WF-13' ? t('per 100 payroll changes') : p.workflow_id === 'WF-15' ? t('per 100 leave requests') : t('per 100 cases');
+  return (
+    <div id={`pattern-${p.ref}`} className={`rounded-2xl glass-l3 p-4 ${focus ? 'ring-2 ring-primary' : ''}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Ref>{p.ref}</Ref><StatusChip status={p.status} /><StatusChip status={p.scope} />
+        {p.client_names.map((n: string) => <Chip key={n}>{n}</Chip>)}
+        <Chip>{p.workflow_id} · {bi(p.category_label[0], p.category_label[1])}</Chip>
+      </div>
+      <h3 className="mt-2 text-lg font-semibold">{bi(p.title, p.title_ar)}</h3>
+      <div className="mt-2 grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+        <div>
+          <p className="text-sm"><span className="text-2xl font-bold tabular-nums">{Number(p.current_rate)}</span> <span className="text-muted-foreground">{unit} {t('over the last two weeks, against')} <span className="font-semibold text-foreground">{Number(p.baseline_rate)}</span> {t('before')}</span></p>
+          <RateChart series={p.series} baseline={Number(p.baseline_rate)} />
+          <p className="eyebrow mt-2">{t('What is different about the recent cases')}</p>
+          <ul className="mt-1 space-y-1 text-sm">
+            {(p.facts as any[]).map((f, i) => (
+              <li key={i}>{f.kind === 'concentrated'
+                ? <><span className="font-medium">{t(f.label)}: {f.value === 'true' ? t('yes') : f.value}</span> — {f.recent_share}% {t('of the recent ones')}, {f.baseline_share}% {t('before')}</>
+                : <><span className="font-medium">{t(f.label)}</span>: {t('spread across')} {f.distinct}, {t('none above')} {f.recent_share}%</>}</li>
+            ))}
+            {!p.facts.length ? <li className="text-muted-foreground">{t('Nothing stands out on the recorded attributes.')}</li> : null}
+          </ul>
+        </div>
+        <div>
+          <p className="eyebrow flex items-center gap-2">{t('Likely causes')} <AgentTag id="basira" autonomy="A1" /></p>
+          <ol className="mt-1 space-y-2">
+            {(p.causes as any[]).map((c, i) => (
+              <li key={i} className="rounded-xl border border-border/60 p-3">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">{c.cause} <Chip tone={c.strength === 'strong' ? 'danger' : c.strength === 'moderate' ? 'warn' : undefined}>{t(c.strength)}</Chip></p>
+                <p className="mt-1 text-[13px] text-muted-foreground">{t('Evidence')}: {c.evidence}</p>
+                {c.next_step ? <p className="mt-1 text-[13px]">{t('Next step')}: {c.next_step}</p> : null}
+              </li>
+            ))}
+          </ol>
+          <p className="mt-1 text-[11px] text-muted-foreground">{p.causes_by === 'claude' ? t('Written by Claude from the facts on the left only. These are hypotheses for a person to test.') : t('Stated by rules over the facts on the left. These are hypotheses for a person to test.')}</p>
+        </div>
+      </div>
+      <div className="mt-3 border-t border-border/50 pt-3">
+        {p.status === 'NEW' ? (
+          <div className="grid gap-2 sm:grid-cols-[14rem_1fr_12rem_auto] sm:items-start">
+            <select className="input h-9 text-sm" value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">{t('Owner…')}</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.role}</option>)}</select>
+            <textarea className="input text-sm" rows={2} placeholder={t('What will be done about the cause')} value={action} onChange={(e) => setAction(e.target.value)} />
+            <select className="input h-9 text-sm" value={days} onChange={(e) => setDays(e.target.value)}>{['7', '14', '21', '28'].map((d) => <option key={d} value={d}>{t('Measure again in')} {d} {t('days')}</option>)}</select>
+            <Btn kind="primary" onClick={() => act('assign', { staff_id: Number(owner), action, recheck_days: Number(days) })} disabled={busy}>{t('Assign')}</Btn>
+          </div>
+        ) : p.status !== 'CLOSED' ? (
+          <div className="space-y-2">
+            <p className="text-sm"><span className="font-medium">{bi(p.owner, p.owner_ar)}</span>: {p.action} <span className="text-muted-foreground">· {t('measure again on')} {date(p.recheck_on, lang)}</span></p>
+            <div className="flex flex-wrap gap-2"><input className="input h-9 flex-1 text-sm" placeholder={t('Outcome, once the rate is back to its baseline')} value={outcome} onChange={(e) => setOutcome(e.target.value)} /><Btn onClick={() => act('close', { outcome })} disabled={busy}>{t('Close the pattern')}</Btn></div>
+          </div>
+        ) : <p className="text-sm"><span className="font-medium">{t('Closed')}:</span> {p.outcome}</p>}
+        {err ? <p className="mt-1 text-sm text-danger">{err}</p> : null}
+        <button type="button" className="mt-2 text-xs text-primary" onClick={() => setShowIssues(!showIssues)}>{showIssues ? t('Hide the issues') : `${t('Show the')} ${p.issue_refs.length} ${t('issues behind it')}`}</button>
+        {showIssues && issues.data ? (
+          <Table className="mt-2"><thead><tr><th>{t('Issue')}</th><th>{t('Client')}</th><th>{t('When')}</th><th>{t('What happened')}</th></tr></thead>
+            <tbody>{issues.data.map((i) => (
+              <tr key={i.ref}><td className="font-mono text-[11px]">{i.ref}{i.case_ref ? <button type="button" className="block text-primary" onClick={() => { switchClient(i.client_key, 'hr-inbox'); setTimeout(() => openCase(i.case_ref), 300); }}>{i.case_ref}</button> : null}</td><td className="text-xs">{i.client}</td><td className="text-xs">{date(i.occurred_at, lang)}</td><td className="text-xs">{i.summary}</td></tr>
+            ))}</tbody></Table>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function TasamaPatterns() {
+  const { t, bi } = useLang();
+  const { route } = useApp();
+  const { data } = useApi<any>('/tasama/patterns');
+  const [busy, setBusy] = useState(false);
+  const scan = async () => { setBusy(true); try { await post('/tasama/patterns/scan'); bump(); } finally { setBusy(false); } };
+  useEffect(() => {
+    if (!route.param || !data) return;
+    const el = document.getElementById(`pattern-${route.param}`);
+    if (el) window.setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+  }, [route.param, data]);
+  if (!data) return null;
+  const open = data.patterns.filter((p: any) => p.status !== 'CLOSED');
+  return (
+    <Screen hero={<Hero eyebrow={EYEBROW} title="Patterns" lede={t('Basira measures every kind of problem (escalations, rejections, returns, payroll findings) per 100 cases, every week, for each client and across clients, and compares the last two weeks with each one\'s own baseline. A rise is flagged only when it holds for two weeks with enough cases. For each one Basira shows what is different about the recent cases and the likely causes, with the evidence. People decide what to do.')}
+      actions={<Btn kind="primary" onClick={scan} disabled={busy}>{busy ? t('Scanning…') : t('Run Basira\'s scan now')}</Btn>}
+      feature={<HeroFeature label="Open patterns" value={open.length} support={<Chip>{data.watch.length} {t('looked at, not flagged')}</Chip>} />} />}>
+      <div className="space-y-4">
+        {data.patterns.map((p: any) => <PatternCard key={p.id} p={p} staff={data.staff} focus={route.param === p.ref} />)}
+        {!data.patterns.length ? <Empty>{t('No rising problems in the last two weeks.')}</Empty> : null}
+      </div>
+      <Panel icon={<Scale size={16} />} title="Looked at, not flagged">
+        {data.watch.length ? data.watch.map((w: any) => <StatusRow key={w.id} name={`${w.client_names[0]} · ${bi(w.reason, w.reason_ar)}`} detail={w.note} status={<span className="text-[11px] text-muted-foreground">{w.workflow_id}</span>} />) : <Empty>{t('Nothing else rose above its usual rate.')}</Empty>}
+      </Panel>
+      <ProvenanceNote>{t('Issue history and weekly case volumes before this month are synthetic, with three planted signals: a rise at one client, the same rise at three clients, and a one-week burst. New escalations and declined cases are added as they happen, with their reason codes.')}</ProvenanceNote>
     </Screen>
   );
 }

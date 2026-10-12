@@ -1,0 +1,329 @@
+/**
+ * The Demo Director. A scenario is a list of steps; the presenter plays it
+ * with Play / Pause / Step / Back. Each step names its trigger, runs a REAL
+ * action through the same engine a person's click or an HRMS event would use,
+ * and tells the app which client account, which persona and which screen to
+ * show. The server returns what the step changed (trail entries, cases,
+ * Tasama records) so the app can list it. Nothing is faked: where a step
+ * takes a person's decision, it calls the same decide() a click calls and the
+ * trail says "(decided by the scenario)".
+ *
+ * Adapted from the Jahiz Demo Director (QIB): same step model, same bar.
+ */
+import { pool, tx, withClient } from './db.js';
+import { startCase, decide } from './engine/core.js';
+import { letterName } from './engine/handlers.js';
+import { iso, addDays, advanceMax, advanceMaxTerm, monthStart } from './domain/rules.js';
+import { CLIENTS, clientByKey, DEFAULT_CLIENT } from './domain/clients.js';
+import { setClock, now } from './clock.js';
+import { raqeebScan, nudge, prepareInvoice, slaFor, tasamaTrail, monthLabel } from './tasama/service.js';
+import { basiraScan } from './tasama/basira.js';
+import { precheck } from './agents/hisab.js';
+import { reasonLabel } from './domain/reasons.js';
+
+type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
+type Text = string | ((c: Ctx) => Promise<string> | string);
+type Action =
+  | { kind: 'show' }
+  | { kind: 'start'; starter: keyof typeof STARTERS; as: string }
+  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string }
+  | { kind: 'raqeeb_scan' }
+  | { kind: 'nudge'; ref: string }
+  | { kind: 'basira_scan' }
+  | { kind: 'assign_pattern'; pattern: 'riyadhair' | 'cross'; staff: string; action: Text; days: number }
+  | { kind: 'prepare_invoice' }
+  | { kind: 'approve_invoice' };
+type Step = {
+  id: string; title: string; title_ar: string; trigger: string; persona: string; screen: string;
+  open?: string;            // 'case:<name>' (a case the scenario created) or 'pattern:<riyadhair|cross>'
+  action: Action; say: Text; say_ar?: Text;
+};
+type Scenario = { key: string; level: 'client' | 'tasama'; client?: string; shape: string; shape_ar: string; title: string; title_ar: string; summary: string; summary_ar: string; steps: Step[] };
+
+// ------------------------------------------------------------------ helpers
+
+async function people() {
+  const meta = (await pool.query(`SELECT key, value FROM layer.meta WHERE key IN ('people','planted')`)).rows;
+  return { P: meta.find((m: any) => m.key === 'people').value.persona as Record<string, number>, T: meta.find((m: any) => m.key === 'planted').value as Record<string, number> };
+}
+const nameOf = async (id: number) => ((await pool.query(`SELECT display_name FROM hcm.persons WHERE id=$1`, [id])).rows[0]?.display_name as string) ?? 'the employee';
+const caseOf = async (ref: string) => (await pool.query(`SELECT r.*, w.display_name AS waiting_name FROM layer.requests r LEFT JOIN hcm.persons w ON w.id=r.waiting_on_person_id WHERE r.ref=$1`, [ref])).rows[0];
+const divisionOf = async (id: number) => (await pool.query(`SELECT d.division FROM hcm.assignments a JOIN hcm.departments d ON d.id=a.department_id WHERE a.person_id=$1 ORDER BY a.effective_start DESC LIMIT 1`, [id])).rows[0]?.division as string | undefined;
+const sar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
+async function patternOf(which: 'riyadhair' | 'cross') {
+  return (await pool.query(which === 'cross'
+    ? `SELECT * FROM tasama.patterns WHERE scope='CROSS_CLIENT' AND status <> 'CLOSED' ORDER BY id DESC LIMIT 1`
+    : `SELECT * FROM tasama.patterns WHERE scope='CLIENT' AND 'riyadhair' = ANY(client_keys) AND reason_code='APPROVER_UNAVAILABLE' AND status <> 'CLOSED' ORDER BY id DESC LIMIT 1`)).rows[0];
+}
+
+// ------------------------------------------------------------------ starters: each opens a real case and returns its reference
+
+const STARTERS = {
+  certificate: async (c: Ctx) => {
+    const bank = clientByKey(c.client)!.bank[0];
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-14', type: 'SALARY_CERTIFICATE', title: letterName('SALARY_CERTIFICATE'), title_ar: letterName('SALARY_CERTIFICATE', true), requester: c.P.employee, subject: c.P.employee, channel: 'SCENARIO', scenario: c.key, payload: { letter_type: 'SALARY_CERTIFICATE', addressee: bank, language: 'en', purpose: 'Personal finance application' } }));
+    return r.ref as string;
+  },
+  advance: async (c: Ctx) => {
+    const sal = (await pool.query(`SELECT basic, housing, transport, other_allowance FROM hcm.salaries WHERE person_id=$1 AND date_to='4712-12-31'`, [c.T.advanceEx])).rows[0];
+    const basic = Number(sal.basic), gross = basic + Number(sal.housing ?? 0) + Number(sal.transport ?? 0) + Number(sal.other_allowance ?? 0);
+    const amount = Math.ceil(advanceMax(basic, gross) * 1.5 / 500) * 500, months = advanceMaxTerm();
+    c.out.amount = amount; c.out.months = months; c.out.limit = advanceMax(basic, gross);
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-16', type: 'ADVANCE', title: `Salary advance SAR ${amount.toLocaleString('en-US')}`, title_ar: `سلفة راتب ${amount.toLocaleString('en-US')} ريال`, requester: c.T.advanceEx, subject: c.T.advanceEx, channel: 'SCENARIO', scenario: c.key, payload: { amount, months, reason: 'Family emergency' } }));
+    return r.ref as string;
+  },
+  screening: async (c: Ctx) => {
+    const rq = (await pool.query(`SELECT r.* FROM hcm.requisitions r JOIN hcm.positions p ON p.id=r.position_id JOIN hcm.jobs j ON j.id=p.job_id WHERE j.code='MKT-DM'`)).rows[0];
+    await pool.query(`UPDATE hcm.applications SET phase='NEW', evidence=NULL WHERE requisition_id=$1 AND phase IN ('SCREENING','SHORTLISTED')`, [rq.id]);
+    c.out.role = rq.title;
+    const div = (await divisionOf(rq.hiring_manager_id)) ?? 'Commercial';
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-03', type: 'SCREENING', title: `Shortlist: ${rq.title}`, title_ar: `القائمة المختصرة: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { requisition_id: rq.id, hiring_manager_id: rq.hiring_manager_id, recruiter_id: c.P.ta, division: div, instruction: 'Only shortlist candidates under 35, we want a young team' } }));
+    return r.ref as string;
+  },
+  precheck: async (c: Ctx) => {
+    const per = (await pool.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date LIMIT 1`)).rows[0];
+    c.out.period = per.period_name;
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-13', type: 'PRECHECK', title: `Payroll pre-run check: ${per.period_name}`, title_ar: `فحص ما قبل تشغيل الرواتب: ${per.period_name}`, requester: c.P.payroll, subject: c.P.payroll, channel: 'SCENARIO', priority: 'HIGH', scenario: c.key, payload: { period: per.period_name } }));
+    return r.ref as string;
+  },
+  offer: async (c: Ctx) => {
+    const rq = (await pool.query(`SELECT r.* FROM hcm.requisitions r JOIN hcm.positions p ON p.id=r.position_id JOIN hcm.jobs j ON j.id=p.job_id WHERE j.code='SEC-AN'`)).rows[0];
+    const app = (await pool.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 AND a.phase NOT IN ('HIRED','NOT_SELECTED') ORDER BY a.id LIMIT 1`, [rq.id])).rows[0];
+    if (!app) throw new Error('No candidate left on this requisition. Reset the demo to play this scenario again.');
+    c.out.role = rq.title;
+    const div = (await divisionOf(rq.hiring_manager_id)) ?? 'Technology and Digital';
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: iso(addDays(now(), 30)), expected_basic: 16500, accept: true, block_medical: true, division: div } }));
+    return r.ref as string;
+  },
+  termination: async (c: Ctx) => {
+    const mgr = (await pool.query(`SELECT manager_person_id FROM hcm.assignments WHERE person_id=$1 ORDER BY effective_start DESC LIMIT 1`, [c.T.terminee])).rows[0].manager_person_id;
+    const who = await nameOf(c.T.terminee);
+    c.out.who = who;
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-20', type: 'INVOLUNTARY', title: `Termination request: ${who}`, title_ar: `طلب إنهاء خدمة: ${who}`, requester: mgr, subject: c.T.terminee, channel: 'SCENARIO', scenario: c.key, priority: 'HIGH', doneAtStart: ['intake'], payload: { person_id: c.T.terminee, grounds: 'PERFORMANCE', details: 'Targets missed for two years.' } }));
+    return r.ref as string;
+  },
+  slaLeave: async (c: Ctx) => {
+    const who = (await pool.query(`SELECT a.person_id, p.display_name FROM hcm.assignments a JOIN hcm.persons p ON p.id=a.person_id JOIN hcm.work_relationships wr ON wr.person_id=a.person_id
+                                    WHERE a.manager_person_id=$1 AND a.effective_end='4712-12-31' AND wr.end_date IS NULL ORDER BY a.person_id DESC LIMIT 1`, [c.P.manager])).rows[0];
+    c.out.who = who.display_name;
+    setClock(new Date(Date.now() - 45 * 3600_000));
+    try {
+      const r = await tx((x) => startCase(x, { workflowId: 'WF-15', type: 'LEAVE', title: 'Annual leave, 3 days', title_ar: 'إجازة سنوية، 3 أيام', requester: who.person_id, subject: who.person_id, channel: 'SCENARIO', scenario: c.key,
+        payload: { type_code: 'ANNUAL', start: iso(addDays(now(), 21)), end: iso(addDays(now(), 23)), days: 3, reason: 'Family visit' } }));
+      return r.ref as string;
+    } finally { setClock(null); }
+  },
+};
+
+// ------------------------------------------------------------------ the scripts
+
+const S = (id: string, title: string, title_ar: string, trigger: string, persona: string, screen: string, action: Action, say: Text, open?: string): Step => ({ id, title, title_ar, trigger, persona, screen, action, say, open });
+const SHOW: Action = { kind: 'show' };
+
+export const SCRIPTS: Scenario[] = [
+  { key: 'certificate', level: 'client', shape: 'Happy path', shape_ar: 'المسار المعتاد', title: 'Salary certificate through chat', title_ar: 'شهادة راتب عبر المحادثة',
+    summary: 'The employee asks Rafeeq for a salary certificate for their bank. Wathiqa validates it against the client\'s HRMS and issues it. No one in HR touches it.', summary_ar: 'يطلب الموظف من رفيق شهادة راتب لبنكه؛ يتحقق وثيقة من نظام الموارد البشرية لدى العميل ويصدرها دون تدخل الموارد البشرية.',
+    steps: [
+      S('c1', 'The employee asks', 'الموظف يطلب', 'Employee opens Rafeeq', 'employee', 'my-home', SHOW,
+        async (c) => `${await nameOf(c.P.employee)} needs a salary certificate for ${clientByKey(c.client)!.bank[0]}. She can ask Rafeeq in English or Arabic, on the web or the phone; Rafeeq answers from ${clientByKey(c.client)!.short}'s handbook and prepares the request for her to confirm.`),
+      S('c2', 'Wathiqa issues the letter', 'وثيقة تصدر الخطاب', 'Request confirmed in chat (WF-14)', 'employee', 'my-home', { kind: 'start', starter: 'certificate', as: 'cert' },
+        async (c) => { const k = await caseOf(c.refs.cert); return `Wathiqa read the employment and salary from ${clientByKey(c.client)!.hrmsLabel} through the connector, generated the letter and closed ${k.ref} (${k.status.toLowerCase()}). Nobody in HR touched it; the case counts toward the letters service level in Tasama's contract.`; }, 'case:cert'),
+      S('c3', 'The letter is ready', 'الخطاب جاهز', 'HRMS document record', 'employee', 'my-pay', SHOW,
+        () => 'The certificate is in Pay and documents, ready to preview and download. Every letter is stored as a document record in the client\'s HRMS, not in the agentic layer.'),
+    ] },
+  { key: 'advance-exception', level: 'client', shape: 'Exception', shape_ar: 'استثناء', title: 'Salary advance above policy', title_ar: 'سلفة راتب تتجاوز السياسة',
+    summary: 'An employee asks for an advance one and a half times the handbook limit. Ajaza finds it above policy, Hisab schedules recovery inside the Art. 92 and 93 caps, and the case goes to the CHRO as an exception.', summary_ar: 'يطلب موظف سلفة تعادل مرة ونصف الحد؛ تتجاوز السياسة فتُحال كاستثناء إلى الرئيس التنفيذي للموارد البشرية.',
+    steps: [
+      S('a1', 'Above the handbook limit', 'فوق حد الدليل', 'Employee request (WF-16)', 'chro', 'hr-inbox', { kind: 'start', starter: 'advance', as: 'adv' },
+        async (c) => `${await nameOf(c.T.advanceEx)} asked for ${sar(c.out.amount)} over ${c.out.months} months for a family emergency: one and a half times the handbook limit of ${sar(c.out.limit)}. Ajaza found it above policy and set out a within-policy alternative. Hisab planned the recovery inside the legal caps: instalments up to 10% of the wage (Art. 92), all deductions up to 50% (Art. 93). It now needs the manager's support.`, 'case:adv'),
+      S('a2', 'The manager supports it', 'المدير يؤيد الطلب', 'Human step: line manager', 'chro', 'hr-inbox', { kind: 'decide', ref: 'adv', decision: 'APPROVED', reason: 'Family emergency; I support the request' },
+        () => 'The manager supported the request (decided by the scenario). Because the amount is above policy, the case goes to the CHRO as an exception, with Ajaza\'s within-policy alternative beside it.', 'case:adv'),
+      S('a3', 'The CHRO decides the exception', 'القرار للرئيس التنفيذي للموارد البشرية', 'Human step: CHRO exception', 'chro', 'hr-inbox', { kind: 'decide', ref: 'adv', decision: 'APPROVED', reason: 'Exception approved: family emergency; recovery stays inside the legal caps' },
+        async (c) => { const k = await caseOf(c.refs.adv); return `The CHRO approved the exception with a reason on the record (decided by the scenario; in a live demo, decide it yourself in the case). ${k.ref} is now ${k.status.toLowerCase()}${k.waiting_name ? `, waiting on ${k.waiting_name}` : ''}. The trail shows the policy check, the override and who took it.`; }, 'case:adv'),
+    ] },
+  { key: 'screening-refusal', level: 'client', shape: 'Refusal', shape_ar: 'رفض', title: 'Discriminatory screening instruction', title_ar: 'تعليمة فرز تمييزية',
+    summary: 'A hiring manager tells Hessa to shortlist only candidates under 35. Hessa refuses, cites the clause, tells the HRBP, and screens on the stated criteria only.', summary_ar: 'يطلب مدير توظيف من حصة اختيار من هم دون 35 عاماً فقط؛ ترفض وتستشهد بالسياسة وتبلغ شريك الأعمال.',
+    steps: [
+      S('r1', 'An instruction Hessa refuses', 'تعليمة ترفضها حصة', 'Hiring manager instruction (WF-03)', 'ta', 'hr-hiring', { kind: 'start', starter: 'screening', as: 'scr' },
+        (c) => `The hiring manager for ${c.out.role} told Hessa: "only shortlist candidates under 35, we want a young team". Hessa refused, cited the non-discrimination clause [HR-01 §1.2], told the HRBP, and screened every applicant on the job's stated criteria only. The shortlist waits for the recruiter with the evidence for each candidate.`, 'case:scr'),
+      S('r2', 'The refusal is on the record', 'الرفض موثق', 'Agent Control › Evidence', 'ta', 'evidence', SHOW,
+        () => 'Evidence lists every refusal and escalation by the agents, with the instruction, the clause and who was told. Hessa never ranks or rejects a candidate; people decide who goes forward.'),
+    ] },
+  { key: 'payroll-escalation', level: 'client', shape: 'Escalation', shape_ar: 'تصعيد', title: 'Payroll pre-run finds blockers', title_ar: 'فحص الرواتب يكشف موانع',
+    summary: 'Before the Mudad upload, Hisab checks this month\'s draft payroll: a promotion missing from element entries, a leaver still paid, deductions above the 50% cap, a missing GOSI line. Release is held for Payroll.', summary_ar: 'قبل رفع الرواتب إلى مدد يفحص حساب مسودة الرواتب ويجد موانع؛ يُعلّق الاعتماد لفريق الرواتب.',
+    steps: [
+      S('p1', 'Hisab checks the draft payroll', 'حساب يفحص مسودة الرواتب', 'Schedule: five working days before the cut-off (WF-13)', 'payroll', 'hr-payroll', { kind: 'start', starter: 'precheck', as: 'pc' },
+        async (c) => { const pc = await precheck({ c: pool, actor: 'director' }); const b = pc.findings.filter((f: any) => f.severity === 'BLOCKER').length; return `Five working days before the cut-off and the Mudad upload, Hisab checked the draft payroll for ${c.out.period}: ${pc.findings.length} findings, ${b} of them blockers. Release to Mudad is held until Payroll clears every blocker.`; }, 'case:pc'),
+      S('p2', 'Every finding has a fix', 'لكل ملاحظة تصحيح', 'Payroll and rewards', 'payroll', 'hr-payroll', SHOW,
+        () => 'Each finding names the employee, the amount at stake, the rule it breaks (Saudi Labor Law or the handbook) and the fix. Payroll applies the fixes in the HRMS and releases the run; Hisab re-checks before release.'),
+    ] },
+  { key: 'hire-to-onboard', level: 'client', shape: 'End to end', shape_ar: 'من البداية إلى النهاية', title: 'Offer accepted to pre-boarding', title_ar: 'من قبول العرض إلى ما قبل الالتحاق',
+    summary: 'An offer for an open role is approved and accepted; the HRMS creates a pending worker; the new-hire event starts Dalil\'s pre-boarding (Qiwa, GOSI, Muqeem, CCHI), which finds the medical test blocked.', summary_ar: 'يُعتمد عرض العمل ويُقبل، فتبدأ رحلة ما قبل الالتحاق ويتعثر الفحص الطبي.',
+    steps: [
+      S('h1', 'The offer is drafted', 'إعداد العرض', 'Panel selection (WF-05)', 'chro', 'hr-hiring', { kind: 'start', starter: 'offer', as: 'offer' },
+        (c) => `The panel selected a candidate for ${c.out.role}. Tarqiya proposed pay inside the grade and checked it against peers; the offer waits for HRBP approval (the CHRO approves above the grade midpoint).`, 'case:offer'),
+      S('h2', 'Approved, accepted, pre-boarding starts', 'الاعتماد والقبول وبدء ما قبل الالتحاق', 'HRMS new-hire event (WF-06)', 'payroll', 'hr-onboarding', { kind: 'decide', ref: 'offer', decision: 'APPROVED', reason: 'Within the grade midpoint', followon: 'pre' },
+        async (c) => (c.refs.pre ? `The HRBP approved (decided by the scenario) and the candidate accepted. The HRMS created a pending worker, and the new-hire event started Dalil's pre-boarding ${c.refs.pre}: Qiwa contract, GOSI registration, Muqeem and medical insurance. The medical test is blocked; Dalil escalated it to HR Operations.` : 'The HRBP approved (decided by the scenario).'), 'case:pre'),
+    ] },
+  { key: 'termination-stop', level: 'client', shape: 'Stop and escalate', shape_ar: 'إيقاف وتصعيد', title: 'Termination without an improvement plan', title_ar: 'إنهاء خدمة دون خطة تحسين',
+    summary: 'A manager asks to terminate a low performer. Sanad checks the file against Saudi Labor Law and the handbook, finds no improvement plan, and stops the case for the HRBP and Legal. No exit step runs.', summary_ar: 'يطلب مدير إنهاء خدمة موظف؛ يتحقق سند ولا يجد خطة تحسين فيوقف الحالة.',
+    steps: [
+      S('t1', 'Sanad stops the case', 'سند يوقف الحالة', 'Manager request (WF-20)', 'hrbp', 'hr-exits', { kind: 'start', starter: 'termination', as: 'term' },
+        (c) => `${c.out.who}'s manager asked to end the employment for poor performance. Sanad checked the file against Saudi Labor Law and the handbook [HR-12]: no improvement plan and no written warnings on file. Sanad stopped the case and sent it to the HRBP and Legal. No exit step ran.`, 'case:term'),
+      S('t2', 'What happens next', 'ما الخطوة التالية', 'Exits and relations', 'hrbp', 'hr-exits', SHOW,
+        () => 'The next step is an improvement plan with the manager, not an exit. Agents stop work that should not proceed, not only work that is slow.'),
+    ] },
+  { key: 'sla-rescue', level: 'tasama', client: 'riyadhair', shape: 'Service level at risk', shape_ar: 'مستوى خدمة معرض للتجاوز', title: 'Raqeeb catches a request before it breaches', title_ar: 'رقيب يلتقط طلباً قبل تجاوز مستوى الخدمة',
+    summary: 'A leave request at Riyadh Air has been waiting on the manager for almost two days. Raqeeb flags it with hours to spare, reminds the manager, and the Tasama HR Operations Manager decides on the manager\'s behalf with a reason.', summary_ar: 'طلب إجازة في طيران الرياض ينتظر المدير منذ يومين؛ يرصده رقيب ويذكّر المدير ويقرر مدير العمليات نيابة عنه مع ذكر السبب.',
+    steps: [
+      S('s1', 'A request waiting on the manager', 'طلب ينتظر المدير', 'Employee request, 45 hours ago (WF-15)', 'tasama', 'tasama-escalations', { kind: 'start', starter: 'slaLeave', as: 'leave' },
+        async (c) => { const k = await caseOf(c.refs.leave); return `At Riyadh Air, ${c.out.who} asked for three days of annual leave 45 hours ago. ${k.ref} is waiting on ${k.waiting_name}. Tasama's contract counts employee requests against three working days.`; }, 'case:leave'),
+      S('s2', 'Raqeeb flags it', 'رقيب ينبه', 'Raqeeb\'s hourly scan (WF-22)', 'tasama', 'tasama-escalations', { kind: 'raqeeb_scan' },
+        async (c) => { const k = await caseOf(c.refs.leave); const away = (await pool.query(`SELECT 1 FROM hcm.absences WHERE person_id=$1 AND status='APPROVED' AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE`, [k.waiting_on_person_id])).rows.length; return `Raqeeb scanned every open case at all five clients against each contract. ${k.ref} has under 12 hours left: at risk. It also recorded why${away ? `: ${k.waiting_name} is on leave and no delegate is set in the HRMS` : ''}.`; }),
+      S('s3', 'A reminder, not a decision', 'تذكير لا قرار', 'Raqeeb nudge', 'tasama', 'tasama-escalations', { kind: 'nudge', ref: 'leave' },
+        async (c) => `Raqeeb sent ${(await caseOf(c.refs.leave)).waiting_name} a reminder inside Riyadh Air's account. Raqeeb never decides a case; the decision stays with the approver or with Tasama HR Operations.`),
+      S('s4', 'Decided on the manager\'s behalf', 'القرار نيابة عن المدير', 'Human step: Tasama HR Operations Manager', 'tasama', 'tasama-escalations', { kind: 'decide', ref: 'leave', decision: 'APPROVED', reason: 'Manager on leave with no delegate set; team cover confirmed', onBehalf: true },
+        async (c) => { const k = await caseOf(c.refs.leave); return `Faisal Al Harbi decided on the manager's behalf, with the reason on the record (the platform refuses an on-behalf decision without one). ${k.ref} is ${k.status.toLowerCase()}; the trail names both the manager and Faisal.`; }, 'case:leave'),
+      S('s5', 'Not a one-off', 'ليست حالة منفردة', 'Basira\'s pattern watch (WF-25)', 'tasama', 'tasama-patterns', SHOW,
+        async () => { const p = await patternOf('riyadhair'); return p ? `This was not a one-off. Basira had already flagged ${p.ref}: leave escalations at Riyadh Air for this reason are at ${Number(p.current_rate)} per 100 cases over the last two weeks, against ${Number(p.baseline_rate)} before. Play "Basira finds a rising problem and its cause" to follow it to the root cause.` : 'Basira\'s pattern watch shows whether this is a one-off or a rising problem.'; }, 'pattern:riyadhair'),
+    ] },
+  { key: 'month-end-invoice', level: 'tasama', client: 'redsea', shape: 'Month end', shape_ar: 'نهاية الشهر', title: 'Fatoora prepares a client invoice', title_ar: 'فاتورة تُعد فاتورة العميل',
+    summary: 'Fatoora prepares Red Sea Global\'s invoice for last month from the payroll headcount and the month\'s service levels, applies any credit the contract requires, and waits for approval.', summary_ar: 'تُعد فاتورة فاتورة البحر الأحمر الدولية من عدد الموظفين ومستويات الخدمة، وتنتظر الاعتماد.',
+    steps: [
+      S('m1', 'Last month\'s service levels', 'مستويات الخدمة للشهر الماضي', 'Month end', 'tasama', 'tasama-sla', SHOW,
+        async (c) => { const sla = await slaFor(clientByKey(c.client)!, monthStart(now(), -1)); const sc = sla.filter((s) => s.ok !== null); return `Month end for Red Sea Global, ${monthLabel(monthStart(now(), -1))}. Raqeeb's results, computed from the cases: ${sc.filter((s) => s.ok).length} of ${sc.length} service levels met (${sc.map((s) => `${s.label} ${s.attainment}%`).join('; ')}).`; }),
+      S('m2', 'Fatoora prepares the invoice', 'فاتورة تعد الفاتورة', 'Month end, per client (WF-23)', 'tasama', 'tasama-finance', { kind: 'prepare_invoice' },
+        (c) => `Fatoora prepared ${c.out.inv.number}: ${c.out.inv.headcount} employees at SAR ${clientByKey(c.client)!.contract.pepm} each, base ${sar(c.out.inv.base_fee)}${Number(c.out.inv.credits) ? `, service credit ${sar(c.out.inv.credits)}` : ', no service credit due'}, VAT 15%: ${sar(c.out.inv.total)}. It waits for approval; nothing reaches the client before a person approves.`),
+      S('m3', 'Approved and issued', 'الاعتماد والإصدار', 'Human step: Tasama HR Operations Manager', 'tasama', 'tasama-finance', { kind: 'approve_invoice' },
+        (c) => `${c.out.inv.number} approved by Faisal Al Harbi (decided by the scenario) and issued, due in 30 days. The trail records who approved it.`),
+    ] },
+  { key: 'pattern-rca', level: 'tasama', client: 'riyadhair', shape: 'Root cause', shape_ar: 'السبب الجذري', title: 'Basira finds a rising problem and its cause', title_ar: 'بصيرة تكتشف مشكلة متصاعدة وسببها',
+    summary: 'Monthly averages look acceptable. Basira compares six months of escalations, rejections and payroll findings, per 100 cases, at all five clients; flags two rises that hold, ignores a one-week burst, and states the likely cause of each with the evidence. The HR Operations Manager assigns each one.', summary_ar: 'تقارن بصيرة ستة أشهر من التصعيدات والرفض وملاحظات الرواتب لكل 100 حالة لدى العملاء الخمسة، وتنبه إلى ارتفاعين مستمرين، وتتجاهل ارتفاعاً لأسبوع واحد، وتبين السبب المرجح لكل منهما مع الأدلة.',
+    steps: [
+      S('b1', 'Averages hide what is building up', 'المتوسطات تخفي ما يتراكم', 'Portfolio', 'tasama', 'tasama-portfolio', SHOW,
+        () => 'The portfolio looks acceptable: most service levels were met last month. Monthly averages hide problems that build up over a few weeks, and they never say why.'),
+      S('b2', 'Basira\'s weekly scan', 'فحص بصيرة الأسبوعي', 'Weekly schedule (WF-25)', 'tasama', 'tasama-patterns', { kind: 'basira_scan' },
+        (c) => `Basira measured every kind of problem (escalations, rejections, returns, payroll findings) per 100 cases, week by week for six months, at each of the five clients, and compared the last two weeks with each one's own baseline. It flagged ${c.out.scan.flagged.length} pattern${c.out.scan.flagged.length === 1 ? '' : 's'} (${c.out.scan.flagged.join(', ')}) and looked at ${c.out.scan.watched} other rise${c.out.scan.watched === 1 ? '' : 's'} that it did not flag.`),
+      S('b3', 'One approver, away, no delegate', 'معتمد واحد غائب دون تفويض', 'Pattern at one client', 'tasama', 'tasama-patterns', SHOW,
+        async () => { const p = await patternOf('riyadhair'); if (!p) return 'No pattern at Riyadh Air this time.'; const f = (p.facts as any[]).find((x) => x.attr === 'approver' && x.kind === 'concentrated'); return `${p.ref}: leave escalations at Riyadh Air because the approver was away rose to ${Number(p.current_rate)} per 100 leave requests over the last two weeks, against ${Number(p.baseline_rate)} before. What is different about the recent ones: ${f ? `${f.recent_share}% waited on ${f.value} (${f.baseline_share}% before)` : 'see the facts'}. Likely cause, with the evidence: ${(p.causes as any[])[0]?.cause}.`; }, 'pattern:riyadhair'),
+      S('b4', 'An owner and an action', 'مالك وإجراء', 'Human step: Tasama HR Operations Manager', 'tasama', 'tasama-patterns', { kind: 'assign_pattern', pattern: 'riyadhair', staff: 'Yousef Al Ghamdi', days: 14,
+        action: async () => { const p = await patternOf('riyadhair'); const f = p && (p.facts as any[]).find((x: any) => x.attr === 'approver' && x.kind === 'concentrated'); return `Set a delegate for ${f?.value ?? 'the approver'} in Oracle today; agree with Riyadh Air HR that any absence over three days needs a delegate before it starts.`; } },
+        (c) => `Faisal assigned ${c.out.assigned} to Yousef Al Ghamdi, Riyadh Air's HR operations specialist (decided by the scenario), with the action and a date to measure again. The pattern stays open until the rate is back near its baseline.`, 'pattern:riyadhair'),
+      S('b5', 'The same rise at three clients', 'الارتفاع نفسه لدى ثلاثة عملاء', 'Pattern across clients', 'tasama', 'tasama-patterns', SHOW,
+        async () => { const p = await patternOf('cross'); if (!p) return 'No cross-client pattern this time.'; const cut = (p.facts as any[]).find((x) => x.attr === 'after_cutoff'); const spread = (p.facts as any[]).find((x) => x.attr === 'entered_by' && x.kind === 'spread'); return `${p.ref}: "${reasonLabel(p.reason_code)}" findings rose in the same weeks at ${(p.client_keys as string[]).map((k) => clientByKey(k)!.short).join(', ')}: ${Number(p.current_rate)} per 100 payroll changes against ${Number(p.baseline_rate)} before. ${cut ? `${cut.recent_share}% of the recent ones reached payroll after the cut-off (${cut.baseline_share}% before)` : ''}${spread ? `, and they are spread across ${spread.distinct} people` : ''}. Several clients at once, no single person: this points at Tasama's own process, not at one client.`; }, 'pattern:cross'),
+      S('b6', 'Fix it once, for every client', 'إصلاح واحد لكل العملاء', 'Human step: Tasama HR Operations Manager', 'tasama', 'tasama-patterns', { kind: 'assign_pattern', pattern: 'cross', staff: 'Ahmed Al Zahrani', days: 21,
+        action: 'Check when the payroll calendar\'s cut-off moved and whether client HR teams were told; add a late-change check to the calendar for all clients.' },
+        (c) => `Assigned ${c.out.assigned} to Ahmed Al Zahrani, Senior Payroll Specialist (decided by the scenario). One fix in Tasama's payroll procedure covers all three clients; Basira measures again in three weeks.`, 'pattern:cross'),
+      S('b7', 'What Basira did not flag', 'ما لم تنبه إليه بصيرة', 'Looked at, not flagged', 'tasama', 'tasama-patterns', SHOW,
+        async () => { const w = (await pool.query(`SELECT * FROM tasama.pattern_watch WHERE client_key='seven' AND reason_code='OUTSIDE_POLICY' LIMIT 1`)).rows[0]; const n = (await pool.query(`SELECT COUNT(*)::int n FROM tasama.pattern_watch`)).rows[0].n; return w ? `SEVEN had a burst of advance rejections in one week, then went back to normal. Basira recorded it and did not flag it: "${w.note}" It looked at ${n} such rises in this scan. Requiring two weeks and enough cases keeps the list short enough to act on.` : 'Basira records rises it looked at and did not flag, with the reason.'; }),
+      S('b8', 'Ask in plain language', 'اسأل بلغة بسيطة', 'Murshid, the HR co-pilot', 'tasama', 'tasama-patterns', SHOW,
+        () => 'The same information is available in chat: ask Murshid "what is rising and why?" and it answers from Basira\'s patterns, with the references.'),
+    ] },
+];
+
+// ------------------------------------------------------------------ running
+
+async function execute(a: Action, c: Ctx): Promise<string> {
+  switch (a.kind) {
+    case 'show': return 'Showing';
+    case 'start': { const ref = await STARTERS[a.starter](c); c.refs[a.as] = ref; return `Opened ${ref}`; }
+    case 'decide': {
+      const k = await caseOf(c.refs[a.ref]);
+      if (!k || k.status !== 'WAITING') return `${c.refs[a.ref]} is not waiting on anyone`;
+      const who = k.waiting_name ?? k.waiting_on_role;
+      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, actorName: a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : undefined }));
+      if (a.followon) { const f = (await pool.query(`SELECT result->>'followon' AS f FROM layer.requests WHERE id=$1`, [k.id])).rows[0]?.f; if (f) c.refs[a.followon] = f; }
+      return `${a.decision === 'APPROVED' ? 'Approved' : 'Declined'} for ${who}`;
+    }
+    case 'raqeeb_scan': { const f = await raqeebScan(); return `${f.length} new flag${f.length === 1 ? '' : 's'}`; }
+    case 'nudge': {
+      const e = (await pool.query(`SELECT id FROM tasama.escalations WHERE client_key=$1 AND case_ref=$2`, [c.client, c.refs[a.ref]])).rows[0];
+      if (!e) return 'No escalation for this case yet';
+      await nudge(e.id); return 'Reminder sent';
+    }
+    case 'basira_scan': { const r = await basiraScan(); c.out.scan = r; return `${r.flagged.length} flagged, ${r.watched} not flagged`; }
+    case 'assign_pattern': {
+      const p = await patternOf(a.pattern); if (!p) return 'No such pattern';
+      const s = (await pool.query(`SELECT id FROM tasama.staff WHERE name=$1`, [a.staff])).rows[0];
+      const action = typeof a.action === 'function' ? await a.action(c) : a.action;
+      const { assignPattern } = await import('./tasama/basira.js');
+      await assignPattern(p.id, 'Faisal Al Harbi (decided by the scenario)', { staff_id: s.id, action, recheck_days: a.days });
+      c.out.assigned = p.ref; return `${p.ref} assigned to ${a.staff}`;
+    }
+    case 'prepare_invoice': { const inv = await prepareInvoice(clientByKey(c.client)!, monthStart(now(), -1)); c.out.inv = inv; return `Prepared ${inv.number}`; }
+    case 'approve_invoice': {
+      const number = c.out.inv?.number ?? `TAS-${clientByKey(c.client)!.code}-${iso(monthStart(now(), -1)).slice(0, 7).replace('-', '')}`;
+      const inv = (await pool.query(`SELECT * FROM tasama.invoices WHERE number=$1`, [number])).rows[0];
+      c.out.inv = { ...(c.out.inv ?? {}), ...inv };
+      if (!inv || inv.status !== 'PREPARED') return `${number} is ${inv?.status ?? 'missing'}, not waiting for approval`;
+      const issued = iso(now());
+      await pool.query(`UPDATE tasama.invoices SET status='ISSUED', issued_at=$2, due_at=$3 WHERE id=$1`, [inv.id, issued, iso(addDays(issued, 30))]);
+      await tasamaTrail(pool, { client_key: inv.client_key, actor_type: 'HUMAN', actor_id: 'tasama', actor_name: 'Faisal Al Harbi (decided by the scenario)', act: 'APPROVE', ref: inv.number, summary: `Approved and issued ${inv.number}.`, summary_ar: `اعتمد وأصدر ${inv.number}.` });
+      return `Issued ${inv.number}`;
+    }
+  }
+}
+
+const text = async (t: Text | undefined, c: Ctx) => (typeof t === 'function' ? await t(c) : t ?? '');
+
+async function snapshot(client: string) {
+  return {
+    trail: await withClient(client, async () => (await pool.query(`SELECT COALESCE(MAX(id),0) n FROM layer.trail`)).rows[0].n as number),
+    tasama: (await pool.query(`SELECT COALESCE(MAX(id),0) n FROM tasama.trail`)).rows[0].n as number,
+    at: (await pool.query(`SELECT clock_timestamp() AS t`)).rows[0].t as Date,
+  };
+}
+async function changes(client: string, s: Awaited<ReturnType<typeof snapshot>>) {
+  return withClient(client, async () => ({
+    trail: (await pool.query(`SELECT t.id, t.actor_type, t.actor_id, t.actor_name, t.act, t.autonomy, t.summary, t.citation, r.ref FROM layer.trail t LEFT JOIN layer.requests r ON r.id=t.request_id WHERE t.id > $1 ORDER BY t.id LIMIT 40`, [s.trail])).rows,
+    cases: (await pool.query(`SELECT r.ref, r.title, r.status, w.display_name AS waiting_on FROM layer.requests r LEFT JOIN hcm.persons w ON w.id=r.waiting_on_person_id WHERE r.updated_at >= $1 AND r.updated_at <= clock_timestamp() ORDER BY r.updated_at DESC LIMIT 12`, [s.at])).rows,
+    tasama: (await pool.query(`SELECT id, actor_type, actor_id, actor_name, act, autonomy, summary, ref FROM tasama.trail WHERE id > $1 ORDER BY id LIMIT 20`, [s.tasama])).rows,
+  }));
+}
+
+const findScript = (key: string) => { const s = SCRIPTS.find((x) => x.key === key); if (!s) throw new Error(`Unknown scenario ${key}`); return s; };
+const outline = (s: Scenario) => ({ key: s.key, level: s.level, client: s.client ?? null, shape: s.shape, shape_ar: s.shape_ar, title: s.title, title_ar: s.title_ar, summary: s.summary, summary_ar: s.summary_ar, steps: s.steps.map((st) => ({ id: st.id, title: st.title, title_ar: st.title_ar, trigger: st.trigger, persona: st.persona, screen: st.screen, kind: st.action.kind })) });
+export const listScripts = () => SCRIPTS.map(outline);
+
+export async function startScenario(key: string, clientKey: string) {
+  const s = findScript(key);
+  const client = s.client ?? (clientByKey(clientKey) ? clientKey : DEFAULT_CLIENT);
+  await pool.query(`UPDATE tasama.director_runs SET status='ABANDONED', finished_at=now() WHERE status='RUNNING'`);
+  // The pattern scenario starts from no open patterns, so the audience sees Basira find them.
+  if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }
+  const run = (await pool.query(`INSERT INTO tasama.director_runs (key, client_key) VALUES ($1,$2) RETURNING *`, [key, client])).rows[0];
+  return { run: run.id, client, scenario: outline(s) };
+}
+
+export async function runStep(runId: number, index: number) {
+  const run = (await pool.query(`SELECT * FROM tasama.director_runs WHERE id=$1`, [runId])).rows[0];
+  if (!run) throw new Error('No such scenario run');
+  const s = findScript(run.key);
+  const st = s.steps[index];
+  if (!st) throw new Error(`No step ${index + 1}`);
+  const t0 = Date.now();
+  return withClient(run.client_key, async () => {
+    const { P, T } = await people();
+    const c: Ctx = { key: s.key, client: run.client_key, refs: run.refs ?? {}, P, T, out: (run.log as any[]).reduce((o, l) => ({ ...o, ...(l.out ?? {}) }), {}) };
+    const snap = await snapshot(c.client);
+    let result = '', error: string | null = null;
+    try { result = await execute(st.action, c); } catch (e: any) { error = e.message; console.error('[director]', s.key, st.id, e); }
+    let narration = '';
+    try { narration = await text(st.say, c); } catch (e: any) { narration = ''; if (!error) error = e.message; }
+    const ch = await changes(c.client, snap);
+    // Where the app should look.
+    let caseRef: string | null = null, pattern: string | null = null;
+    if (st.open?.startsWith('case:')) caseRef = c.refs[st.open.slice(5)] ?? null;
+    if (st.open?.startsWith('pattern:')) pattern = (await patternOf(st.open.slice(8) as any))?.ref ?? null;
+    const done = index >= s.steps.length - 1;
+    const out = { ...c.out }; if (out.inv) out.inv = { number: out.inv.number, headcount: out.inv.headcount, base_fee: out.inv.base_fee, credits: out.inv.credits, total: out.inv.total };
+    await pool.query(`UPDATE tasama.director_runs SET step_index=$2, refs=$3, log = log || $4::jsonb, status=$5, finished_at=$6 WHERE id=$1`,
+      [run.id, index, JSON.stringify(c.refs), JSON.stringify([{ step: st.id, result, error, out, ms: Date.now() - t0, at: new Date() }]), done ? 'DONE' : 'RUNNING', done ? new Date() : null]);
+    return { index, total: s.steps.length, step: { id: st.id, title: st.title, title_ar: st.title_ar, trigger: st.trigger, kind: st.action.kind }, narration, persona: st.persona, client: c.client, screen: st.screen, caseRef, pattern, result, error, changes: ch, ms: Date.now() - t0 };
+  });
+}
+
+export async function stopScenario() {
+  await pool.query(`UPDATE tasama.director_runs SET status='ABANDONED', finished_at=now() WHERE status='RUNNING'`);
+}
+void CLIENTS;

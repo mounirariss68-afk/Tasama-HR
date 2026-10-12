@@ -22,7 +22,7 @@ export function AgentsScreen() {
   if (!data) return null;
   const toAgent = (x: any) => ({ id: x.id, name: bi(x.name, x.name_ar), role: bi(x.title, x.title_ar), purpose: bi(x.purpose, x.purpose_ar), initials: bi(x.name, x.name_ar).slice(0, 2), autonomy: AUTONOMY[x.autonomy] as AgentAutonomy });
   return (
-    <Screen hero={<Hero eyebrow="Agent Control" title="Agents" lede="Eighteen named colleagues: fourteen work inside every client account, four run Tasama's own service. Each has a remit, a human owner and a declared autonomy level: the rung it actually runs at here. None runs unsupervised."
+    <Screen hero={<Hero eyebrow="Agent Control" title="Agents" lede="Nineteen named colleagues: fourteen work inside every client account, five run Tasama's own service. Each has a remit, a human owner and a declared autonomy level: the rung it actually runs at here. None runs unsupervised."
       feature={<HeroFeature label="Autonomous agents" value="0" support={<Chip>{t('of')} {data.length}</Chip>} />} />}>
       <Panel icon={<ShieldCheck size={16} />} title="The autonomy ladder">
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
@@ -60,11 +60,11 @@ export function WorkflowsScreen() {
   const [sel, setSel] = useState<string>('WF-16');
   if (!data) return null;
   const w = data.find((x) => x.id === sel) ?? data[0];
-  const cov = { implemented: data.filter((x) => x.coverage === 'implemented').length, partial: data.filter((x) => x.coverage === 'partial').length };
+  const cov = { implemented: data.filter((x) => x.coverage === 'implemented').length, partial: data.filter((x) => x.coverage === 'partial').length, designed: data.filter((x) => x.coverage === 'designed').length };
   const actor = (s: any) => (s.actor_type === 'AGENT' ? <AgentTag id={s.actor} showChip={false} /> : s.actor_type === 'HUMAN' ? roleName(s.actor, bi) : t('Connector (writes to the HRMS)'));
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="Agent Control" title="Workflows" lede="Twenty-one workflows from hire to retire, plus three Tasama service workflows. Every step names its actor, inputs, outputs and the decision it makes; unbuilt steps stay in the catalog, marked."
-      feature={<HeroFeature label="Implemented end to end" value={`${cov.implemented}/${data.length}`} support={<Chip tone="warn">{cov.partial} {t('partial')}</Chip>} />} />}>
+    <Screen hero={<Hero tone="surface" eyebrow="Agent Control" title="Workflows" lede="Twenty-one workflows from hire to retire, plus four Tasama service workflows. Every step names its actor, inputs, outputs and the decision it makes; unbuilt steps stay in the catalog, marked."
+      feature={<HeroFeature label="Implemented end to end" value={`${cov.implemented}/${data.length}`} support={<span className="flex gap-1"><Chip tone="warn">{cov.partial} {t('partial')}</Chip>{cov.designed ? <Chip>{cov.designed} {t('designed')}</Chip> : null}</span>} />} />}>
       <PageColumns aside={<Panel icon={<GitBranch size={16} />} title={`${w.id} · ${bi(w.name, w.name_ar)}`} action={<PanelAction>{Object.values(w.counts ?? {}).reduce((a: number, b: any) => a + b, 0) as number} {t('cases')}</PanelAction>}>
         <p className="mb-3 text-sm text-muted-foreground">{t('Trigger')}: {w.trigger_en} · {t('Decision by')}: {w.decision_by}{w.median_s ? ` · ${t('median cycle')} ${Math.round(w.median_s / 3600)} h` : ''}</p>
         <WorkflowWalkthrough>
@@ -82,50 +82,27 @@ export function WorkflowsScreen() {
 // ------------------------------------------------------------------ Scenarios
 
 export function ScenariosScreen() {
-  const { t, bi, lang } = useLang();
-  const { switchPersona, openCase, session, go } = useApp();
-  const { data } = useApi<any[]>('/scenarios');
-  const [runs, setRuns] = useState<Record<string, { id: string; run?: any }>>({});
+  const { t, bi } = useLang();
+  const { session, director, startScenario } = useApp();
+  const { data } = useApi<any[]>('/director/scenarios');
   const [resetting, setResetting] = useState(false);
-  useEffect(() => {
-    const live = Object.entries(runs).filter(([, r]) => !r.run || r.run.status === 'running');
-    if (!live.length) return;
-    const h = setInterval(async () => {
-      for (const [k, r] of live) { const run = await api(`/scenarios/runs/${r.id}`); setRuns((x) => ({ ...x, [k]: { ...r, run } })); if (run.status !== 'running') bump(); }
-    }, 900);
-    return () => clearInterval(h);
-  }, [runs]);
-  const run = async (key: string) => { const { id } = await post(`/scenarios/${key}/run`); setRuns((x) => ({ ...x, [key]: { id } })); };
-  const reset = async () => { setResetting(true); try { await post('/reset'); setRuns({}); bump(); } finally { setResetting(false); } };
+  const [starting, setStarting] = useState<string | null>(null);
+  const reset = async () => { setResetting(true); try { await post('/reset'); bump(); } finally { setResetting(false); } };
+  const play = async (key: string) => { setStarting(key); try { await startScenario(key); } finally { setStarting(null); } };
   return (
-    <Screen hero={<Hero eyebrow="Agent Control" title="Scenarios" lede="Eight cases: six inside a client account, two at Tasama level. Press run and watch the agents work through the real engine; where the decision is the point, the scenario stops and tells you whose screen to switch to." actions={<Btn onClick={reset} disabled={resetting}><RotateCcw className="h-4 w-4" />{resetting ? t('Rebuilding the database…') : t('Reset the demo')}</Btn>} feature={<HeroFeature label="AI mode" value={session?.ai.mode === 'claude' ? 'Claude' : t('Offline')} support={<Chip>{session?.ai.model}</Chip>} />} />}>
+    <Screen hero={<Hero eyebrow="Agent Control" title="Scenarios" lede="Nine demo scenarios: six inside a client account, three at Tasama level. Press play and the Director bar takes you through each step: it switches the client, the persona and the screen, runs the step through the real engine and shows what happened. Step, pause or go back at any point." actions={<Btn onClick={reset} disabled={resetting}><RotateCcw className="h-4 w-4" />{resetting ? t('Rebuilding…') : t('Reset the demo')}</Btn>} />}>
       <ScenarioRunner onReset={reset}>
         {(data ?? []).map((s, i, all) => {
-          const r = runs[s.key]?.run;
-          const state = !runs[s.key] ? 'idle' : !r || r.status === 'running' ? 'running' : r.status === 'failed' ? 'failed' : 'complete';
+          const state = director && director.key === s.key ? (director.status === 'done' && director.index >= director.steps.length - 1 ? 'complete' : 'running') : starting === s.key ? 'running' : 'idle';
           return (
             <div key={s.key} className="space-y-2">
               {i === 0 || all[i - 1].level !== s.level ? <p className="eyebrow pt-2">{s.level === 'tasama' ? t('Tasama level, across all clients') : `${t('Inside the client account')}: ${bi(session?.client.short, session?.client.name_ar)}`}</p> : null}
-              <ScenarioCard name={`${bi(s.shape, s.shape_ar)} · ${bi(s.title, s.title_ar)}`} premise={bi(s.summary, s.summary_ar)} state={state as any} onRun={() => run(s.key)} />
-              {r ? (
-                <div className="rounded-xl glass-l3 p-3">
-                  <ol className="space-y-1.5">{r.beats.map((b: any, i: number) => <li key={i} className="flex gap-2 text-[12.5px]"><span className="shrink-0 font-mono text-[10px] text-muted-foreground">{time(b.at, lang)}</span><span>{bi(b.text, b.text_ar)}</span></li>)}</ol>
-                  {r.status === 'running' ? <p className="mt-2 animate-pulse text-xs text-muted-foreground">{t('Running…')}</p> : null}
-                  {r.next ? (
-                    <div className="mt-3 rounded-lg border border-primary/40 bg-primary/10 p-3">
-                      <p className="text-sm">{bi(r.next.text, r.next.text_ar)}</p>
-                      <div className="mt-2 flex gap-2"><Btn small kind="primary" onClick={() => { switchPersona(r.next.persona); setTimeout(() => (r.next.screen ? go(r.next.screen) : openCase(r.next.ref)), 700); }}><ArrowRightLeft className="h-3.5 w-3.5" />{t('Switch persona and open the case')}</Btn><Btn small onClick={() => openCase(r.next.ref)}>{t('Open the case here')}</Btn></div>
-                    </div>
-                  ) : null}
-                  {r.cases?.length && !r.next && r.status !== 'running' ? <div className="mt-2 flex gap-2">{r.cases.map((c: string) => <Btn key={c} small onClick={() => openCase(c)}>{c}</Btn>)}</div> : null}
-                  {r.error ? <p className="mt-2 text-xs text-danger">{r.error}</p> : null}
-                </div>
-              ) : null}
+              <ScenarioCard name={`${bi(s.shape, s.shape_ar)} · ${bi(s.title, s.title_ar)}`} premise={`${bi(s.summary, s.summary_ar)} ${s.steps.length} ${t('steps')}.`} state={state as any} onRun={() => play(s.key)} />
             </div>
           );
         })}
       </ScenarioRunner>
-      <ProvenanceNote>{t('Scenarios inject simulated events into synthetic data. Reset rebuilds every client account and the Tasama data from the seed in about twenty seconds.')}</ProvenanceNote>
+      <ProvenanceNote>{t('Scenarios inject simulated events into synthetic data. Where a step takes a person\'s decision, the trail says it was decided by the scenario. Reset rebuilds every client account and the Tasama data from the seed in about twenty seconds.')}</ProvenanceNote>
     </Screen>
   );
 }

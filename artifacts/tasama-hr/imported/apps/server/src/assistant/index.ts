@@ -36,7 +36,7 @@ Rules you must follow:
 9. If the person asks for a human, say they can ask for human review at any time [HR-13 §13.3] and offer to route it.
 10. If none of your tools returns the data the person asked for, say plainly that you cannot see that data and, if you know it, which screen or person can. Never conclude that something does not exist, or that there are none, because a tool built for something else came back empty (for example, an empty inbox says nothing about document expiries).
 11. When you list cases, alerts or escalations, give each one's reference so the person can find it, and say how many there are in total if you show only some.
-${who === 'murshid' ? '12. For HR users, lead with the number or the fact, then the record behind it. For lists of cases use search_cases; for expiries, probation, contracts, Mudad and Saudization use compliance_alerts; for Tasama service-level escalations use tasama_escalations.' : ''}`;
+${who === 'murshid' ? '12. For HR users, lead with the number or the fact, then the record behind it. For lists of cases use search_cases; for expiries, probation, contracts, Mudad and Saudization use compliance_alerts; for Tasama service-level escalations use tasama_escalations; for rising issues, trends and root causes use patterns.' : ''}`;
 }
 
 async function conversation(personaKey: string, who: string) {
@@ -183,6 +183,13 @@ async function offline(p: Persona, text: string, lang: 'en' | 'ar', who: string)
     return { outs, calls, reply: f.length
       ? (ar ? `${f.length} تنبيهات من أمين${days ? ` خلال ${days} يوماً` : ''}: ` : `Amin has ${f.length} flag${f.length === 1 ? '' : 's'}${days ? ` due within ${days} days` : ''}: `) + f.slice(0, 8).map((x: any) => `${x.ref} ${x.person ?? ''} ${x.kind.replace(/_/g, ' ').toLowerCase()} ${x.due_date} (${x.days_left} d, ${x.owner})`).join('; ') + (f.length > 8 ? (ar ? ` و${f.length - 8} غيرها.` : `; and ${f.length - 8} more.`) : '.') + (o.result.flagged_later ? (ar ? ` و${o.result.flagged_later} تنبيهات أخرى بعد هذه المدة.` : ` ${o.result.flagged_later} more fall due after that window.`) : '') + (ar ? ' الإجراء لكل تنبيه في شاشة الامتثال.' : ' The action for each is on the Compliance screen.')
       : (ar ? `لا توجد تنبيهات مفتوحة من أمين لهذا${days ? ` خلال ${days} يوماً` : ''}.${o.result.flagged_later ? ` يوجد ${o.result.flagged_later} بعد هذه المدة.` : ''} ${o.result.horizon}` : `Amin has no open flags of that kind${days ? ` due within ${days} days` : ''}.${o.result.flagged_later ? ` ${o.result.flagged_later} fall due after that.` : ''} ${o.result.horizon}`) };
+  }
+  if (p.key === 'tasama' && has(t, 'rising', 'pattern', 'trend', 'root cause', 'why are', 'نمط', 'أنماط', 'متصاعد', 'السبب الجذري')) {
+    const o = await call('patterns', {});
+    const ps = o.result.patterns;
+    return { outs, calls, reply: ps.length
+      ? (ar ? `${ps.length} أنماط مفتوحة لدى بصيرة: ` : `Basira has ${ps.length} open pattern${ps.length === 1 ? '' : 's'}: `) + ps.map((x: any) => `${x.ref} ${x.title} (${x.rate_now} per 100, was ${x.rate_before}); likely cause: ${x.likely_causes?.[0]?.cause ?? '—'}${x.owner ? `; owner ${x.owner}` : ''}`).join(' · ') + (o.result.not_flagged.length ? (ar ? ` وفحصت ${o.result.not_flagged.length} ارتفاعات أخرى لم تنبه إليها.` : `. ${o.result.not_flagged.length} other rises were looked at and not flagged.`) : '.')
+      : (ar ? 'لا توجد أنماط متصاعدة مفتوحة.' : 'No rising problems are open.') };
   }
   if (isHR(p) && has(t, 'overdue', 'escalat', 'list cases', 'open cases', 'all cases', 'متأخرة', 'تصعيد')) {
     if (has(t, 'escalat', 'تصعيد') && p.key === 'tasama') {

@@ -751,3 +751,31 @@ CREATE TABLE layer.meta (
 CREATE SEQUENCE layer.case_seq START 4100;
 CREATE SEQUENCE hcm.doc_seq START 1800;
 CREATE SEQUENCE hcm.misc_seq START 5000;
+
+-- ---------------------------------------------------------------- issues (input to Basira's pattern watch)
+-- One row per problem that happened on a case: an escalation, a rejection, a
+-- case returned for correction, a payroll pre-run finding. Each carries a
+-- reason code from a fixed list and the facts root-cause analysis needs
+-- (who it waited on, which step, who entered the data, whether it came after
+-- the payroll cut-off). Older history is synthetic; new rows are written by
+-- Raqeeb and by decisions taken in the platform.
+CREATE TABLE layer.issues (
+  id           serial PRIMARY KEY,
+  ref          text UNIQUE NOT NULL,
+  occurred_at  timestamptz NOT NULL,
+  category     text NOT NULL,             -- ESCALATION | REJECTION | RETURNED | PAYROLL_FINDING
+  workflow_id  text,
+  reason_code  text NOT NULL,
+  case_ref     text,
+  summary      text NOT NULL,
+  attrs        jsonb NOT NULL DEFAULT '{}'
+);
+CREATE INDEX ON layer.issues (occurred_at);
+
+-- Cases handled per week and workflow: the denominator, so rates are compared, not raw counts.
+CREATE TABLE layer.weekly_volume (
+  week         date NOT NULL,
+  workflow_id  text NOT NULL,
+  cases        int NOT NULL,
+  PRIMARY KEY (week, workflow_id)
+);

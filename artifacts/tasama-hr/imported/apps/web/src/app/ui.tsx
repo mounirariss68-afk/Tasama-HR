@@ -26,7 +26,7 @@ export const AUTONOMY: Record<string, AgentAutonomy> = { A0: 'observe', A1: 'rec
 export const AGENT_NAMES: Record<string, [string, string]> = {
   rafeeq: ['Rafeeq', 'رفيق'], murshid: ['Murshid', 'مرشد'], saeed: ['Saeed', 'سعيد'], hessa: ['Hessa', 'حصة'], tamkeen: ['Tamkeen', 'تمكين'], dalil: ['Dalil', 'دليل'],
   ajaza: ['Ajaza', 'إجازة'], wathiqa: ['Wathiqa', 'وثيقة'], mezan: ['Mezan', 'ميزان'], tarqiya: ['Tarqiya', 'ترقية'], hisab: ['Hisab', 'حساب'], sanad: ['Sanad', 'سند'], wadaa: ['Wadaa', 'وداع'], amin: ['Amin', 'أمين'],
-  raqeeb: ['Raqeeb', 'رقيب'], fatoora: ['Fatoora', 'فاتورة'], tawzee: ['Tawzee', 'توزيع'], intiqal: ['Intiqal', 'انتقال'],
+  raqeeb: ['Raqeeb', 'رقيب'], fatoora: ['Fatoora', 'فاتورة'], tawzee: ['Tawzee', 'توزيع'], intiqal: ['Intiqal', 'انتقال'], basira: ['Basira', 'بصيرة'],
 };
 
 const STATUS: Record<string, { tone: string; en: string }> = {
@@ -45,7 +45,7 @@ const STATUS: Record<string, { tone: string; en: string }> = {
   EXTENDED: { tone: 'is-warn', en: 'Extended' }, ACCEPTED: { tone: 'is-success', en: 'Accepted' }, DECLINED: { tone: 'is-danger', en: 'Declined' },
   VACANT: { tone: 'is-danger', en: 'Vacant' }, IN_RECRUITMENT: { tone: 'is-primary', en: 'In recruitment' },
   PREPARED: { tone: 'is-warn', en: 'Waiting for approval' }, PAID: { tone: 'is-success', en: 'Paid' }, OVERDUE: { tone: 'is-danger', en: 'Overdue' }, BREACHED: { tone: 'is-danger', en: 'Breached' },
-  NUDGED: { tone: 'is-primary', en: 'Reminded' }, ASSIGNED: { tone: 'is-primary', en: 'Assigned' }, OPERATE: { tone: 'is-success', en: 'Operate' }, BUILD: { tone: 'is-warn', en: 'Build' }, TRANSFER: { tone: '', en: 'Transfer' },
+  NUDGED: { tone: 'is-primary', en: 'Reminded' }, MONITORING: { tone: 'is-primary', en: 'Monitoring' }, CROSS_CLIENT: { tone: 'is-warn', en: 'Across clients' }, CLIENT: { tone: '', en: 'One client' }, ASSIGNED: { tone: 'is-primary', en: 'Assigned' }, OPERATE: { tone: 'is-success', en: 'Operate' }, BUILD: { tone: 'is-warn', en: 'Build' }, TRANSFER: { tone: '', en: 'Transfer' },
 };
 
 export function StatusChip({ status, className }: { status: string | null | undefined; className?: string }) {

@@ -7,6 +7,7 @@ import { now } from '../clock.js';
 import { personaOf, isTasama } from './session.js';
 import { slaFor, closedMonths, workload, raqeebScan, nudge, prepareInvoice, tasamaTrail, monthLabel } from '../tasama/service.js';
 import { precheck } from '../agents/hisab.js';
+import { basiraScan, patterns, patternIssues, assignPattern, closePattern } from '../tasama/basira.js';
 
 export const tasama = Router();
 
@@ -208,6 +209,19 @@ tasama.get('/tasama/policies/compare', async (req, res) => {
     rows.push({ key: cl.key, short: cl.short, name_ar: cl.name_ar, clause: c ?? null });
   }
   res.json({ ref, rows });
+});
+
+// Basira's pattern watch.
+tasama.get('/tasama/patterns', async (_req, res) => res.json(await patterns()));
+tasama.get('/tasama/patterns/:id/issues', async (req, res) => res.json(await patternIssues(Number(req.params.id))));
+tasama.post('/tasama/patterns/scan', async (_req, res) => res.json(await basiraScan()));
+tasama.post('/tasama/patterns/:id/assign', async (req, res) => {
+  const p = await personaOf(req);
+  try { await assignPattern(Number(req.params.id), p.display_name, req.body); res.json({ ok: true }); } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+tasama.post('/tasama/patterns/:id/close', async (req, res) => {
+  const p = await personaOf(req);
+  try { await closePattern(Number(req.params.id), p.display_name, String(req.body.outcome ?? '')); res.json({ ok: true }); } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 tasama.get('/tasama/trail', async (_req, res) => {

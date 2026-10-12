@@ -12,7 +12,7 @@ import { closedMonths, prepareInvoice, raqeebScan, tasamaTrail, invoiceLines } f
 import { setClock } from '../clock.js';
 
 /** Delivery team. FTE shares are of each person's time on these five accounts; the rest serves other Tasama clients. */
-const STAFF: [string, string, string, string, string[], number, [string, number][]][] = [
+export const STAFF: [string, string, string, string, string[], number, [string, number][]][] = [
   ['Faisal Al Harbi', 'فيصل الحربي', 'HR Operations Manager', 'مدير عمليات الموارد البشرية', ['ACCOUNT'], 46000, [['roshn', 0.1], ['riyadhair', 0.1], ['redsea', 0.1], ['seven', 0.1], ['saudicoffee', 0.05]]],
   ['Nora Al Shehri', 'نورة الشهري', 'Client Account Manager', 'مديرة حسابات العملاء', ['ACCOUNT'], 34000, [['roshn', 0.2], ['riyadhair', 0.2]]],
   ['Majed Al Qahtani', 'ماجد القحطاني', 'Client Account Manager', 'مدير حسابات العملاء', ['ACCOUNT'], 33000, [['redsea', 0.15], ['seven', 0.15], ['saudicoffee', 0.05]]],

@@ -1,7 +1,9 @@
 /** Cases: create, read, decide; the inbox; the lifecycle board. */
 import { Router } from 'express';
-import { pool, tx } from '../db.js';
+import { pool, tx, currentClient } from '../db.js';
 import { startCase, decide, type StartIn } from '../engine/core.js';
+import { recordIssue } from '../tasama/basira.js';
+import { REJECT_REASONS } from '../domain/reasons.js';
 import { letterName } from '../engine/handlers.js';
 import { caseScope, personaOf, has, type Persona } from './session.js';
 import { TASAMA_KEY } from './session.js';
@@ -119,6 +121,11 @@ cases.post('/requests/:ref/decide', async (req, res) => {
   const behalfName = onBehalf ? (await pool.query('SELECT display_name FROM hcm.persons WHERE id=$1', [r.waiting_on_person_id])).rows[0]?.display_name ?? r.waiting_on_role : '';
   try {
     await tx((c) => decide(c, { requestId: r.id, personId: onBehalf ? (r.waiting_on_person_id ?? 0) : p.person_id, decision: req.body.decision, reason: req.body.reason, edits: req.body.edits, actorName: onBehalf ? `${p.display_name} (Tasama HR Operations, on behalf of ${behalfName})` : undefined }));
+    // A rejection is an issue for Basira's pattern watch, with the reason the decider picked.
+    if (req.body.decision === 'REJECTED') {
+      const code = REJECT_REASONS.includes(req.body.reason_code) ? req.body.reason_code : 'NOT_RECORDED';
+      await recordIssue(currentClient()!, { category: 'REJECTION', workflow_id: r.workflow_id, reason_code: code, case_ref: r.ref, summary: `${r.title} declined by ${onBehalf ? `${p.display_name} on behalf of ${behalfName}` : p.display_name}${req.body.reason ? `: ${String(req.body.reason).slice(0, 140)}` : ''}`, attrs: { decided_by: onBehalf ? behalfName : p.display_name, step: r.current_step } });
+    }
     res.json((await pool.query(`SELECT * FROM layer.requests WHERE id=$1`, [r.id])).rows[0]);
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });

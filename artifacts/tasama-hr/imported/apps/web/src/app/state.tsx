@@ -3,8 +3,8 @@
  * the URL hash so a screen can be shared), and the case drawer that any
  * screen can open.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, getPersona, getClient, setPersonaKey, setClientKey, useVersion } from '../lib/api';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { api, post, bump, getPersona, getClient, setPersonaKey, setClientKey, useVersion } from '../lib/api';
 
 export type PersonaInfo = {
   key: string; person_id: number; label: string; label_ar: string; role_title: string; role_title_ar: string;
@@ -18,7 +18,7 @@ export const LENS_OF: Record<string, LensId> = {
   'my-home': 'my', 'my-requests': 'my', 'my-leave': 'my', 'my-pay': 'my', 'my-growth': 'my', 'my-onboarding': 'my',
   team: 'team', 'team-approvals': 'team', 'team-hiring': 'team', 'team-performance': 'team',
   'hr-inbox': 'hr', 'hr-lifecycle': 'hr', 'hr-workforce': 'hr', 'hr-hiring': 'hr', 'hr-onboarding': 'hr', 'hr-performance': 'hr', 'hr-payroll': 'hr', 'hr-exits': 'hr', 'hr-compliance': 'hr', person: 'hr',
-  'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama',
+  'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama', 'tasama-patterns': 'tasama',
   agents: 'control', workflows: 'control', scenarios: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control', settings: 'control',
 };
 export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team', hr: 'hr-inbox', control: 'agents' };
@@ -26,6 +26,19 @@ export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', m
 export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : 'my');
 
 type Route = { screen: string; param: string | null };
+
+/** The Demo Director: a scenario played step by step (Play / Pause / Step / Back). */
+export type DirectorOutline = { id: string; title: string; title_ar: string; trigger: string; persona: string; screen: string; kind: string };
+export type DirectorResult = {
+  index: number; total: number; step: { id: string; title: string; title_ar: string; trigger: string; kind: string }; narration: string;
+  persona: string; client: string; screen: string; caseRef: string | null; pattern: string | null; result: string; error: string | null;
+  changes: { trail: any[]; cases: any[]; tasama: any[] };
+};
+export type Director = {
+  key: string; title: string; title_ar: string; run: number; client: string; steps: DirectorOutline[];
+  index: number; results: Record<number, DirectorResult>; status: 'running' | 'done'; auto: boolean; busy: boolean; error: string | null;
+};
+export const AUTO_STEP_MS = 9000;
 const parseHash = (): Route => {
   const h = window.location.hash.replace(/^#\/?/, '');
   const [screen, param] = h.split('/');
@@ -45,6 +58,12 @@ type Ctx = {
   openCase: (ref: string | null) => void;
   has: (role: string) => boolean;
   reloadSession: () => void;
+  booting: string | null;
+  director: Director | null;
+  startScenario: (key: string) => Promise<void>;
+  stepScenario: (dir: 1 | -1) => Promise<void>;
+  stopScenario: () => void;
+  setAuto: (on: boolean) => void;
 };
 const AppCtx = createContext<Ctx | null>(null);
 
@@ -54,10 +73,18 @@ export function AppState({ children }: { children: ReactNode }) {
   const [caseRef, setCaseRef] = useState<string | null>(null);
   const v = useVersion();
 
-  const loadSession = useCallback(async () => {
-    const s = await api<Session>('/session');
-    setSession(s);
-    return s;
+  const [booting, setBooting] = useState<string | null>(null);
+  const loadSession = useCallback(async (): Promise<Session> => {
+    try {
+      const s = await api<Session>('/session');
+      setSession(s); setBooting(null);
+      return s;
+    } catch (e: any) {
+      // While the server builds the demo data it answers 503; wait and try again.
+      setBooting(e.message);
+      await new Promise((r) => setTimeout(r, 3000));
+      return loadSession();
+    }
   }, []);
   useEffect(() => { loadSession(); }, [loadSession, v]);
   useEffect(() => {
@@ -100,12 +127,57 @@ export function AppState({ children }: { children: ReactNode }) {
     loadSession().then((s) => { window.location.hash = `#/${screen && (LENS_OF[screen] ? s.persona.lenses.includes(LENS_OF[screen]) : true) ? screen : LENS_HOME[homeLens(s.persona)]}`; });
   }, [loadSession]);
 
+  // ---------------------------------------------------------------- the Demo Director
+  const [director, setDirector] = useState<Director | null>(null);
+  const auto = useRef<number | null>(null);
+  /** Put the app where a step says: client account, persona, screen, then the case or pattern. */
+  const show = useCallback(async (r: DirectorResult) => {
+    if (getClient() !== r.client) setClientKey(r.client);
+    if (getPersona() !== r.persona) setPersonaKey(r.persona);
+    await loadSession();
+    setCaseRef(null);
+    window.location.hash = `#/${r.screen}${r.pattern ? `/${encodeURIComponent(r.pattern)}` : ''}`;
+    if (r.caseRef) window.setTimeout(() => setCaseRef(r.caseRef), 350);
+  }, [loadSession]);
+  const runIndex = useCallback(async (d: Director, index: number) => {
+    setDirector((x) => x && { ...x, busy: true, error: null });
+    try {
+      const r = await post<DirectorResult>(`/director/runs/${d.run}/step`, { index });
+      bump();
+      setDirector((x) => x && { ...x, busy: false, index, results: { ...x.results, [index]: r }, status: index >= x.steps.length - 1 ? 'done' : 'running', auto: index >= x.steps.length - 1 ? false : x.auto });
+      await show(r);
+    } catch (e: any) { setDirector((x) => x && { ...x, busy: false, auto: false, error: e.message }); }
+  }, [show]);
+  const startScenario = useCallback(async (key: string) => {
+    const r = await post<any>(`/director/${key}/start`);
+    const d: Director = { key, title: r.scenario.title, title_ar: r.scenario.title_ar, run: r.run, client: r.client, steps: r.scenario.steps, index: -1, results: {}, status: 'running', auto: false, busy: false, error: null };
+    setDirector(d);
+    await runIndex(d, 0);
+  }, [runIndex]);
+  const stepScenario = useCallback(async (dir: 1 | -1) => {
+    if (!director || director.busy) return;
+    const next = director.index + dir;
+    if (next < 0 || next >= director.steps.length) return;
+    // A step already played is shown again, not run again.
+    const done = director.results[next];
+    if (done) { setDirector((x) => x && { ...x, index: next }); await show(done); return; }
+    await runIndex(director, next);
+  }, [director, runIndex, show]);
+  const stopScenario = useCallback(() => { post('/director/stop').catch(() => {}); setDirector(null); if (auto.current) window.clearTimeout(auto.current); }, []);
+  const setAuto = useCallback((on: boolean) => setDirector((x) => x && { ...x, auto: on }), []);
+  useEffect(() => {
+    if (!director?.auto || director.busy || director.index >= director.steps.length - 1) return;
+    auto.current = window.setTimeout(() => { stepScenario(1); }, AUTO_STEP_MS);
+    return () => { if (auto.current) window.clearTimeout(auto.current); };
+  }, [director?.auto, director?.busy, director?.index, director?.steps.length, stepScenario]);
+
   const lens: LensId = LENS_OF[route.screen] ?? (persona ? homeLens(persona) : 'my');
   const client = session?.client ?? null;
   const value = useMemo<Ctx>(() => ({
     session, persona, switchPersona, client, switchClient, route, go, lens, caseRef, openCase: setCaseRef,
-    has: (r: string) => !!persona?.roles.includes(r), reloadSession: loadSession,
-  }), [session, persona, switchPersona, client, switchClient, route, go, lens, caseRef, loadSession]);
+    has: (r: string) => !!persona?.roles.includes(r), reloadSession: loadSession, booting,
+    director, startScenario, stepScenario, stopScenario, setAuto,
+  }), [session, persona, switchPersona, client, switchClient, route, go, lens, caseRef, loadSession, booting, director, startScenario, stepScenario, stopScenario, setAuto]);
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
 

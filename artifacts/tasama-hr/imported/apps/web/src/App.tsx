@@ -20,7 +20,8 @@ import { useApi } from './lib/api';
 import { LanguageToggle, useLang } from './lib/i18n';
 import { initials, ago } from './lib/format';
 import { useApp, type LensId, LENS_HOME } from './app/state';
-import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPolicies } from './screens/tasama';
+import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPolicies, TasamaPatterns } from './screens/tasama';
+import { DirectorBar } from './app/director';
 import { Building2, Gauge, Receipt, AlertTriangle, BookOpen, ChevronDown } from 'lucide-react';
 import { AssistantRail } from './app/assistant';
 import { CaseDrawer } from './app/case';
@@ -43,6 +44,7 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'tasama-account', label: 'Client accounts', icon: I(<Building2 size={14} />) },
     { id: 'tasama-sla', label: 'Service levels', icon: I(<Gauge size={14} />) },
     { id: 'tasama-escalations', label: 'Escalations', icon: I(<AlertTriangle size={14} />) },
+    { id: 'tasama-patterns', label: 'Patterns', icon: I(<TrendingUp size={14} />) },
     { id: 'tasama-finance', label: 'Finance', icon: I(<Receipt size={14} />) },
     { id: 'tasama-delivery', label: 'Delivery team', icon: I(<Users size={14} />) },
     { id: 'tasama-policies', label: 'HR policies', icon: I(<BookOpen size={14} />) },
@@ -87,7 +89,7 @@ const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama 
 
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
-  'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <TasamaPolicies />,
+  'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <TasamaPolicies />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
   'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,
@@ -200,7 +202,7 @@ void Search;
 export default function App() {
   const rail = useChatRail(true);
   const chrome = useAppChrome();
-  const { persona, route, go, lens } = useApp();
+  const { persona, route, go, lens, booting, director } = useApp();
   const { t } = useLang();
   const lenses = useMemo(() => LENSES.filter((l) => persona?.lenses.includes(l.id)), [persona]);
   const items = useMemo(() => (MENUS[lens] ?? []).filter((i) => !i.show || i.show(persona?.roles ?? [], persona?.key ?? '')).map((i) => ({ ...i, onSelect: () => go(i.id) })), [lens, persona, go]);
@@ -222,9 +224,10 @@ export default function App() {
         }
         contextNav={<ContextNav items={items} value={route.screen === 'person' ? 'hr-workforce' : route.screen} chrome={chrome} />}
       >
-        <MainPanel>{persona && screen ? screen() : <div className="p-10 text-center text-sm text-muted-foreground">{t('Loading…')}</div>}</MainPanel>
+        <MainPanel>{persona && screen ? screen() : <div className="p-10 text-center text-sm text-muted-foreground">{booting ? t('Preparing the demo data: the five client accounts and Tasama\'s records are being built. This takes about a minute; the page opens by itself.') : t('Loading…')}</div>}{director ? <div aria-hidden className="h-56" /> : null}</MainPanel>
       </AppShell>
       <CaseDrawer />
+      <DirectorBar />
     </>
   );
 }

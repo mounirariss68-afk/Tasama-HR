@@ -11,6 +11,11 @@ import { seedBase } from './base.js';
 import { seedLayer } from './layer.js';
 import { seedHistory } from './history.js';
 import { seedTasama } from './tasama.js';
+import { seedIssues } from './issues.js';
+import { basiraScan } from '../tasama/basira.js';
+
+/** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
+export const SEED_VERSION = 2;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
@@ -45,6 +50,7 @@ export async function reseed(log: (s: string) => void = console.log) {
             await c.query('BEGIN');
             const open = await seedHistory(c, base, cl);
             setClock(null);
+            await seedIssues(c, cl, anchor);
             await scan(c, iso(new Date()));
             await c.query(`DELETE FROM layer.integration_log WHERE id NOT IN (SELECT id FROM layer.integration_log ORDER BY at DESC LIMIT 4000)`);
             await c.query('COMMIT');
@@ -60,6 +66,9 @@ export async function reseed(log: (s: string) => void = console.log) {
       }
       await pool.query(readFileSync(TASAMA, 'utf8'));
       await seedTasama(log);
+      const pat = await basiraScan({ useClaude: false });
+      await pool.query(`INSERT INTO tasama.meta (key, value) VALUES ('seed_version', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(SEED_VERSION)]);
+      log(`Basira: ${pat.flagged.length} patterns flagged, ${pat.watched} rises looked at and not flagged`);
       log(`seeded in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     } finally {
       setClock(null);
@@ -71,8 +80,8 @@ export async function reseed(log: (s: string) => void = console.log) {
 
 export async function isSeeded() {
   try {
-    const r = await pool.query(`SELECT value FROM tasama.meta WHERE key='seeded_at'`);
-    return r.rows.length > 0;
+    const r = await pool.query(`SELECT key, value FROM tasama.meta WHERE key IN ('seeded_at','seed_version')`);
+    return r.rows.some((x: any) => x.key === 'seeded_at') && Number(r.rows.find((x: any) => x.key === 'seed_version')?.value) === SEED_VERSION;
   } catch {
     return false;
   }

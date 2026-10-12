@@ -127,6 +127,7 @@ CREATE TABLE tasama.escalations (
   action       text,
   note         text,
   resolved_at  timestamptz,
+  reason_code  text,
   UNIQUE (client_key, case_ref)
 );
 
@@ -142,6 +143,59 @@ CREATE TABLE tasama.trail (
   summary     text NOT NULL,
   summary_ar  text NOT NULL,
   ref         text
+);
+
+-- Basira's pattern watch: a rising rate of one kind of problem, the cases behind it, the likely causes and what was done.
+CREATE TABLE tasama.patterns (
+  id            serial PRIMARY KEY,
+  ref           text UNIQUE NOT NULL,             -- PAT-2026-001
+  scope         text NOT NULL,                    -- CLIENT | CROSS_CLIENT
+  client_keys   text[] NOT NULL,
+  category      text NOT NULL,
+  workflow_id   text,
+  reason_code   text NOT NULL,
+  title         text NOT NULL,
+  title_ar      text NOT NULL,
+  baseline_rate numeric NOT NULL,                 -- per 100 cases, weekly average over the baseline weeks
+  current_rate  numeric NOT NULL,                 -- per 100 cases, average over the last two weeks
+  series        jsonb NOT NULL,                   -- [{week, rate, issues, cases}]
+  issue_refs    text[] NOT NULL,
+  case_refs     text[] NOT NULL,
+  facts         jsonb NOT NULL,                   -- what is different about the recent issues
+  causes        jsonb NOT NULL,                   -- [{cause, evidence, strength}] likely causes, not conclusions
+  causes_by     text NOT NULL,                    -- 'claude' | 'rules'
+  status        text NOT NULL DEFAULT 'NEW',      -- NEW | ASSIGNED | MONITORING | CLOSED
+  owner_staff_id int REFERENCES tasama.staff(id),
+  action        text,
+  recheck_on    date,
+  outcome       text,
+  detected_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Rises Basira looked at and did not flag, with the reason (one week only, too few cases).
+CREATE TABLE tasama.pattern_watch (
+  id           serial PRIMARY KEY,
+  client_key   text NOT NULL,
+  category     text NOT NULL,
+  workflow_id  text,
+  reason_code  text NOT NULL,
+  note         text NOT NULL,
+  series       jsonb NOT NULL,
+  scanned_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- The Demo Director: which scenario is playing, at which step, and what each step did.
+CREATE TABLE tasama.director_runs (
+  id           serial PRIMARY KEY,
+  key          text NOT NULL,
+  client_key   text NOT NULL,
+  status       text NOT NULL DEFAULT 'RUNNING',   -- RUNNING | DONE | ABANDONED
+  step_index   int NOT NULL DEFAULT -1,
+  refs         jsonb NOT NULL DEFAULT '{}',       -- case references the scenario created, by name
+  log          jsonb NOT NULL DEFAULT '[]',
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz
 );
 
 CREATE TABLE tasama.meta (
