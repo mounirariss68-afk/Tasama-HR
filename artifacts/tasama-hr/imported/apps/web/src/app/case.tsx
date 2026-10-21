@@ -1,23 +1,26 @@
 /**
  * The case reader, used by every inbox and the case drawer.
  *
- * Top to bottom: what the case is, what the agent recommends, the evidence
- * behind it, the steps (actor, decision), the decision trail, the HRMS calls
- * it made — and, when the case waits on the signed-in person, a decision bar
- * naming the actual decision. Reversible options sit left of irreversible.
+ * A decision card (meta line, headline, up to four facts, one recommendation
+ * line), the one or two actions, and one collapsed disclosure, "How this was
+ * checked", holding the evidence, the steps, the trail, the rules cited and the
+ * HRMS calls. Nothing from the disclosure is visible without a click.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { DecisionBar, DecisionTrail, ReaderSection, TrailEntry, ProvenanceNote, type TrailKind } from '@cognirise/atelier/archetypes';
+import { useEffect, useState } from 'react';
+import { AgentAvatar, DecisionBar, DecisionTrail, InboxItem, InboxReader, ReaderSection, TrailEntry, type TrailKind } from '@cognirise/atelier/archetypes';
 import { Sheet, SheetContent, SheetTitle } from '@cognirise/atelier/components/ui/sheet';
-import { AlertTriangle, CheckCircle2, CircleDashed, Clock, ExternalLink, Loader2, Server, XCircle } from 'lucide-react';
-import { api, bump, post, useApi } from '../lib/api';
+import { AlertTriangle, CheckCircle2, CircleDashed, Clock, Loader2, Server, XCircle } from 'lucide-react';
+import { bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { aed, ago, date, dateTime, until } from '../lib/format';
 import { useApp } from './state';
-import { AgentTag, Bar, Btn, Chip, Empty, Kv, Ref, StatusChip, Table, AGENT_NAMES } from './ui';
+import { AGENT_NAMES, AgentTag, Btn, Chip, Empty, Kv, Person, StatusChip, Table } from './ui';
 import { DocumentPreview } from './document-preview';
 import { DocumentDownload } from './document-download';
-import { caseDocument, letterDocument } from '../lib/documents';
+import { letterDocument } from '../lib/documents';
+import { caseCard, plain, Provenance, recommender, rowParts, splitRec, type Fact } from './decision';
+import { initials } from '../lib/format';
+import { ClockBar } from './viz';
 
 export const KIND: Record<string, TrailKind> = {
   READ: 'observed', CHECK: 'observed', RECOMMEND: 'proposed', PREPARE: 'proposed', WRITE: 'acted', NOTIFY: 'acted', ANSWER: 'acted',
@@ -122,7 +125,6 @@ function Details({ c }: { c: any }) {
         <ul className="space-y-1 text-sm">{(p.criteria ?? []).map((cr: any) => <li key={cr.key}><Chip tone={cr.kind === 'must' ? 'primary' : undefined}>{cr.kind === 'must' ? t('Must') : t('Nice')}</Chip> {cr.label}</li>)}</ul>
         {p.ad ? <p dir="auto" className="mt-3 text-sm">{bi(p.ad.en, p.ad.ar)}</p> : null}
         {(p.internal ?? []).length ? <p className="mt-3 text-sm"><span className="text-muted-foreground">{t('Internal matches')}:</span> {p.internal.map((m: any) => `${m.display_name} (${m.grade})`).join(', ')}</p> : null}
-          {p.ad ? <DocumentDownload document={{ title: t('Job advertisement'), reference: c.ref, body: bi(p.ad.en, p.ad.ar), language: lang, status: c.status }} /> : null}
       </ReaderSection>
     );
     case 'WF-05': {
@@ -171,16 +173,6 @@ function Details({ c }: { c: any }) {
               {st.note ? <p className="mt-2 text-sm text-muted-foreground">{st.note}</p> : null}
               <p className="mt-2 text-sm text-muted-foreground">{t('Last working day')}: {date(st.lastDay, lang)} · {st.years} {t('years of service')} · {t(st.kind === 'RESIGNATION' ? 'Resignation' : 'Ended by the employer')}</p>
               {st.visa ? <p className="mt-1 text-sm text-muted-foreground">{st.visa}</p> : null}
-              <DocumentDownload document={{
-                title: t('Final settlement'), reference: c.ref, language: lang, status: c.status,
-                body: [
-                  `${t('Employee')}: ${bi(c.subject_name, c.subject_name_ar)}`,
-                  `${t('Last working day')}: ${date(st.lastDay, lang)}`,
-                  ...st.lines.map((l: any) => `${bi(l.label, l.label_ar)}: ${aed(l.amount, lang)} (${l.rule})`),
-                  `${t('Total')}: ${aed(st.total, lang)}`, `${t('Pay by')}: ${date(st.payBy, lang)}`,
-                  `${st.years} ${t('years of service')}`, st.note, st.visa,
-                ].filter(Boolean).join('\n'),
-              }} />
             </ReaderSection>
           ) : p.last_day ? <ReaderSection label={t('Notice')}><p className="text-sm">{t('Last working day')}: {date(p.last_day, lang)} ({p.notice_days} {t('days notice')})</p></ReaderSection> : null}
         </>
@@ -220,19 +212,19 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
     const pc = c.result.precheck;
     const toggle = (id: string) => setEdits({ ...edits, apply_fixes: edits.apply_fixes?.includes(id) ? edits.apply_fixes.filter((x: string) => x !== id) : [...(edits.apply_fixes ?? []), id] });
     return (
-      <ReaderSection label={`${t('Findings')} · ${pc.period}`}>
-        <p className="mb-3 text-sm text-muted-foreground">{t('Tick a finding to have the connector apply Hisab\'s fix. Untick it and give a reason to accept it as it is. Blockers must be one or the other.')}</p>
+      <ReaderSection label={t('Findings')}>
+        <p className="mb-3 text-sm text-muted-foreground">{t('Tick to apply the fix; untick and give a reason to accept it as it is.')}</p>
         <div className="space-y-2">
           {pc.findings.map((f: any) => {
             const on = edits.apply_fixes?.includes(f.id);
             return (
               <div key={f.id} className="rounded-lg border border-border/60 bg-card/50 p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusChip status={f.severity} /><span className="text-sm font-semibold">{bi(f.title, f.title_ar)}</span><span className="text-sm text-muted-foreground">· {bi(f.name, f.name_ar)}</span>
+                  <StatusChip status={f.severity} /><span className="text-sm font-semibold">{bi(f.title, f.title_ar)}</span><span className="text-sm text-muted-foreground">{bi(f.name, f.name_ar)}</span>
                   <span className="ms-auto font-mono text-xs tabular-nums">{aed(f.amount, lang)}</span>
                 </div>
-                <p className="mt-1 text-sm">{f.detail}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{t('Fix')}: {f.fix} · <span className="font-mono">{f.rule}</span></p>
+                <p className="mt-1 text-sm">{plain(f.detail)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('Fix')}: {plain(f.fix)}</p>
                 {f.severity !== 'INFO' ? (
                   <div className="mt-2 flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!on} onChange={() => toggle(f.id)} /> {t('Apply the fix')}</label>
@@ -243,7 +235,6 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
             );
           })}
         </div>
-        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4"><Kv k={t('Employees')} v={pc.totals.headcount} /><Kv k={t('Gross')} v={aed(pc.totals.gross, lang)} /><Kv k={t('Net')} v={aed(pc.totals.net, lang)} /><Kv k={t('Last month gross')} v={aed(pc.last?.gross, lang)} /></dl>
       </ReaderSection>
     );
   }
@@ -253,7 +244,7 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
         <label className="field"><span>{t('Approved amount (SAR)')}</span><input className="input" type="number" value={edits.approved_amount ?? ''} onChange={(e) => setEdits({ ...edits, approved_amount: Number(e.target.value) })} /></label>
         <label className="field"><span>{t('Recovery months')}</span><input className="input" type="number" min={1} max={24} value={edits.approved_months ?? ''} onChange={(e) => setEdits({ ...edits, approved_months: Number(e.target.value) })} /></label>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">{t('Pre-filled with the within-policy amount. Change it to approve the exception as requested.')}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{t('Pre-filled with the most the policy allows.')}</p>
     </ReaderSection>
   );
   if (c.workflow_id === 'WF-12' && c.result?.case) return (
@@ -266,7 +257,7 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
     const flagged = (c.result.calibration.flags ?? []).filter((f: any) => f.person_id);
     return (
       <ReaderSection label={t('Panel changes')}>
-        <p className="mb-2 text-sm text-muted-foreground">{t('Ratings stand as the managers gave them unless the panel changes one here, with a reason. Every change is written to the trail.')}</p>
+        <p className="mb-2 text-sm text-muted-foreground">{t('Ratings stand as the managers gave them unless you change one here, with a reason.')}</p>
         {flagged.map((f: any) => {
           const ch = changes.find((x: any) => x.person_id === f.person_id);
           return (
@@ -287,12 +278,11 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
     const sel: number[] = edits.shortlist ?? apps.filter((a: any) => a.evidence.filter((e: any) => e.kind === 'must').every((e: any) => e.status === 'evident')).map((a: any) => a.id);
     return (
       <ReaderSection label={`${t('Evidence against the stated criteria')} · ${apps.length}`}>
-        <p className="mb-2 text-sm text-muted-foreground">{t('Hessa shows evidence only. You choose the shortlist.')}</p>
         <Table><thead><tr><th></th><th>{t('Candidate')}</th>{(shortlist.data.requisition.criteria ?? []).map((cr: any) => <th key={cr.key}>{cr.label}</th>)}<th>{t('Source')}</th></tr></thead>
           <tbody>{apps.map((a: any) => (
             <tr key={a.id}>
               <td><input type="checkbox" checked={sel.includes(a.id)} onChange={() => setEdits({ ...edits, shortlist: sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id] })} /></td>
-              <td className="whitespace-nowrap">{a.first_name} {a.last_name}<span className="block font-mono text-[10px] text-muted-foreground">{a.candidate_number}</span></td>
+              <td className="whitespace-nowrap">{a.first_name} {a.last_name}</td>
               {a.evidence.map((e: any) => <td key={e.key} title={e.note}><span className={e.status === 'evident' ? 'text-success' : e.status === 'partial' ? 'text-warn' : 'text-muted-foreground'}>{e.status === 'evident' ? '●' : e.status === 'partial' ? '◐' : '○'}</span> <span className="text-xs text-muted-foreground">{e.note}</span></td>)}
               <td className="text-xs">{a.source}</td>
             </tr>
@@ -308,79 +298,180 @@ const REJECT_REASONS: [string, string, string][] = [
   ['DOCUMENT_MISSING', 'Supporting document missing', 'المستند الداعم غير مرفق'], ['DUPLICATE', 'Duplicate request', 'طلب مكرر'],
 ];
 
-export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => void }) {
+/** Rules the agents cited on this case, from the trail. */
+function RulesCited({ trail }: { trail: any[] }) {
+  const { t } = useLang();
+  const { go, openCase } = useApp();
+  const ids = [...new Set(trail.flatMap((e) => String(e.citation ?? '').split(/;\s*/)).map((x) => x.trim()).filter(Boolean))];
+  if (!ids.length) return null;
+  return <ReaderSection label={t('Rules cited')}><div className="flex flex-wrap gap-1.5">{ids.map((id) => <button key={id} type="button" className="mono-chip is-primary" onClick={() => { const m = /HR-\d+\s*§[\d.]+/.exec(id); if (m) { openCase(null); go('policies', m[0].replace(/\s+/g, ' ')); } }}>{id}</button>)}</div></ReaderSection>;
+}
+
+/** The facts, each once: a tiled grid so values never wrap into a column of words. */
+function FactGrid({ facts }: { facts: Fact[] }) {
+  if (!facts.length) return null;
+  const twoCols = facts.length > 1 && !(facts.length === 3 && !facts.some((f) => f.viz || f.wide));
+  const cols = facts.length === 1 ? 'grid-cols-1' : twoCols ? 'grid-cols-2' : 'grid-cols-3';
+  const narrow = facts.filter((f) => !f.wide);
+  const lastNarrow = narrow.length % 2 === 1 ? narrow[narrow.length - 1] : null;
+  return (
+    <dl className={`grid gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 ${cols}`}>
+      {facts.map((f) => (
+        <div key={f.k} className={`min-w-0 bg-card px-4 py-3 ${twoCols && (f.wide || f === lastNarrow) ? 'col-span-2' : ''}`}>
+          <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">{f.k}{f.tone === 'danger' ? <AlertTriangle className="h-3.5 w-3.5 text-danger" /> : f.tone === 'warn' ? <AlertTriangle className="h-3.5 w-3.5 text-warn" /> : null}</dt>
+          <dd className="mt-1 break-words text-sm font-semibold leading-snug">{f.v}</dd>
+          {f.viz ? <div className="mt-2.5">{f.viz}</div> : null}
+          {f.note ? <p className="mt-0.5 text-xs text-muted-foreground">{f.note}</p> : null}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The recommendation, attributed to the agent that made it, with its reason and exception in one line. */
+function Recommendation({ rec, agent }: { rec: { verdict: string; line: string }; agent: string | null }) {
+  const { bi, t } = useLang();
+  const [lead, reason] = splitRec(rec.line);
+  const tone = rec.verdict === 'APPROVE' ? 'success' : rec.verdict === 'DECLINE' ? 'danger' : 'warn';
+  const name = agent && AGENT_NAMES[agent] ? bi(...AGENT_NAMES[agent]) : t('The agents');
+  return (
+    <div className={`flex gap-3 rounded-xl border border-border/60 bg-card/60 p-4 border-s-[3px] ${tone === 'success' ? 'border-s-success' : tone === 'danger' ? 'border-s-danger' : 'border-s-warn'}`}>
+      {agent && AGENT_NAMES[agent] ? <AgentAvatar agent={{ id: agent, name: AGENT_NAMES[agent][0], role: '', initials: name.slice(0, 2) }} size={32} showActivity={false} /> : null}
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-center gap-2 text-sm"><span className="font-semibold">{name} {t('recommends')}</span>{lead ? <Chip tone={tone}>{lead}</Chip> : null}</p>
+        <p className="mt-1 text-sm leading-relaxed text-foreground/85">{reason}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Loads a case and lays it out as header · body · pinned actions, in the inbox reader or the drawer. */
+export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string; frame?: 'inbox' | 'drawer'; onDone?: () => void }) {
   const { t, bi, lang } = useLang();
+  const { persona } = useApp();
   const { data: c, error, reload } = useApi<any>(`/requests/${caseRef}`, { poll: 4000 });
   const [reason, setReason] = useState('');
   const [reasonCode, setReasonCode] = useState('');
+  const [asking, setAsking] = useState<null | 'APPROVED' | 'REJECTED'>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [edits, setEdits] = useEditor(c);
-  useEffect(() => { setReason(''); setReasonCode(''); setErr(null); }, [caseRef]);
-  const waitingStep = useMemo(() => c?.steps?.find((s: any) => s.status === 'WAITING'), [c]);
+  useEffect(() => { setReason(''); setReasonCode(''); setErr(null); setAsking(null); }, [caseRef, c?.status]);
   if (error) return <Empty>{error}</Empty>;
   if (!c) return <div className="p-6 text-sm text-muted-foreground">{t('Loading…')}</div>;
-  const rec = c.result?.recommendation;
-  const decide = async (decision: 'APPROVED' | 'REJECTED' | 'RETURNED') => {
+  const escalated = c.status === 'ESCALATED';
+  const open = ['WAITING', 'ESCALATED'].includes(c.status);
+  const mine = !!persona && (c.requester_person_id === persona.person_id || c.subject_person_id === persona.person_id) && !c.canDecide;
+  const isHR = !!persona?.roles.some((r) => ['HRBP', 'TA', 'PAYROLL', 'CHRO', 'TASAMA', 'HR_OPS'].includes(r));
+  const onBehalf = persona?.key === 'tasama';
+  const card = caseCard(c, { t, bi, lang, mine });
+  const rec = card.rec;
+  const waitingStep = c.steps?.find((s: any) => s.status === 'WAITING');
+  const approveLabel = escalated ? t('Resume the case') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
+  const declineLabel = escalated ? t('Close the case') : t('Decline');
+  const needsReason = (d: 'APPROVED' | 'REJECTED') => onBehalf || (d === 'APPROVED' && rec?.verdict === 'DECLINE') || (d === 'REJECTED' && (rec?.verdict === 'APPROVE' || !escalated));
+  const decide = async (decision: 'APPROVED' | 'REJECTED') => {
+    if (needsReason(decision) && asking !== decision) { setAsking(decision); setErr(null); return; }
+    if (decision === 'REJECTED' && !escalated && !reasonCode) { setErr(t('Choose a reason.')); return; }
+    const text = reason.trim() || (decision === 'REJECTED' ? bi(...((REJECT_REASONS.find((r) => r[0] === reasonCode) ?? ['', '', '']).slice(1) as [string, string])) : '');
+    if (needsReason(decision) && !text) { setErr(t('Give a reason.')); return; }
     setBusy(true); setErr(null);
     try {
       const e = { ...edits };
       if (c.workflow_id === 'WF-03' && e.shortlist === undefined) delete e.shortlist;
-      if (decision === 'REJECTED' && !escalated && !reasonCode) { setErr(t('Choose why you are declining: the reason is what lets Basira find rising problems and their causes.')); return; }
-      await post(`/requests/${c.ref}/decide`, { decision, reason: reason || undefined, reason_code: decision === 'REJECTED' ? reasonCode || undefined : undefined, edits: Object.keys(e).length ? e : undefined });
+      await post(`/requests/${c.ref}/decide`, { decision, reason: text || undefined, reason_code: decision === 'REJECTED' ? reasonCode || undefined : undefined, edits: Object.keys(e).length ? e : undefined });
       bump(); await reload(); onDone?.();
     } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
   };
-  const decisionLabel = waitingStep?.def?.decision ?? t('Approve');
-  const escalated = c.status === 'ESCALATED';
-  return (
-    <div className="space-y-5">
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2"><Ref>{c.ref}</Ref><StatusChip status={c.status} />{c.priority !== 'NORMAL' ? <StatusChip status={c.priority} /> : null}<Chip>{c.workflow_id} · {bi(c.workflow_name, c.workflow_name_ar)}</Chip></div>
-        <h2 className="text-xl font-semibold leading-snug">{bi(c.title, c.title_ar)}</h2>
-        <DocumentDownload small document={caseDocument(c, lang)} />
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Kv k={t('About')} v={bi(c.subject_name, c.subject_name_ar)} />
-          <Kv k={t('Raised by')} v={c.requester_name} />
-          <Kv k={t('Opened')} v={dateTime(c.created_at, lang)} />
-          <Kv k={c.status === 'WAITING' || escalated ? t('Waiting on') : t('Closed')} v={c.status === 'WAITING' || escalated ? `${c.waiting_on_name ?? roleName(c.waiting_on_role, bi)}${c.sla_due ? ` · ${until(c.sla_due, lang)}` : ''}` : date(c.closed_at, lang)} />
-        </dl>
+  const letterReady = c.workflow_id === 'WF-14' && c.status === 'COMPLETED' && c.payload?.body;
+  const letter = letterReady ? letterDocument({ ...c.payload, type: c.payload.letter_type, document_number: c.result?.document_number ?? c.ref, status: 'ISSUED' }) : null;
+  const overdue = c.sla_due && new Date(c.sla_due).getTime() < Date.now();
+  const holder = c.canDecide ? t('you') : bi(c.waiting_on_name, c.waiting_on_name_ar) || roleName(c.waiting_on_role, bi);
+
+  const header = (
+    <div>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{card.kind}</span>
+        {mine || isHR ? <span className="font-mono text-[11px] text-muted-foreground/70">{c.ref}</span> : null}
+        <span className="ms-auto">{open && c.sla_due ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
-      {rec ? (
-        <div className={`rounded-xl border px-4 py-3 ${rec.verdict === 'APPROVE' ? 'border-success/40 bg-success/10' : rec.verdict === 'DECLINE' ? 'border-danger/40 bg-danger/10' : 'border-warn/40 bg-warn/10'}`}>
-          <p className="font-mono text-[11px] uppercase tracking-wider">{t('Agent recommendation')}: {t(rec.verdict === 'APPROVE' ? 'Approve' : rec.verdict === 'DECLINE' ? 'Decline' : 'Review')}</p>
-          <p className="mt-1 text-sm">{bi(rec.summary, rec.summary_ar)}</p>
-          <ProvenanceNote>{t('The agent recommends; the decision is yours. A decision against the recommendation needs a reason, and the trail records it as an override.')}</ProvenanceNote>
-        </div>
-      ) : null}
-      <Details c={c} />
+      <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
+      {open && c.sla_due ? <div className="mt-2.5"><ClockBar start={c.created_at} due={c.sla_due} label={<><span>{`${mine ? t('You asked on') : t('Asked on')} ${date(c.created_at, lang)} · ${t('now with')} ${holder}`}</span><span>{t('due')} {date(c.sla_due, lang)}</span></>} /></div> : null}
+      {open && c.sla_due ? null : <p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+    </div>
+  );
+
+  const body = (
+    <div className="space-y-5">
+      <FactGrid facts={card.facts} />
+      {rec && (c.canDecide || (isHR && !mine && open)) ? <Recommendation rec={rec} agent={recommender(c)} /> : null}
+      {letter && mine ? <div className="space-y-2"><DocumentPreview document={letter} /><DocumentDownload small document={letter} /></div> : null}
       {c.canDecide ? <Editor c={c} edits={edits} setEdits={setEdits} /> : null}
-      <ReaderSection label={t('Steps')}><Steps steps={c.steps} /></ReaderSection>
-      <ReaderSection label={t('Decision trail')}><TrailList rows={c.trail} /></ReaderSection>
-      {c.logs?.length ? (
-        <ReaderSection label={t('HRMS and system calls')}>
-          <ul className="space-y-1">{c.logs.map((l: any) => <li key={l.id} className="flex items-start gap-2 font-mono text-[11px]"><Server className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" /><span className="text-muted-foreground">{l.system}</span><span className="font-semibold">{l.method}</span><span className="min-w-0 flex-1 break-all">{l.resource.replace('/hcmRestApi/resources/11.13.18.05', '')}</span><span className="text-muted-foreground">{l.status_code} · {l.latency_ms}ms</span></li>)}</ul>
-        </ReaderSection>
-      ) : null}
-      {c.canDecide ? (
-        <div className="sticky bottom-0 -mx-1 space-y-2 rounded-xl glass-chrome p-3">
-          <textarea className="input w-full" rows={2} placeholder={t('Reason (required if you go against the recommendation)')} value={reason} onChange={(e) => setReason(e.target.value)} />
-          {!escalated ? (
-            <select className="input h-9 w-full text-sm" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} aria-label={t('If you decline, why')}>
-              <option value="">{t('If you decline, why')}…</option>
+      <Provenance label={t('How this was checked')}>
+        {letter && mine ? null : <Details c={c} />}
+        <ReaderSection label={t('Steps')}><Steps steps={c.steps} /></ReaderSection>
+        <ReaderSection label={t('Decision trail')}><TrailList rows={c.trail} /></ReaderSection>
+        <RulesCited trail={c.trail} />
+        {c.logs?.length ? (
+          <ReaderSection label={t('HRMS calls')}>
+            <ul className="space-y-1">{c.logs.map((l: any) => <li key={l.id} className="flex items-start gap-2 font-mono text-[11px]"><Server className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" /><span className="text-muted-foreground">{l.system}</span><span className="font-semibold">{l.method}</span><span className="min-w-0 flex-1 break-all">{l.resource.replace('/hcmRestApi/resources/11.13.18.05', '')}</span><span className="text-muted-foreground">{l.status_code} · {l.latency_ms}ms</span></li>)}</ul>
+          </ReaderSection>
+        ) : null}
+      </Provenance>
+    </div>
+  );
+
+  const actions = c.canDecide ? (
+    <div className="space-y-2.5">
+      {asking ? (
+        <div className="grid gap-2 sm:grid-cols-[13rem_1fr]">
+          {asking === 'REJECTED' && !escalated ? (
+            <select className="input h-10 text-sm" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} aria-label={t('Why you are declining')}>
+              <option value="">{t('Why you are declining')}…</option>
               {REJECT_REASONS.map(([k, en, ar]) => <option key={k} value={k}>{bi(en, ar)}</option>)}
             </select>
           ) : null}
-          {err ? <p className="text-sm text-danger">{err}</p> : null}
-          <DecisionBar prompt={<span>{t('Your decision as')} {roleName(c.waiting_on_role, bi)}: <span className="font-medium text-foreground">{escalated ? t('Resolve the escalation') : decisionLabel}</span></span>}>
-            {!escalated ? <Btn onClick={() => decide('RETURNED')} disabled={busy}>{t('Return')}</Btn> : null}
-            <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{escalated ? t('Close the case') : t('Decline')}</Btn>
-            <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={busy}>{busy ? t('Working…') : escalated ? t('Resume the case') : c.workflow_id === 'WF-13' ? t('Apply fixes and release') : t('Approve')}</Btn>
-          </DecisionBar>
+          <input className={`input h-10 text-sm ${asking === 'REJECTED' && !escalated ? '' : 'sm:col-span-2'}`} autoFocus placeholder={asking === 'REJECTED' ? t('A note for the requester (optional)') : t('Your reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       ) : null}
+      {err ? <p className="text-sm text-danger">{err}</p> : null}
+      <DecisionBar prompt={asking ? (asking === 'REJECTED' ? t('Declining: choose a reason, then confirm.') : t('This goes against the recommendation: give your reason.')) : undefined}>
+        {asking ? <Btn onClick={() => { setAsking(null); setErr(null); }} disabled={busy}>{t('Cancel')}</Btn> : null}
+        {asking !== 'APPROVED' ? <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{asking === 'REJECTED' ? t('Confirm the decline') : declineLabel}</Btn> : null}
+        {asking !== 'REJECTED' ? <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={busy}>{busy ? t('Working…') : approveLabel}</Btn> : null}
+      </DecisionBar>
+    </div>
+  ) : null;
+
+  if (frame === 'drawer') return (
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="shrink-0 border-b border-border/60 pb-4 pe-14 ps-6 pt-6">{header}</header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{body}</div>
+      {actions ? <footer className="shrink-0 border-t border-border/60 bg-background/80 px-6 py-3 backdrop-blur">{actions}</footer> : null}
     </div>
   );
+  return <InboxReader header={header} actions={actions} className="lg:sticky lg:top-3 lg:h-[calc(100dvh-20rem)] lg:min-h-[34rem] lg:self-start">{body}</InboxReader>;
+}
+
+/** One inbox row: initials, who, what, and one status. */
+export function CaseRow({ r, selected, onSelect, unread, mine }: { r: any; selected?: boolean; onSelect?: () => void; unread?: boolean; mine?: boolean }) {
+  const { bi, t, lang } = useLang();
+  const { who, what, kind } = rowParts(r, bi, t);
+  const open = ['WAITING', 'ESCALATED'].includes(r.status);
+  const overdue = r.sla_due && new Date(r.sla_due).getTime() < Date.now();
+  const state = open && r.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(r.sla_due, lang)}</Chip> : <StatusChip status={r.status} />;
+  return (
+    <InboxItem selected={selected} onSelect={onSelect} unread={unread}
+      thumbnail={mine ? undefined : <span className="flex h-full w-full items-center justify-center bg-primary/10 text-sm font-semibold text-primary">{initials(who)}</span>}
+      reference={<span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{kind}</span>}
+      meta={open && r.sla_due ? <ClockBar compact start={r.created_at} due={r.sla_due} /> : undefined}
+      state={state} title={mine ? what : who} preview={mine ? (open ? `${t('With')} ${bi(r.waiting_on_name, r.waiting_on_name_ar) || roleName(r.waiting_on_role, bi)}` : date(r.closed_at ?? r.updated_at, lang)) : what.toLowerCase() === kind.toLowerCase() ? `${t('Asked')} ${date(r.created_at, lang)}` : what} />
+  );
+}
+
+/** Kept for callers that only want the body inside their own frame. */
+export function CaseBody({ caseRef, onDone }: { caseRef: string; onDone?: () => void }) {
+  return <CaseView caseRef={caseRef} frame="drawer" onDone={onDone} />;
 }
 
 export function CaseDrawer() {
@@ -389,11 +480,10 @@ export function CaseDrawer() {
   // While the Demo Director plays, the drawer is not modal so the Director bar stays usable.
   return (
     <Sheet open={!!caseRef} onOpenChange={(o) => !o && openCase(null)} modal={!director}>
-      <SheetContent side={dir === 'rtl' ? 'left' : 'right'} className={`w-full overflow-y-auto p-6 sm:max-w-[780px] ${director ? 'pb-64 shadow-2xl' : ''}`} onInteractOutside={(e) => { if (director) e.preventDefault(); }}>
+      <SheetContent side={dir === 'rtl' ? 'left' : 'right'} className={`w-full p-0 sm:max-w-[720px] ${director ? 'pb-56 shadow-2xl' : ''}`} onInteractOutside={(e) => { if (director) e.preventDefault(); }}>
         <SheetTitle className="sr-only">{t('Case')}</SheetTitle>
-        {caseRef ? <CaseBody caseRef={caseRef} /> : null}
+        {caseRef ? <CaseView caseRef={caseRef} frame="drawer" /> : null}
       </SheetContent>
     </Sheet>
   );
 }
-void AGENT_NAMES; void Bar; void ExternalLink; void api;

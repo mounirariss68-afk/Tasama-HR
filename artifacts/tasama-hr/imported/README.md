@@ -15,13 +15,13 @@ Agents check, prepare and recommend; people decide. Every read and write to a cl
 2. **Add a database.** Open the **Database** tool and create a PostgreSQL database. Replit sets `DATABASE_URL` for you.
 3. **Connect Claude.** The assistants use Replit's built-in Anthropic connection (Replit AI Integrations), so no API key is needed. If it is not already on for this app, ask Replit's Agent: *"Enable Replit AI Integrations for Anthropic for this app. Don't change any code."* That sets `AI_INTEGRATIONS_ANTHROPIC_BASE_URL`, which the server reads. Replit AI Integrations needs a paid Replit plan. Until it is connected, the assistants run in *Offline* mode: they give fixed answers matched against the same data and handbooks, and the screen labels them "Offline".
 4. **Press Run.** The first run installs packages, builds the app and creates the five client accounts and Tasama's data. This takes two to three minutes. Later runs start in seconds.
-5. **Open the web view.** It opens as the Tasama HR Operations Manager. Use the client switcher (top centre) to change client account, and the persona menu (top right) to view the platform as any of the seven people inside that client.
+5. **Open the web view.** It opens as the Tasama HR Operations Manager. The lens picker in the title bar holds Tasama Services, each client's HR and How it works. The **Demo** control (top right) holds the scenarios, the persona (any of the seven people inside a client), the client account, the theme and Reset. Add `?client=1` to the address to hide the Demo control when the client drives.
 
-To return to a clean state, use **Reset the demo** on Agent Control → Scenarios (or Settings). It rebuilds everything in about 20 seconds.
+To return to a clean state, use **Demo → Reset the demo data**. It rebuilds everything in about 20 seconds.
 
 ## Demo Director
 
-Agent Control → Scenarios lists nine scenarios. **Run scenario** opens the Director bar at the bottom of the screen: each step switches the client account, the persona and the screen, runs through the real engine, and shows the narration, the trigger, the result and what happened (trail entries and cases, each clickable). **Step** runs the next step, **Play** steps every 9 seconds, **Pause** stops auto-play, **Back** shows an earlier step again without re-running it, **Stop** ends the scenario. Where a step takes a person's decision, the trail says "(decided by the scenario)". Narration is in English; step titles are in both languages.
+**Demo → Scenarios** lists the nine scenarios and starts one directly; **All scenarios** opens the page that describes each. Starting one opens the Director bar at the bottom of the screen: each step switches the client account, the persona and the screen, runs through the real engine, and shows the narration, the trigger, the result and what happened (trail entries and cases, each clickable). **Step** runs the next step, **Play** steps every 9 seconds, **Pause** stops auto-play, **Back** shows an earlier step again without re-running it, **Stop** ends the scenario. Where a step takes a person's decision, the trail says "(decided by the scenario)". Narration is in English; step titles are in both languages.
 
 ## Data version
 
@@ -50,6 +50,19 @@ The server uses the first Claude model Replit's connection accepts, trying in th
   - WF-09 (goals and check-ins)
   - WF-11 (succession)
   - WF-18 (exit interviews)
+
+## Screens and checks
+
+Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is one card: a meta line, a headline, up to four facts and one recommendation line, then the actions and one collapsed "How this was checked" disclosure (`apps/web/src/app/decision.tsx`). The assistant confirms with one card (`apps/web/src/app/confirm-card.tsx`). What was removed from each screen is listed in `design/screen-review.md`; the menu review is in `design/menu-review.md`.
+
+| Check | Command | Result, 21 October 2026 |
+|---|---|---|
+| Types | `npm run typecheck` | Clean |
+| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 53 of 53 pass |
+| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 137 views, 0 problems |
+| The Director | Every scenario, every step, twice through the Director's routes | 9 scenarios, 0 failing steps |
+
+Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app.
 
 ## Project layout
 

@@ -1,13 +1,13 @@
-/** Agent Control: who the agents are, how the workflows run, the demo runner, the connector, the evidence. */
+/** How it works: the agents, the workflows, the rules, the audit trail and integration log, the value; plus the Demo control's scenarios and settings screens. */
 import { useEffect, useMemo, useState } from 'react';
-import { HeroFeature, PageColumns, Panel, PanelAction, StatRow, StatTile, StatusRow } from '@cognirise/atelier/layout';
+import { HeroFeature, PageColumns, Panel, PanelAction, StatTile, StatusRow, ThemeModeToggle } from '@cognirise/atelier/layout';
 import { AgentAutonomyChip, AgentCard, AgentDirectory, AgentProfile, PersonaSwitcher, ProvenanceNote, ScenarioCard, ScenarioRunner, SettingsGroup, SettingsRow, WorkflowCard, WorkflowCatalog, WorkflowStep, WorkflowWalkthrough, type AgentAutonomy } from '@cognirise/atelier/archetypes';
 import { Activity, ArrowRightLeft, BookOpen, Bot, Database, FileText, GitBranch, Languages, LineChart, Network, Play, RotateCcw, Scale, Server, ShieldCheck, Users, Zap } from 'lucide-react';
 import { api, bump, post, useApi } from '../lib/api';
 import { LanguageToggle, useLang } from '../lib/i18n';
 import { ago, date, dateTime, month, num, time } from '../lib/format';
 import { useApp } from '../app/state';
-import { AgentTag, AUTONOMY, Bar, Btn, Chip, Empty, Hero, Ref, Screen, StatusChip, Table } from '../app/ui';
+import { AgentTag, AUTONOMY, Bar, Btn, Chip, Empty, Hero, Ref, RouteTabs, Screen, StatusChip, Table, StatRow } from '../app/ui';
 import { TrailList, roleName } from '../app/case';
 
 // ------------------------------------------------------------------ Agents
@@ -22,8 +22,7 @@ export function AgentsScreen() {
   if (!data) return null;
   const toAgent = (x: any) => ({ id: x.id, name: bi(x.name, x.name_ar), role: bi(x.title, x.title_ar), purpose: bi(x.purpose, x.purpose_ar), initials: bi(x.name, x.name_ar).slice(0, 2), autonomy: AUTONOMY[x.autonomy] as AgentAutonomy });
   return (
-    <Screen hero={<Hero eyebrow="Agent Control" title="Agents" lede="Nineteen named colleagues: fourteen work inside every client account, five run Tasama's own service. Each has a remit, a human owner and a declared autonomy level: the rung it actually runs at here. None runs unsupervised."
-      feature={<HeroFeature label="Autonomous agents" value="0" support={<Chip>{t('of')} {data.length}</Chip>} />} />}>
+    <Screen hero={<Hero eyebrow="How it works" title={`${t('None of the')} ${data.length} ${t('agents decides on its own')}`} lede={t('An agent reads, checks, prepares and recommends; a person decides, and going against a recommendation needs a reason, kept as an override. Nothing reaches a client\'s HRMS until a person approves it.')} />}>
       <Panel icon={<ShieldCheck size={16} />} title="The autonomy ladder">
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
           {ladder.map(({ l, n }) => <div key={l} className="rounded-xl glass-l3 px-4 py-3"><AgentAutonomyChip level={AUTONOMY[l]} /><p className="mt-2 text-2xl font-bold tabular-nums">{n}</p><p className="text-xs text-muted-foreground">{data.filter((x) => x.autonomy === l).map((x) => bi(x.name, x.name_ar)).join(', ') || t('none')}</p></div>)}
@@ -63,8 +62,7 @@ export function WorkflowsScreen() {
   const cov = { implemented: data.filter((x) => x.coverage === 'implemented').length, partial: data.filter((x) => x.coverage === 'partial').length, designed: data.filter((x) => x.coverage === 'designed').length };
   const actor = (s: any) => (s.actor_type === 'AGENT' ? <AgentTag id={s.actor} showChip={false} /> : s.actor_type === 'HUMAN' ? roleName(s.actor, bi) : t('Connector (writes to the HRMS)'));
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="Agent Control" title="Workflows" lede="Twenty-one workflows from hire to retire, plus four Tasama service workflows. Every step names its actor, inputs, outputs and the decision it makes; unbuilt steps stay in the catalog, marked."
-      feature={<HeroFeature label="Implemented end to end" value={`${cov.implemented}/${data.length}`} support={<span className="flex gap-1"><Chip tone="warn">{cov.partial} {t('partial')}</Chip>{cov.designed ? <Chip>{cov.designed} {t('designed')}</Chip> : null}</span>} />} />}>
+    <Screen hero={<Hero tone="surface" eyebrow="How it works" title={`${cov.implemented} ${t('of')} ${data.length} ${t('workflows run end to end')}`} lede={t('From hire to retire, plus Tasama\'s own service workflows. Every step names its actor, inputs, outputs and the decision it makes.')} />}>
       <PageColumns aside={<Panel icon={<GitBranch size={16} />} title={`${w.id} · ${bi(w.name, w.name_ar)}`} action={<PanelAction>{Object.values(w.counts ?? {}).reduce((a: number, b: any) => a + b, 0) as number} {t('cases')}</PanelAction>}>
         <p className="mb-3 text-sm text-muted-foreground">{t('Trigger')}: {w.trigger_en} · {t('Decision by')}: {w.decision_by}{w.median_s ? ` · ${t('median cycle')} ${Math.round(w.median_s / 3600)} h` : ''}</p>
         <WorkflowWalkthrough>
@@ -90,7 +88,7 @@ export function ScenariosScreen() {
   const reset = async () => { setResetting(true); try { await post('/reset'); bump(); } finally { setResetting(false); } };
   const play = async (key: string) => { setStarting(key); try { await startScenario(key); } finally { setStarting(null); } };
   return (
-    <Screen hero={<Hero eyebrow="Agent Control" title="Scenarios" lede="Nine demo scenarios: six inside a client account, three at Tasama level. Press play and the Director bar takes you through each step: it switches the client, the persona and the screen, runs the step through the real engine and shows what happened. Step, pause or go back at any point." actions={<Btn onClick={reset} disabled={resetting}><RotateCcw className="h-4 w-4" />{resetting ? t('Rebuilding…') : t('Reset the demo')}</Btn>} />}>
+    <Screen hero={<Hero eyebrow="Demo control" title={`${(data ?? []).length} ${t('scenarios, each played step by step')}`} lede="Nine demo scenarios: six inside a client account, three at Tasama level. Press play and the Director bar takes you through each step: it switches the client, the persona and the screen, runs the step through the real engine and shows what happened. Step, pause or go back at any point." actions={<Btn onClick={reset} disabled={resetting}><RotateCcw className="h-4 w-4" />{resetting ? t('Rebuilding…') : t('Reset the demo')}</Btn>} />}>
       <ScenarioRunner onReset={reset}>
         {(data ?? []).map((s, i, all) => {
           const state = director && director.key === s.key ? (director.status === 'done' && director.index >= director.steps.length - 1 ? 'complete' : 'running') : starting === s.key ? 'running' : 'idle';
@@ -121,8 +119,9 @@ export function ConnectorScreen() {
   const NAMES: Record<string, string> = { ORACLE_HCM: 'Oracle Fusion HCM (simulated)', ODOO: 'Odoo 19 (simulated)', ATOM: 'Oracle Atom feeds', ODOO_WEBHOOK: 'Odoo webhooks', QIWA: 'Qiwa', GOSI: 'GOSI', MUQEEM: 'Muqeem', MUDAD: 'Mudad', JADARAT: 'Jadarat', ABSHER: 'Absher', CCHI: 'CCHI insurance', M365: 'Microsoft 365', ANTHROPIC: 'Claude (Replit AI Integrations)', BGCHECK: 'Background check vendor', ASSESSMENT: 'Assessment vendor' };
   const odoo = hrmsKey === 'ODOO';
   return (
-    <Screen hero={<Hero eyebrow="Agent Control" title="HRMS connector" lede={odoo ? `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Calls use Odoo\'s external JSON-2 API (POST /json/2/<model>/<method>); changes arrive as webhooks from Odoo automation rules. The same agents run on Oracle clients through Oracle\'s REST resources: only this connector differs.')}` : `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Reads and writes use Oracle\'s REST resource names; HRMS changes arrive as Atom feed events. The same agents run on Odoo clients through Odoo\'s JSON-2 API: only this connector differs.')}`}
-      feature={<HeroFeature label={odoo ? 'Odoo calls' : 'Oracle HCM calls'} value={num(oracle?.calls ?? 0)} support={<Chip tone="warn">{num(oracle?.writes ?? 0)} {t('writes')}</Chip>} />} />}>
+    <Screen hero={<Hero eyebrow="How it works" title={`${t('Every call to')} ${odoo ? 'Odoo' : 'Oracle HCM'} ${t('goes through one logged connector')}: ${num(oracle?.calls ?? 0)} ${t('calls')}, ${num(oracle?.writes ?? 0)} ${t('writes')}`} lede={odoo ? `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Calls use Odoo\'s external JSON-2 API (POST /json/2/<model>/<method>); changes arrive as webhooks from Odoo automation rules. The same agents run on Oracle clients through Oracle\'s REST resources: only this connector differs.')}` : `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Reads and writes use Oracle\'s REST resource names; HRMS changes arrive as Atom feed events. The same agents run on Odoo clients through Odoo\'s JSON-2 API: only this connector differs.')}`}
+      />}>
+      <AuditTabs />
       <StatRow>
         {data.stats.slice(0, 4).map((s: any) => <StatTile key={s.system} label={t(NAMES[s.system] ?? s.system)} value={num(s.calls)} trend={{ direction: s.errors ? 'down' : 'flat', label: `${s.errors ? `${s.errors} ${t('errors')}` : t('healthy')} · ${s.avg_ms} ms ${t('average')} · ${ago(s.last, lang)}` }} />)}
       </StatRow>
@@ -157,7 +156,12 @@ export function ConnectorScreen() {
   );
 }
 
-// ------------------------------------------------------------------ Evidence
+// ------------------------------------------------------------------ Audit trail
+
+/** The audit trail and the integration log: two tabs of one item. */
+function AuditTabs() {
+  return <RouteTabs items={[{ id: 'evidence', label: 'Audit trail' }, { id: 'connector', label: 'Integration log' }]} />;
+}
 
 export function EvidenceScreen() {
   const { t } = useLang();
@@ -168,8 +172,9 @@ export function EvidenceScreen() {
   const c = (k: string) => data.counts.find((x: any) => x.act === k)?.n ?? 0;
   const FILTERS: [string, string][] = [['', 'All'], ['OVERRIDE', 'Human overrides'], ['REFUSE', 'Refusals'], ['ESCALATE', 'Escalations'], ['WRITE', 'HRMS writes'], ['APPROVE,REJECT', 'Human decisions'], ['ANSWER', 'Assistant answers']];
   return (
-    <Screen hero={<Hero eyebrow="Agent Control" title="Evidence" lede="The decision trail across every case: who acted, at what autonomy, citing which clause, and where a person disagreed with an agent and why. The overrides are the most valuable rows."
+    <Screen hero={<Hero eyebrow="How it works" title={`${t('People overrode an agent')} ${c('OVERRIDE')} ${t(c('OVERRIDE') === 1 ? 'time' : 'times')}; ${t('every override carries its reason')}`} lede="The decision trail across every case: who acted, at what autonomy, citing which clause, and where a person disagreed with an agent and why. The overrides are the most valuable rows."
       feature={<HeroFeature label="Human overrides" value={c('OVERRIDE')} support={<Chip tone="warn">{c('REFUSE')} {t('refusals')}</Chip>} />} />}>
+      <AuditTabs />
       <StatRow>
         <StatTile label="Agent checks" value={num(c('CHECK') + c('PREPARE') + c('RECOMMEND'))} />
         <StatTile label="Human decisions" value={num(c('APPROVE') + c('REJECT') + c('OVERRIDE'))} />
@@ -199,9 +204,8 @@ export function PoliciesScreen() {
   if (!data) return null;
   const match = (c: any) => !q || `${c.heading} ${c.text_en} ${c.tags.join(' ')} ${c.heading_ar} ${c.text_ar}`.toLowerCase().includes(q.toLowerCase());
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="Agent Control" title="Policies" lede="The handbook the agents cite. An answer that cannot be traced to a clause here is not given; the assistant routes the question to a person instead."
+    <Screen hero={<Hero tone="surface" eyebrow="How it works" title={`${t('The handbook the agents cite')}: ${data.length} ${t('policies')}`} lede={t('An answer that cannot be traced to a clause here is not given; the assistant routes the question to a person instead.')}
       actions={<input className="input w-64" placeholder={t('Search clauses')} value={q} onChange={(e) => setQ(e.target.value)} />} />}>
-      <ProvenanceNote>{`${t('Fictional handbook written for this demo on Saudi Labor Law (as amended 2025). It is not')} ${session?.client.short}${t('\'s policy.')}`}</ProvenanceNote>
       {data.map((p) => {
         const cl = p.clauses.filter(match);
         if (!cl.length) return null;
@@ -231,13 +235,13 @@ export function ValueScreen() {
   const letters = data.byWorkflow.find((w: any) => w.workflow_id === 'WF-14');
   const maxM = Math.max(1, ...data.monthly.map((m: any) => m.cases));
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="Agent Control" title="Value" lede="What the layer did, counted from the synthetic case history: volumes, cases closed with no HR touch, cycle times, and an estimate of HR hours returned."
+    <Screen hero={<Hero tone="surface" eyebrow="How it works" title={`${total ? Math.round(noTouch / total * 100) : 0}% ${t('of cases closed with no HR touch')}`} lede={t('Volumes, cases closed with no HR touch, cycle times, and an estimate of HR hours returned.')}
       feature={<HeroFeature label="HR hours returned (estimate)" value={num(data.hoursReturned)} support={<Chip tone="warn">{t('illustrative')}</Chip>} />} />}>
       <StatRow>
         <StatTile label="Cases handled" value={num(total)} />
-        <StatTile label="Closed with no HR touch" value={total ? `${Math.round(noTouch / total * 100)}%` : '—'} trend={{ direction: 'flat', label: `${num(noTouch)} ${t('cases')}` }} />
         <StatTile label="Letters issued without HR" value={letters ? `${Math.round(letters.no_touch / letters.total * 100)}%` : '—'} trend={{ direction: 'flat', label: `${letters?.no_touch ?? 0} ${t('of')} ${letters?.total ?? 0}` }} />
         <StatTile label="Assistant answers" value={num(data.answers)} />
+        <StatTile label="Cases last month" value={num(data.monthly[data.monthly.length - 2]?.cases ?? 0)} />
       </StatRow>
       <PageColumns aside={<Panel icon={<LineChart size={16} />} title="Cases by month">
         <div className="flex h-40 items-end gap-1.5">{data.monthly.map((m: any) => <div key={m.month} className="flex h-full flex-1 flex-col items-center justify-end" title={`${m.cases} · ${m.no_touch} ${t('no HR touch')}`}>
@@ -247,7 +251,7 @@ export function ValueScreen() {
       </Panel>}>
         <Panel icon={<GitBranch size={16} />} title="By workflow">
           <Table><thead><tr><th>{t('Workflow')}</th><th className="text-end">{t('Cases')}</th><th className="text-end">{t('Completed')}</th><th className="text-end">{t('No HR touch')}</th><th className="text-end">{t('Median cycle')}</th><th className="text-end">{t('Minutes saved per case (assumed)')}</th></tr></thead>
-            <tbody>{data.byWorkflow.map((w: any) => <tr key={w.workflow_id}><td>{w.workflow_id} · {bi(w.name, w.name_ar)}</td><td className="text-end tabular-nums">{w.total}</td><td className="text-end tabular-nums">{w.completed}</td><td className="text-end tabular-nums">{w.no_touch}</td><td className="text-end tabular-nums">{w.median_s ? (w.median_s < 3600 ? `${Math.max(1, Math.round(w.median_s / 60))} min` : `${Math.round(w.median_s / 3600)} h`) : '—'}</td><td className="text-end tabular-nums">{Math.round((data.assumptions[w.workflow_id] ?? 30) * 0.6)}</td></tr>)}</tbody></Table>
+            <tbody>{data.byWorkflow.map((w: any) => <tr key={w.workflow_id}><td>{bi(w.name, w.name_ar)}</td><td className="text-end tabular-nums">{w.total}</td><td className="text-end tabular-nums">{w.completed}</td><td className="text-end tabular-nums">{w.no_touch}</td><td className="text-end tabular-nums">{w.median_s ? (w.median_s < 3600 ? `${Math.max(1, Math.round(w.median_s / 60))} min` : `${Math.round(w.median_s / 3600)} h`) : '—'}</td><td className="text-end tabular-nums">{Math.round((data.assumptions[w.workflow_id] ?? 30) * 0.6)}</td></tr>)}</tbody></Table>
           <ProvenanceNote>{t('Hours returned assume each case would otherwise take HR the minutes shown (60% of a typical manual effort). These are illustrative assumptions, not measurements. Vendor benchmarks for comparison: 60–70% ticket deflection (Leena AI), 88% autonomous resolution (Moveworks at Broadcom).')}</ProvenanceNote>
         </Panel>
       </PageColumns>
@@ -263,11 +267,12 @@ export function SettingsScreen() {
   const [busy, setBusy] = useState(false);
   if (!session || !persona) return null;
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="Settings" title="Who you are, and what you may approve" lede="Switching persona changes the menu, the inbox, what is approvable and what the assistant will do. The server decides all of it; the browser only says who is asking." />}>
+    <Screen hero={<Hero tone="surface" eyebrow="Demo control" title="Who you are, and what you may approve" lede="Switching persona changes the menu, the inbox, what is approvable and what the assistant will do. The server decides all of it; the browser only says who is asking." />}>
       <SettingsGroup title={t('Persona')} description={t('One build shows the employee, the manager, HR and the CHRO their own screens.')}>
-        <PersonaSwitcher value={persona.key} onChange={switchPersona} personas={session.personas.map((p) => ({ id: p.key, name: bi(p.label, p.label_ar), role: `${bi(p.display_name, p.display_name_ar)} · ${bi(p.role_title, p.role_title_ar)}`, initials: p.display_name.split(' ').map((w) => w[0]).slice(0, 2).join(''), authority: <ul className="space-y-0.5">{p.approval_limits.map((l) => <li key={l.what}>• {bi(l.what, l.what_ar)}</li>)}</ul>, remit: `${t('Lenses')}: ${p.lenses.map((l) => t(({ my: 'My HR', team: 'My Team', hr: 'HR Workspace', control: 'Agent Control' } as any)[l])).join(', ')}` }))} />
+        <PersonaSwitcher value={persona.key} onChange={switchPersona} personas={session.personas.map((p) => ({ id: p.key, name: bi(p.label, p.label_ar), role: `${bi(p.display_name, p.display_name_ar)} · ${bi(p.role_title, p.role_title_ar)}`, initials: p.display_name.split(' ').map((w) => w[0]).slice(0, 2).join(''), authority: <ul className="space-y-0.5">{p.approval_limits.map((l) => <li key={l.what}>• {bi(l.what, l.what_ar)}</li>)}</ul>, remit: `${t('Lenses')}: ${p.lenses.map((l) => t(({ tasama: 'Tasama Services', my: 'My HR', team: 'My Team', hr: 'HR Workspace', control: 'How it works' } as any)[l])).join(', ')}` }))} />
       </SettingsGroup>
       <SettingsGroup title={t('Interface')}>
+        <SettingsRow label={t('Theme')} hint={t('Demos run in the light theme.')} control={<ThemeModeToggle />} />
         <SettingsRow label={t('Language')} hint={t('Arabic switches the layout to right-to-left. Numbers stay in Western digits.')} control={<LanguageToggle />} />
         <SettingsRow label={t('AI assistant')} hint={session.ai.mode === 'claude' ? `${t('Claude is answering on the server through Replit AI Integrations')} (${session.ai.model}).` : t('Offline: Replit AI Integrations is not connected for this app.')} control={<Chip tone={session.ai.mode === 'claude' ? 'success' : 'warn'}>{session.ai.mode === 'claude' ? 'Claude' : t('Offline')}</Chip>} />
       </SettingsGroup>

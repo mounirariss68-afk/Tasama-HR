@@ -8,6 +8,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Pause, Play
 import { useLang } from '../lib/i18n';
 import { AUTO_STEP_MS, useApp } from './state';
 import { AGENT_NAMES, Btn, Chip, StatusChip } from './ui';
+import { plain } from './decision';
 
 const PERSONA_LABEL: Record<string, [string, string]> = {
   tasama: ['Tasama HR Operations Manager', 'مدير عمليات الموارد البشرية في تسامى'], employee: ['Employee', 'موظف'], manager: ['Line manager', 'مدير مباشر'],
@@ -49,11 +50,12 @@ export function DirectorBar() {
               <button type="button" onClick={() => setOpen(!open)} className="ms-auto inline-flex items-center gap-1 hover:text-foreground">{open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}{open ? t('Less') : t('More')}</button>
             </p>
             <p className="mt-0.5 text-sm font-semibold">{bi(st.title, st.title_ar)}</p>
-            {open ? <p className="mt-0.5 text-[13px] leading-relaxed text-foreground/90">{d.busy && !r ? t('Running the step through the engine…') : r?.narration}</p> : null}
+            {open ? <p className="mt-0.5 text-[13px] leading-relaxed text-foreground/90">{d.busy && !r ? t('Running the step…') : plain(r?.narration)}</p> : null}
+            {open && d.status === 'done' && atEnd ? <p className="mt-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[12.5px] leading-relaxed">{t('What you saw: the agents read, checked and prepared; a person made every decision, and a decision against an agent needs a reason. Nothing reached the client\'s HRMS before a person approved it. Every step is on the Audit trail, every system call on the Integration log.')}</p> : null}
             <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
               <Zap className="h-3 w-3 text-primary" /><span className="text-muted-foreground">{t('Trigger')}:</span> <span className="font-medium">{st.trigger}</span>
-              {r && r.step.kind !== 'show' ? <><span className="text-muted-foreground">· {t('Result')}:</span> <span className="font-mono">{r.result}</span></> : null}
-              {r?.caseRef ? <button type="button" className="font-mono text-primary" onClick={() => openCase(r.caseRef)}>{r.caseRef}</button> : null}
+              {r && r.step.kind !== 'show' ? <><span className="text-muted-foreground">· {t('Result')}:</span> <span>{plain(r.result)}</span></> : null}
+              {r?.caseRef ? <button type="button" className="text-primary underline underline-offset-2" onClick={() => openCase(r.caseRef)}>{t('Open the case')}</button> : null}
               {d.error || r?.error ? <span className="text-danger">{t('Error')}: {d.error ?? r?.error}</span> : null}
             </p>
           </div>
@@ -65,13 +67,13 @@ export function DirectorBar() {
                   {happened.slice(0, 16).map((h) => (
                     <li key={h.key} className="leading-snug">
                       <span className={h.agent ? 'font-semibold text-primary' : 'font-semibold'}>{h.who}</span>
-                      {h.autonomy ? <span className="ms-1 font-mono text-[10px] text-muted-foreground">{h.autonomy}</span> : null}: {h.text}
-                      {h.ref ? <button type="button" className="ms-1 font-mono text-[11px] text-primary" onClick={() => openCase(h.ref)}>{h.ref}</button> : null}
+: {plain(h.text)}
+                      {h.ref ? <button type="button" className="ms-1 text-[11px] text-primary underline underline-offset-2" onClick={() => openCase(h.ref)}>{t('open')}</button> : null}
                     </li>
                   ))}
-                  {r?.changes.cases.length ? <li className="flex flex-wrap gap-1 pt-1">{r.changes.cases.slice(0, 6).map((c: any) => <button key={c.ref} type="button" onClick={() => openCase(c.ref)} className="inline-flex items-center gap-1"><span className="font-mono text-[11px] text-primary">{c.ref}</span><StatusChip status={c.status} /></button>)}</li> : null}
+                  {r?.changes.cases.length ? <li className="flex flex-wrap gap-1 pt-1">{r.changes.cases.slice(0, 6).map((c: any) => <button key={c.ref} type="button" onClick={() => openCase(c.ref)} className="inline-flex items-center gap-1"><span className="text-[11px] text-primary">{c.title}</span><StatusChip status={c.status} /></button>)}</li> : null}
                 </ul>
-              ) : <p className="mt-1 text-[12px] text-muted-foreground">{d.busy ? t('Running the step through the engine…') : r?.step.kind === 'show' ? t('Nothing ran: this step shows what is already there.') : t('Nothing changed.')}</p>}
+              ) : <p className="mt-1 text-[12px] text-muted-foreground">{d.busy ? t('Running the step…') : r?.step.kind === 'show' ? t('Nothing ran: this step shows what is already there.') : t('Nothing changed.')}</p>}
             </div>
           ) : null}
         </div>

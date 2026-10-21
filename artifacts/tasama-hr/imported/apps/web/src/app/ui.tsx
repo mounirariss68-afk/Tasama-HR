@@ -1,8 +1,9 @@
 /** Shared pieces used across screens. Compose from Atelier; nothing here re-styles it. */
 import type { ReactNode } from 'react';
-import { DemoBanner, DemoReference, AgentAutonomyChip, AgentAvatar, type AgentAutonomy } from '@cognirise/atelier/archetypes';
-import { PageContainer, PageHero } from '@cognirise/atelier/layout';
+import { DemoReference, AgentAutonomyChip, AgentAvatar, type AgentAutonomy } from '@cognirise/atelier/archetypes';
+import { PageContainer, PageHero, StatRow as AtelierStatRow } from '@cognirise/atelier/layout';
 import { cn } from '@cognirise/atelier/lib/utils';
+import { CheckCircle2 } from 'lucide-react';
 import { useLang } from '../lib/i18n';
 import { initials } from '../lib/format';
 import { useApp } from './state';
@@ -89,7 +90,7 @@ export function AgentTag({ id, autonomy, showChip = true }: { id: string; autono
 export function Btn({ children, onClick, kind = 'ghost', disabled, type = 'button', className, small }: { children: ReactNode; onClick?: () => void; kind?: 'primary' | 'ghost' | 'danger'; disabled?: boolean; type?: 'button' | 'submit'; className?: string; small?: boolean }) {
   return (
     <button type={type} onClick={onClick} disabled={disabled}
-      className={cn('pill-btn', kind === 'primary' ? 'pill-btn-primary' : 'pill-btn-ghost', kind === 'danger' && 'border-danger/50 text-danger hover:bg-danger/10', small && 'px-3 py-1.5 text-xs', className)}>
+      className={cn('pill-btn transition-transform active:scale-[0.97] motion-reduce:transform-none', kind === 'primary' ? 'pill-btn-primary' : 'pill-btn-ghost', kind === 'danger' && 'border-danger/50 text-danger hover:bg-danger/10', small && 'px-3 py-1.5 text-xs', className)}>
       {children}
     </button>
   );
@@ -104,8 +105,8 @@ export function Bar({ value, max = 100, tone = 'primary', className }: { value: 
   );
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="rounded-xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">{children}</div>;
+export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
+  return <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/70 px-4 py-8 text-center text-sm text-muted-foreground"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">{icon ?? <CheckCircle2 className="h-4 w-4" />}</span>{children}</div>;
 }
 
 export function Kv({ k, v, mono }: { k: ReactNode; v: ReactNode; mono?: boolean }) {
@@ -118,31 +119,26 @@ export function Kv({ k, v, mono }: { k: ReactNode; v: ReactNode; mono?: boolean 
 }
 
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('overflow-x-auto scroll-thin', className)}><table className="table-clean">{children}</table></div>;
+  return <div className={cn('overflow-x-auto scroll-thin [&_td.tabular-nums]:whitespace-nowrap', className)}><table className="table-clean">{children}</table></div>;
 }
 
-/** Every screen: one hero, the synthetic-data banner, then the body. */
-export function Screen({ hero, children, banner = true }: { hero: ReactNode; children: ReactNode; banner?: boolean }) {
-  const { t } = useLang();
-  const c = useClient();
-  const tasamaView = typeof window !== 'undefined' && window.location.hash.startsWith('#/tasama-');
+/** Every screen: one hero, then the body. Provenance is said once, by "demo" in the title bar. */
+export function Screen({ hero, children }: { hero: ReactNode; children: ReactNode; banner?: boolean }) {
   return (
     <div className="space-y-4">
       {hero}
-      {banner ? (
-        <DemoBanner kind="synthetic" title={t('Synthetic data')} className="py-2.5">
-          {tasamaView
-            ? t('Client names are real PIF portfolio companies; every person, policy, contract, fee and figure is fictional. Each client HRMS (Oracle HCM or Odoo) is simulated.')
-            : <>{t('Every person, case and figure here is generated for this demo. The HRMS is a simulation of')} {c.hrmsLabel ?? 'the HRMS'}.</>}
-        </DemoBanner>
-      ) : null}
       <div className="space-y-4">{children}</div>
     </div>
   );
 }
 
-export function Hero(props: Parameters<typeof PageHero>[0]) {
-  return <PageHero {...props} />;
+/**
+ * The work-screen hero: the same island, sized for work. The headline is a
+ * sentence, so it is set at heading size, not display size, and the island
+ * gives the screen back its height.
+ */
+export function Hero({ landing, ...props }: Parameters<typeof PageHero>[0] & { landing?: boolean }) {
+  return <PageHero {...props} className={cn(landing ? 'min-h-[280px] py-8 sm:py-9' : 'py-5 sm:py-6', '[&_h1.headline]:text-[clamp(22px,1.9vw,28px)] [&_h1.headline]:leading-[1.2] [&_h1.headline]:tracking-[-0.01em] [&_.lede]:text-[14px] [&_.lede]:leading-relaxed [&_.eyebrow]:mb-0', props.className)} />;
 }
 export { PageContainer };
 
@@ -155,4 +151,34 @@ export function SourceStamp({ resource }: { resource: string }) {
 
 export function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}</label>;
+}
+
+/** Stat tiles sized for a work screen: the figure reads at heading size, not display size. */
+export function StatRow({ children, className }: { children: ReactNode; className?: string }) {
+  return <AtelierStatRow className={cn('[&_p.text-3xl]:mt-2 [&_p.text-3xl]:text-[22px] [&_p.text-3xl]:font-bold [&_p.text-3xl]:leading-tight [&_.glass-l3]:py-3.5', className)}>{children}</AtelierStatRow>;
+}
+
+/**
+ * Tabs on a page or a record: words only, no counts (a count belongs in the
+ * headline). With `route`, each tab is a screen and the strip moves between
+ * them; without it, the caller holds the value.
+ */
+export function TabStrip({ items, value, onChange }: { items: { id: string; label: string }[]; value: string; onChange: (id: string) => void }) {
+  const { t } = useLang();
+  return (
+    <div role="tablist" className="flex flex-wrap gap-1 border-b border-border/70">
+      {items.map((i) => (
+        <button key={i.id} type="button" role="tab" aria-selected={value === i.id} onClick={() => onChange(i.id)}
+          className={cn('-mb-px border-b-2 px-3 pb-2 pt-1 text-sm transition-colors active:scale-[0.98]', value === i.id ? 'border-primary font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+          {t(i.label)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Tabs that are screens: the strip goes to the screen. */
+export function RouteTabs({ items }: { items: { id: string; label: string; param?: string | null }[] }) {
+  const { route, go } = useApp();
+  return <TabStrip items={items} value={route.screen} onChange={(id) => go(id, items.find((i) => i.id === id)?.param ?? null)} />;
 }

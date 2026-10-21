@@ -1,6 +1,6 @@
 /** My Team: the line manager's screens. Agents prepare; the manager decides. */
 import { useEffect, useMemo, useState } from 'react';
-import { HeroFeature, PageColumns, Panel, PanelAction, RecordCard, StatRow, StatTile } from '@cognirise/atelier/layout';
+import { HeroFeature, PageColumns, Panel, PanelAction, RecordCard } from '@cognirise/atelier/layout';
 import { InboxItem, InboxLayout, InboxList, InboxReader, InboxTabs } from '@cognirise/atelier/archetypes';
 import { Dialog, DialogContent, DialogTitle } from '@cognirise/atelier/components/ui/dialog';
 import { Briefcase, CalendarDays, ClipboardCheck, Plus, Target, TrendingUp, Users } from 'lucide-react';
@@ -9,33 +9,37 @@ import { useLang } from '../lib/i18n';
 import { ago, date, dateShort, daysUntil, until } from '../lib/format';
 import { useApp } from '../app/state';
 import { Bar, Btn, Chip, Empty, Field, Hero, Person, Ref, Screen, StatusChip, Table } from '../app/ui';
-import { CaseBody } from '../app/case';
+import { CaseRow, CaseView } from '../app/case';
+import { CoverStrip } from '../app/viz';
+import { rowTitle } from '../app/decision';
 import { LifecycleRing, stageCounts } from '../app/ring';
 
 export function TeamScreen() {
   const { t, bi, lang } = useLang();
   const { go, openCase } = useApp();
   const { data } = useApi<any[]>('/team');
-  const { data: inbox } = useApi<any[]>('/requests?view=inbox');
+  const { data: all } = useApi<any[]>('/requests?view=inbox');
+  const inbox = (all ?? []).filter(asManager);
   const [pos, setPos] = useState(false);
   const team = data ?? [];
+  const today = new Date().toISOString().slice(0, 10);
   const away = team.filter((m) => m.away.some((a: any) => a.start_date <= new Date().toISOString().slice(0, 10)));
   const probation = team.filter((m) => m.probation_status === 'IN_PROBATION');
+  const horizon = new Date(Date.now() + 21 * 864e5).toISOString().slice(0, 10);
+  const awaySoon = team.filter((m) => m.away.some((a: any) => String(a.start_date).slice(0, 10) <= horizon && String(a.end_date).slice(0, 10) >= today) || (inbox ?? []).some((r) => r.workflow_id === 'WF-15' && r.subject_person_id === m.person_id && String(r.payload?.start ?? '') <= horizon && String(r.payload?.end ?? '') >= today));
   const reviews = team.filter((m) => m.review && !['COMPLETED', 'SHARED'].includes(m.review.status));
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="My Team" title="Your team today" lede="Who is away, who is in probation, what is waiting on you. Every decision arrives prepared, with the evidence and the rule."
-      actions={<><Btn kind="primary" onClick={() => go('team-approvals')}>{t('Open approvals')}</Btn><Btn onClick={() => setPos(true)}><Plus className="h-4 w-4" />{t('Request a position')}</Btn></>}
-      media={<LifecycleRing counts={stageCounts(inbox ?? [])} center={(inbox ?? []).length} centerLabel={t('decisions waiting on you')} />} />}>
-      <StatRow>
-        <StatTile label="Direct reports" value={team.length} />
-        <StatTile label="Away now" value={away.length} trend={{ direction: 'flat', label: away.map((a) => a.first_name).join(', ') || t('everyone in') }} />
-        <StatTile label="In probation" value={probation.length} trend={{ direction: 'flat', label: probation[0] ? `${probation[0].first_name}: ${t('ends')} ${dateShort(probation[0].probation_end_date, lang)}` : t('none') }} />
-        <StatTile label="Reviews to complete" value={reviews.length} />
-      </StatRow>
-      <PageColumns aside={<Panel icon={<ClipboardCheck size={16} />} title="Waiting on you" action={<PanelAction onClick={() => go('team-approvals')}>{t('All')}</PanelAction>}>
-        <div className="space-y-2">{(inbox ?? []).slice(0, 6).map((r) => <RecordCard key={r.ref} reference={<Ref>{r.ref}</Ref>} state={<StatusChip status={r.status} />} title={bi(r.title, r.title_ar)} meta={<span className="text-xs text-muted-foreground">{bi(r.subject_name, r.subject_name_ar)} · {until(r.sla_due, lang)}</span>} onOpen={() => openCase(r.ref)} />)}
-          {!(inbox ?? []).length ? <Empty>{t('Nothing waiting.')}</Empty> : null}</div>
-      </Panel>}>
+    <Screen hero={<Hero tone="surface" eyebrow="My Team" title={awaySoon.length ? `${awaySoon.length} ${t('of your')} ${team.length} ${t(awaySoon.length === 1 ? 'people is away in the next three weeks' : 'people are away in the next three weeks')}` : t('Everyone in your team is in for the next three weeks')} lede={`${team.length} ${t(team.length === 1 ? 'direct report' : 'direct reports')}. ${away.length ? `${t('Away today')}: ${away.map((a) => a.first_name).join(', ')}.` : t('Everyone is in today.')} ${probation.length ? `${probation.length} ${t('in probation')}${probation[0] ? `; ${probation[0].first_name} ${t('ends')} ${dateShort(probation[0].probation_end_date, lang)}` : ''}.` : t('Nobody is in probation.')}`}
+      feature={reviews.length ? <HeroFeature label="Reviews to complete" value={reviews.length} support={<span className="text-xs text-muted-foreground">{t('of')} {team.length} {t('this cycle')}</span>} /> : undefined}
+      actions={<><Btn kind="primary" onClick={() => go('team-approvals')}>{inbox.length ? `${t('Open approvals')} · ${inbox.length}` : t('Open approvals')}</Btn><Btn onClick={() => setPos(true)}><Plus className="h-4 w-4" />{t('Request a position')}</Btn></>} />}>
+      <div className="space-y-4">
+        <Panel icon={<CalendarDays size={16} />} title={`${t('Who is away in the next three weeks')}`} action={<PanelAction>{t('Today first')}</PanelAction>}>
+          <CoverStrip size="lg" from={today} days={21} today={today} rows={team.map((m) => ({ name: bi(m.first_name, m.display_name_ar?.split(' ')[0]), ranges: [
+            ...m.away.map((a: any) => ({ start: String(a.start_date).slice(0, 10), end: String(a.end_date).slice(0, 10) })),
+            ...(inbox ?? []).filter((r) => r.workflow_id === 'WF-15' && r.subject_person_id === m.person_id).map((r) => ({ start: r.payload.start, end: r.payload.end, pending: true })),
+          ] }))} />
+          <div className="mt-3 flex gap-4 text-[11px] text-muted-foreground"><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-warn" />{t('Approved leave')}</span><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm bg-primary/35 ring-1 ring-inset ring-primary" />{t('Waiting on you')}</span></div>
+        </Panel>
         <Panel icon={<Users size={16} />} title="Team" action={<PanelAction>{team.length} {t('people')}</PanelAction>}>
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]">
             {team.map((m) => (
@@ -53,7 +57,7 @@ export function TeamScreen() {
             ))}
           </div>
         </Panel>
-      </PageColumns>
+      </div>
       <PositionRequest open={pos} onClose={() => setPos(false)} />
     </Screen>
   );
@@ -67,7 +71,7 @@ function PositionRequest({ open, onClose }: { open: boolean; onClose: () => void
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg"><DialogTitle>{t('Request a position')}</DialogTitle>
-        <p className="text-sm text-muted-foreground">{t('Saeed checks it against your headcount budget, the grade structure and Saudization (Nitaqat), and drafts the job description. HRBP and Finance approve; the CHRO also approves G11 and above or anything unbudgeted.')}</p>
+        <p className="text-sm text-muted-foreground">{t('Your HR business partner and Finance approve it; the CHRO too for G11 and above or anything unbudgeted.')}</p>
         <div className="space-y-3">
           <Field label={t('Job title')}><input className="input" value={f.job_title ?? ''} onChange={(e) => setF({ ...f, job_title: e.target.value })} placeholder="Customer Experience Analyst" /></Field>
           <div className="grid grid-cols-2 gap-3">
@@ -76,7 +80,7 @@ function PositionRequest({ open, onClose }: { open: boolean; onClose: () => void
           </div>
           <Field label={t('Why it is needed')}><textarea className="input" value={f.reason ?? ''} onChange={(e) => setF({ ...f, reason: e.target.value })} /></Field>
           {err ? <p className="text-sm text-danger">{err}</p> : null}
-          <div className="flex justify-end"><Btn kind="primary" disabled={!f.job_title} onClick={async () => { try { const r = await post('/requests', { type: 'POSITION', ...f }); bump(); onClose(); openCase(r.ref); } catch (e: any) { setErr(e.message); } }}>{t('Submit to Saeed')}</Btn></div>
+          <div className="flex justify-end"><Btn kind="primary" disabled={!f.job_title} onClick={async () => { try { const r = await post('/requests', { type: 'POSITION', ...f }); bump(); onClose(); openCase(r.ref); } catch (e: any) { setErr(e.message); } }}>{t('Submit')}</Btn></div>
         </div>
       </DialogContent>
     </Dialog>
@@ -84,10 +88,11 @@ function PositionRequest({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 /** The manager's (and anyone's) decision inbox. */
-export function DecisionInbox({ scope = 'inbox' }: { scope?: 'inbox' | 'all' }) {
+export function DecisionInbox({ scope = 'inbox', only }: { scope?: 'inbox' | 'all'; only?: (r: any) => boolean }) {
   const { t, bi, lang } = useLang();
   const [tab, setTab] = useState('waiting');
-  const { data: waiting } = useApi<any[]>('/requests?view=inbox', { poll: 6000 });
+  const { data: allWaiting } = useApi<any[]>('/requests?view=inbox', { poll: 6000 });
+  const waiting = only ? (allWaiting ?? []).filter(only) : allWaiting;
   const { data: all } = useApi<any[]>(`/requests?view=${scope === 'all' ? 'all' : 'all'}&limit=150`);
   const [sel, setSel] = useState<string | null>(null);
   const rows = useMemo(() => {
@@ -99,23 +104,26 @@ export function DecisionInbox({ scope = 'inbox' }: { scope?: 'inbox' | 'all' }) 
   return (
     <InboxLayout
       tabs={<InboxTabs value={tab} onChange={setTab} items={[{ id: 'waiting', label: t('Needs my decision'), count: (waiting ?? []).length, tone: 'attention' }, { id: 'escalated', label: t('Escalated'), count: (all ?? []).filter((r) => r.status === 'ESCALATED').length }, { id: 'all', label: t('All in my scope'), count: (all ?? []).length }]} />}
-      list={<InboxList label={tab === 'waiting' ? t('Waiting on you') : tab === 'escalated' ? t('Escalated') : t('All cases')} count={rows.length} emptyState={<Empty>{t('Nothing here.')}</Empty>}>
+      list={<InboxList label={tab === 'all' ? t('Most recent first') : t('Oldest due first')} emptyState={<Empty>{t('Nothing here.')}</Empty>}>
         {rows.map((r) => (
-          <InboxItem key={r.ref} selected={sel === r.ref} onSelect={() => setSel(r.ref)} unread={r.status === 'WAITING' && tab === 'waiting'}
-            reference={<Ref>{r.ref}</Ref>} state={<StatusChip status={r.status} />} title={bi(r.title, r.title_ar)}
-            preview={r.result?.recommendation ? `${t('Agent')}: ${bi(r.result.recommendation.summary, r.result.recommendation.summary_ar)}` : bi(r.subject_name, r.subject_name_ar)}
-            meta={r.sla_due && ['WAITING', 'ESCALATED'].includes(r.status) ? until(r.sla_due, lang) : ago(r.updated_at, lang)} />
+          <CaseRow key={r.ref} r={r} selected={sel === r.ref} onSelect={() => setSel(r.ref)} unread={r.status === 'WAITING' && tab === 'waiting'} />
         ))}
       </InboxList>}
-      reader={<InboxReader empty={t('Choose a case. The reader ends in the decision it needs.')}>{sel ? <CaseBody caseRef={sel} /> : null}</InboxReader>}
+      reader={sel ? <CaseView caseRef={sel} /> : <InboxReader empty={t('Choose a case.')} />}
     />
   );
 }
 
+/** A decision the person takes as a line manager. The CHRO's HR decisions stay in the HR Workspace inbox, so no row is in both. */
+export const asManager = (r: any) => r.waiting_on_role === 'LINE_MANAGER';
+
 export function TeamApprovals() {
+  const { t } = useLang();
+  const { data } = useApi<any[]>('/requests?view=inbox', { poll: 6000 });
+  const n = (data ?? []).filter(asManager).length;
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="My Team" title="Approvals" lede="Leave, advances, probation and hiring decisions for your team. Each arrives with the agent's check and the policy clause behind it." />}>
-      <DecisionInbox />
+    <Screen hero={<Hero tone="surface" eyebrow="My Team" title={n ? `${n} ${t(n === 1 ? 'decision waits on you' : 'decisions wait on you')}` : t('Nothing waits on you')} lede={t('Leave, advances, probation and hiring decisions for your team.')} />}>
+      <DecisionInbox only={asManager} />
     </Screen>
   );
 }
@@ -127,13 +135,13 @@ export function TeamHiring() {
   const mine = (data?.requisitions ?? []).filter((r: any) => r.hiring_manager === persona?.display_name);
   const list = mine.length ? mine : (data?.requisitions ?? []).filter((r: any) => r.division === 'Commercial');
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="My Team" title="Hiring" lede="Your vacancies, Hessa's evidence for each applicant and the shortlists waiting for you. Hessa never ranks or rejects anyone." />}>
+    <Screen hero={<Hero tone="surface" eyebrow="My Team" title={(() => { const o = list.filter((r: any) => r.status === 'OPEN').length, d = list.filter((r: any) => r.open_case).length; return `${o} ${t(o === 1 ? 'vacancy is open' : 'vacancies are open')}${d ? `; ${d} ${t(d === 1 ? 'shortlist needs your decision' : 'shortlists need your decision')}` : ''}`; })()} lede={t('Your vacancies, the evidence for each applicant and the shortlists waiting for you.')} />}>
       <Panel icon={<Briefcase size={16} />} title={mine.length ? 'My requisitions' : 'Requisitions in my division'}>
-        <Table><thead><tr><th>{t('Requisition')}</th><th>{t('Role')}</th><th>{t('Opened')}</th><th>{t('Applicants')}</th><th>{t('Shortlisted')}</th><th>{t('Saudi applicants')}</th><th>{t('Status')}</th><th></th></tr></thead>
+        <Table><thead><tr><th>{t('Role')}</th><th>{t('Opened')}</th><th>{t('Applicants')}</th><th>{t('Shortlisted')}</th><th>{t('Saudi applicants')}</th><th>{t('Status')}</th><th></th></tr></thead>
           <tbody>{list.map((r: any) => {
             const f = r.funnel ?? {};
             const n = Object.values(f).reduce((a: number, b: any) => a + Number(b), 0) as number;
-            return <tr key={r.id}><td><Ref>{r.req_number}</Ref></td><td>{bi(r.title, r.title_ar)}<span className="block text-xs text-muted-foreground">{r.department} · {r.grade}</span></td><td>{date(r.opened_date, lang)}</td><td className="tabular-nums">{n}</td><td className="tabular-nums">{(f.SHORTLISTED ?? 0) + (f.INTERVIEW ?? 0) + (f.ASSESSMENT ?? 0)}</td><td className="tabular-nums">{r.saudi_applicants}</td><td><StatusChip status={r.status} /></td><td>{r.open_case ? <Btn small kind="primary" onClick={() => openCase(r.open_case)}>{t('Decide')}</Btn> : null}</td></tr>;
+            return <tr key={r.id}><td>{bi(r.title, r.title_ar)}<span className="block text-xs text-muted-foreground">{r.department} · {r.grade}</span></td><td>{date(r.opened_date, lang)}</td><td className="tabular-nums">{n}</td><td className="tabular-nums">{(f.SHORTLISTED ?? 0) + (f.INTERVIEW ?? 0) + (f.ASSESSMENT ?? 0)}</td><td className="tabular-nums">{r.saudi_applicants}</td><td><StatusChip status={r.status} /></td><td>{r.open_case ? <Btn small kind="primary" onClick={() => openCase(r.open_case)}>{t('Decide')}</Btn> : null}</td></tr>;
           })}</tbody></Table>
       </Panel>
     </Screen>
@@ -145,13 +153,13 @@ export function TeamPerformance() {
   const { data } = useApi<any[]>('/team');
   const team = data ?? [];
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="My Team" title="Performance" lede="Goal progress and review status for each person. Mezan prepares the evidence for check-ins and reviews; you rate." />}>
+    <Screen hero={<Hero tone="surface" eyebrow="My Team" title={(() => { const w = team.filter((m) => m.review && !m.review.manager_rating && !['COMPLETED', 'SHARED'].includes(m.review.status)).length; const cal = team.filter((m) => m.review?.status === 'CALIBRATION').length; return w ? `${w} ${t(w === 1 ? 'review waits for your rating' : 'reviews wait for your rating')}` : cal ? `${t('All rated; HR is calibrating')} ${cal} ${t(cal === 1 ? 'review' : 'reviews')}` : t('Every review in your team is rated'); })()} lede={t('Goal progress and review status for each person in your team.')} />}>
       <Panel icon={<TrendingUp size={16} />} title="Review cycle">
         <Table><thead><tr><th>{t('Person')}</th><th>{t('Goals')}</th><th>{t('Review status')}</th><th>{t('Self')}</th><th>{t('Your rating')}</th><th>{t('Probation')}</th></tr></thead>
           <tbody>{team.map((m) => <tr key={m.person_id}><td><Person name={bi(m.display_name, m.display_name_ar)} sub={bi(m.job_name, m.job_name_ar)} size={24} /></td><td className="min-w-[140px]"><div className="flex items-center gap-2"><Bar value={m.goals ?? 0} /><span className="font-mono text-[11px]">{m.goals ?? '—'}%</span></div></td><td><StatusChip status={m.review?.status} /></td><td className="tabular-nums">{m.review?.self_rating ?? '—'}</td><td className="tabular-nums">{m.review?.manager_rating ?? '—'}</td><td>{m.probation_status === 'IN_PROBATION' ? <Chip tone={daysUntil(m.probation_end_date) < 30 ? 'warn' : undefined}>{date(m.probation_end_date, lang)}</Chip> : <span className="text-xs text-muted-foreground">{t('Confirmed')}</span>}</td></tr>)}</tbody></Table>
       </Panel>
       <Panel icon={<Target size={16} />} title="How ratings work">
-        <p className="text-sm">{t('Ratings run 1 to 5. As a guide no more than 15% of a division is rated 5 and about 60% sits at 3. Ratings are calibrated by division before they are shared, and the panel records a reason for every change.')} <span className="font-mono text-[11px] text-muted-foreground">HR-09 §9.3–9.4</span></p>
+        <p className="text-sm">{t('Ratings run 1 to 5. As a guide no more than 15% of a division is rated 5 and about 60% sits at 3. Ratings are calibrated by division before they are shared, and the panel records a reason for every change.')}</p>
       </Panel>
     </Screen>
   );

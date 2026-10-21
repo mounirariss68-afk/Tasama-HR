@@ -28,7 +28,7 @@ Rules you must follow:
 1. Reply in ${lang === 'ar' ? 'Arabic (Modern Standard, clear and warm). Keep numbers in Western digits' : 'English'}. Be brief and plain: two to six short sentences, or a short list when listing items. No praise, no filler, no emoji. Give amounts in SAR.
 2. For any question about rules, entitlements or process, call search_policy first and answer ONLY from what it returns. Cite the clause id in square brackets, e.g. [HR-04 §4.1]. If nothing relevant comes back, say you do not have a policy source for it and offer to route it to a person in HR. Never invent a rule, figure or deadline, and never apply another company's or another country's rules.
 3. For questions about the person's own data, use the my_* tools. Never guess a balance, salary or date.
-4. You can prepare a request with propose_request. You cannot submit or write anything: the person confirms on screen. Say "I've prepared it — check the details and press Confirm."
+4. You can prepare a request with propose_request. You cannot submit or write anything: the person confirms on the card. When you prepare one, reply with ONE short sentence such as "Here it is: check it and press Confirm." The card already states the type, dates, amounts and balance, so do not repeat them, do not list them as bullets and do not explain what Confirm does.
 5. Decisions on hiring, ratings, pay, promotion, discipline and termination are made by people [HR-13 §13.2]. You prepare and explain; you never decide or promise an outcome.
 6. Refuse anything discriminatory (age, sex, nationality, religion, marital status, pregnancy) and cite [HR-01 §1.2].
 7. Only use data the tools return; they already enforce what this person may see. Do not reveal another person's salary or personal data unless a tool returned it for this user.
@@ -145,9 +145,16 @@ async function offline(p: Persona, text: string, lang: 'en' | 'ar', who: string)
     await call('search_policy', { query: type === 'SALARY_TRANSFER' ? 'salary transfer letter bank' : 'standard letters salary certificate' });
     await call('propose_request', { type, addressee: bank, language: lang });
     const cite = type === 'SALARY_TRANSFER' ? 'HR-08 §8.2' : 'HR-08 §8.1';
-    return { outs, calls, reply: ar
-      ? `جهزت الطلب. ${type === 'SALARY_TRANSFER' ? 'خطاب تحويل الراتب يحتاج إلى اعتماد عمليات الموارد البشرية لأنه يلزم بتحويل مستحقات نهاية الخدمة' : `هذا خطاب قياسي يصدر من بيانات النظام خلال ${pol().letterHours} ساعات عمل`} [${cite}]. راجع التفاصيل واضغط تأكيد.`
-      : `I've prepared it. ${type === 'SALARY_TRANSFER' ? 'A salary transfer letter needs HR Operations approval because it commits your end-of-service payment to the bank' : `This is a standard letter, issued from ${client().short}'s HRMS data within ${pol().letterHours} working hours`} [${cite}]. Check the details and press Confirm.` };
+    void cite;
+    return { outs, calls, reply: ar ? 'هذا طلبك: راجعه واضغط تأكيد.' : 'Here it is: check it and press Confirm.' };
+  }
+  if (has(t, 'book', 'request', 'take', 'احجز', 'أطلب', 'اطلب') && has(t, 'leave', 'إجازة', 'holiday', 'vacation', 'days off')) {
+    const span = parseSpan(t);
+    if (span) {
+      const tc = has(t, 'sick', 'مرضية') ? 'SICK' : has(t, 'unpaid', 'بدون راتب') ? 'UNPAID' : 'ANNUAL';
+      await call('propose_request', { type: 'LEAVE', type_code: tc, start: span[0], end: span[1] });
+      return { outs, calls, reply: ar ? 'هذا طلبك: راجعه واضغط تأكيد.' : 'Here it is: check it and press Confirm.' };
+    }
   }
   if (has(t, 'balance', 'how many days', 'رصيد', 'كم يوم', 'leave left', 'annual leave')) {
     const o = await call('my_leave');
@@ -213,4 +220,21 @@ async function offline(p: Persona, text: string, lang: 'en' | 'ar', who: string)
   const top = o.result?.[0];
   if (!top) return { outs, calls, reply: ar ? 'لا يوجد لدي مصدر في السياسات لهذا السؤال. يمكنني إحالته إلى أحد موظفي الموارد البشرية.' : 'I don\'t have a policy source for that. I can route it to a person in HR.' };
   return { outs, calls, reply: `${top.text} [${top.id}]` };
+}
+
+/** "26 to 29 October", "26-29 Oct", "2026-11-01 to 2026-11-04" → [start, end] as YYYY-MM-DD. */
+function parseSpan(t0: string): [string, string] | null {
+  const AR: [string, string][] = [['يناير', 'jan'], ['فبراير', 'feb'], ['مارس', 'mar'], ['أبريل', 'apr'], ['مايو', 'may'], ['يونيو', 'jun'], ['يوليو', 'jul'], ['أغسطس', 'aug'], ['سبتمبر', 'sep'], ['أكتوبر', 'oct'], ['نوفمبر', 'nov'], ['ديسمبر', 'dec'], ['إلى', 'to'], ['حتى', 'to']];
+  const t = AR.reduce((s, [a, e]) => s.split(a).join(` ${e} `), t0).replace(/\s+/g, ' ');
+  const isoM = t.match(/(\d{4}-\d{2}-\d{2})\D+(\d{4}-\d{2}-\d{2})/);
+  if (isoM) return [isoM[1], isoM[2]];
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const m = t.match(/(\d{1,2})\s*(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*)?(?:to|-|–|until|till)\s*(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/);
+  if (!m) return null;
+  const now = new Date();
+  const mEnd = MONTHS.indexOf(m[4]), mStart = m[2] ? MONTHS.indexOf(m[2]) : mEnd;
+  let y = now.getUTCFullYear();
+  if (mStart < now.getUTCMonth() || (mStart === now.getUTCMonth() && Number(m[1]) < now.getUTCDate())) y += 1;
+  const d = (yy: number, mm: number, dd: number) => `${yy}-${String(mm + 1).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  return [d(y, mStart, Number(m[1])), d(mEnd < mStart ? y + 1 : y, mEnd, Number(m[3]))];
 }

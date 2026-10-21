@@ -1,16 +1,17 @@
 /**
  * The assistant rail: Rafeeq for employees and managers, Murshid for HR.
- * The rail says which resolver is answering (Claude or offline) and every
- * answer shows the policy clauses it cites. A request the assistant prepares
- * is a card with a Confirm button: nothing is submitted on its say-so.
+ * An answer is its sentence; the clauses it relied on sit behind "Sources".
+ * A request the assistant prepares is one ConfirmCard: a sentence, the facts
+ * once, Confirm and Change.
  */
 import { useEffect, useRef, useState } from 'react';
 import { ChatAssistantTurn, ChatComposer, ChatRail, ChatStatusBadge, ChatSuggestions, ChatUserTurn, RailBrandCard, type ChatRailState } from '@cognirise/atelier/layout';
-import { FileCheck2, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { api, bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { useApp } from './state';
-import { Btn, Chip, useClient } from './ui';
+import { useClient } from './ui';
+import { ConfirmCard } from './confirm-card';
 import { AgentMessage } from './agent-message';
 
 type Msg = { id: number; role: 'user' | 'assistant'; content: string; mode?: string; citations?: { id: string; heading: string }[]; tool_calls?: { name: string }[]; pending?: any };
@@ -18,47 +19,35 @@ type Msg = { id: number; role: 'user' | 'assistant'; content: string; mode?: str
 /** Suggestions per persona. `{bank}` is replaced with the client's salary bank from the session. */
 const SUGGEST: Record<string, [string, string][]> = {
   tasama: [['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['Summarise the payroll pre-run check', 'لخّص فحص ما قبل تشغيل الرواتب'], ['Saudization ratio today', 'نسبة التوطين اليوم'], ['How many annual leave days does this company give?', 'كم يوماً من الإجازة السنوية تمنح هذه الشركة؟']],
-  employee: [['How many leave days do I have?', 'كم رصيدي من الإجازات؟'], ['Salary certificate for {bank}', 'شهادة راتب لـ{bank}'], ['When is payday?', 'متى موعد الراتب؟'], ['Do I get an annual air ticket?', 'هل لي تذكرة طيران سنوية؟']],
+  employee: [['Book annual leave 9 to 12 November', 'احجز إجازة سنوية من 9 إلى 12 نوفمبر'], ['How many leave days do I have?', 'كم رصيدي من الإجازات؟'], ['Salary certificate for {bank}', 'شهادة راتب لـ{bank}'], ['When is payday?', 'متى موعد الراتب؟'], ['Do I get an annual air ticket?', 'هل لي تذكرة طيران سنوية؟']],
   joiner: [['What do I need before my start date?', 'ما المطلوب قبل تاريخ التحاقي؟'], ['How long is probation?', 'كم مدة فترة التجربة؟'], ['What are the working hours?', 'ما ساعات العمل؟'], ['Who is my manager?', 'من مديري المباشر؟']],
-  manager: [['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['Who in my team is away next week?', 'من في فريقي في إجازة الأسبوع القادم؟'], ['Can probation be extended?', 'هل يمكن تمديد فترة التجربة؟'], ['How does a salary advance work?', 'كيف تعمل سلفة الراتب؟']],
+  manager: [['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['Book annual leave 9 to 12 November', 'احجز إجازة سنوية من 9 إلى 12 نوفمبر'], ['Who in my team is away next week?', 'من في فريقي في إجازة الأسبوع القادم؟'], ['Can probation be extended?', 'هل يمكن تمديد فترة التجربة؟'], ['How does a salary advance work?', 'كيف تعمل سلفة الراتب؟']],
   hrbp: [['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['Saudization ratio today', 'نسبة التوطين اليوم'], ['Rules for terminating for performance', 'قواعد إنهاء الخدمة بسبب الأداء'], ['Summarise the calibration flags', 'لخص ملاحظات المعايرة']],
   ta: [['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['Open requisitions and applicants', 'طلبات التوظيف المفتوحة والمتقدمون'], ['Who approves an offer above midpoint?', 'من يعتمد عرضاً فوق منتصف الدرجة؟'], ['Saudization priority rule', 'قاعدة أولوية التوطين']],
   payroll: [['Summarise the payroll pre-run check', 'لخص فحص ما قبل تشغيل الرواتب'], ['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['How is the end-of-service award calculated?', 'كيف تُحسب مكافأة نهاية الخدمة؟'], ['Mudad deadline this month', 'موعد رفع ملف الأجور في مدد هذا الشهر']],
   chro: [['What is waiting on me?', 'ما الذي ينتظر قراري؟'], ['Saudization ratio today', 'نسبة التوطين اليوم'], ['Summarise the payroll pre-run check', 'لخص فحص ما قبل تشغيل الرواتب'], ['Rules for terminating for performance', 'قواعد إنهاء الخدمة بسبب الأداء']],
 };
 
-function Answer({ m, onConfirmed }: { m: Msg; onConfirmed: () => void }) {
-  const { t, bi } = useLang();
+/** Clause references move out of the sentence into the collapsed Sources list. */
+const stripCites = (s: string) => s.replace(/\s*\[(?:HR-\d+[^\]]*|Art\.[^\]]*)\]/g, '').replace(/\s+([.,;:])/g, '$1');
+
+function Answer({ m, onConfirmed, onChange }: { m: Msg; onConfirmed: () => void; onChange: () => void }) {
+  const { t } = useLang();
   const { go, openCase } = useApp();
-  const [state, setState] = useState<'idle' | 'busy' | 'error'>('idle');
-  const [err, setErr] = useState('');
   const pending = m.pending;
   return (
     <div className="space-y-2">
-      <AgentMessage content={m.content} />
-      {m.citations?.length ? (
-        <div className="flex flex-wrap gap-1">{m.citations.map((c) => <button key={c.id} type="button" onClick={() => go('policies', c.id)} className="mono-chip is-primary hover:opacity-80" title={c.heading}>{c.id}</button>)}</div>
-      ) : null}
+      <AgentMessage content={stripCites(m.content)} />
       {pending ? (
-        <div className="rounded-lg border border-primary/40 bg-primary/5 p-2.5">
-          <p className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground"><FileCheck2 className="h-3.5 w-3.5 text-primary" />{bi(pending.title, pending.title_ar)}</p>
-          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{pending.workflow} · {Object.entries(pending.payload ?? {}).filter(([, v]) => v !== null && v !== '' && typeof v !== 'object').map(([k, v]) => `${k}: ${v}`).join(' · ')}</p>
-          {pending.confirmed ? (
-            <button type="button" className="mt-1.5 text-[12px] text-primary underline" onClick={() => openCase(pending.confirmed)}>{t('Submitted')}: {pending.confirmed}</button>
-          ) : (
-            <div className="mt-2 flex items-center gap-2">
-              <Btn small kind="primary" disabled={state === 'busy'} onClick={async () => {
-                setState('busy');
-                try { const r = await post('/assistant/confirm', { message_id: m.id }); bump(); onConfirmed(); openCase(r.ref); setState('idle'); }
-                catch (e: any) { setErr(e.message); setState('error'); }
-              }}>{t('Confirm')}</Btn>
-              <span className="text-[11px] text-muted-foreground">{t('Nothing is submitted until you confirm.')}</span>
-            </div>
-          )}
-          {state === 'error' ? <p className="mt-1 text-[11px] text-danger">{err}</p> : null}
-        </div>
+        <ConfirmCard pending={pending} onOpen={openCase} onChange={onChange}
+          onConfirm={async () => { const r = await post('/assistant/confirm', { message_id: m.id }); bump(); onConfirmed(); openCase(r.ref); }} />
       ) : null}
-      {m.tool_calls?.length ? <p className="font-mono text-[10px] text-muted-foreground">{t('Read')}: {[...new Set(m.tool_calls.map((c) => c.name))].join(', ')}{m.mode === 'offline' ? ` · ${t('offline')}` : ''}</p> : null}
+      {m.citations?.length && !pending ? (
+        <details className="group text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer list-none hover:text-foreground [&::-webkit-details-marker]:hidden">{t('Sources')} ▸</summary>
+          <div className="mt-1 flex flex-wrap gap-1">{m.citations.map((c) => <button key={c.id} type="button" onClick={() => go('policies', c.id)} className="mono-chip is-primary hover:opacity-80" title={c.heading}>{c.id} · {c.heading}</button>)}</div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -117,12 +106,11 @@ export function AssistantRail({ rail }: { rail: ChatRailState }) {
         <div className="space-y-3 text-[13px]">
           {!msgs.length ? (
             <ChatAssistantTurn avatar={name.slice(0, 1)}>
-              <p className="text-foreground">{isHR ? t('I can answer from HRMS data inside your scope, cite the HR policy, and prepare cases for you to confirm.') : t('Ask me about leave, pay, letters or any HR policy. I answer from the HR handbook and your HRMS record, and I prepare requests for you to confirm.')}</p>
-              {mode === 'offline' ? <p className="mt-1.5 text-[11px]"><Chip tone="warn">{t('Offline')}</Chip> {t('Replit AI Integrations is not connected, so answers come from fixed matching over the same data.')}</p> : null}
+              <p className="text-foreground">{isHR ? t('Ask me about cases, people, payroll or any HR policy.') : t('Ask me about leave, pay, letters or any HR policy.')}</p>
             </ChatAssistantTurn>
           ) : null}
           {msgs.map((m) => m.role === 'user' ? <ChatUserTurn key={m.id}>{m.content}</ChatUserTurn> : (
-            <ChatAssistantTurn key={m.id} avatar={name.slice(0, 1)}><Answer m={m} onConfirmed={reload} /></ChatAssistantTurn>
+            <ChatAssistantTurn key={m.id} avatar={name.slice(0, 1)}><Answer m={m} onConfirmed={reload} onChange={() => { const i = msgs.indexOf(m); const prev = [...msgs.slice(0, i)].reverse().find((x) => x.role === 'user'); setDraft(prev?.content ?? ''); }} /></ChatAssistantTurn>
           ))}
           {busy ? <ChatAssistantTurn avatar={name.slice(0, 1)}><span className="animate-pulse">{t('Checking the policy and your records…')}</span></ChatAssistantTurn> : null}
           <div ref={end} />

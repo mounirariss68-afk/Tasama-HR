@@ -13,6 +13,8 @@
     "typecheck": "npm run typecheck --workspace @rafeeq/web && npm run typecheck --workspace @rafeeq/server",
     "tokens": "npm run tokens --workspace @cognirise/atelier",
     "contrast": "npm run contrast --workspace @cognirise/atelier",
+    "check": "tsx tools/check-world.ts",
+    "check:screens": "node tools/check-screens.mjs",
     "replit": "bash tools/replit-run.sh"
   },
   "engines": { "node": ">=20" }

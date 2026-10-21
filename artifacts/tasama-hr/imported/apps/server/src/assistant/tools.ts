@@ -12,7 +12,7 @@ import { read, type Ctx } from '../hcm/connector.js';
 import { precheck } from '../agents/hisab.js';
 import { calibration } from '../agents/talent.js';
 import { buildCase } from '../api/cases.js';
-import { gratuity, iso, round2, advanceMax, advanceMaxTerm, client } from '../domain/rules.js';
+import { gratuity, iso, round2, advanceMax, advanceMaxTerm, client, pol } from '../domain/rules.js';
 
 const today = () => iso(new Date());
 
@@ -193,10 +193,51 @@ export async function runTool(p: Persona, name: string, input: any, lang: 'en' |
     case 'propose_request': {
       try {
         const s = await buildCase(p, input, 'CHAT');
-        return { result: { proposed: true, title: lang === 'ar' ? s.title_ar : s.title, note: 'Shown to the person with a Confirm button. Not submitted yet.' }, pending: { body: { ...input, channel: 'CHAT' }, title: s.title, title_ar: s.title_ar, workflow: s.workflowId, payload: s.payload } };
+        const card = await confirmCard(p, s, lang, ctx);
+        return { result: { proposed: true, title: lang === 'ar' ? s.title_ar : s.title, shown_to_person: card.lines.join(' '), note: 'Shown to the person as a card with Confirm and Change. Reply with one short sentence only; do not repeat the details.' }, pending: { body: { ...input, channel: 'CHAT' }, title: s.title, title_ar: s.title_ar, workflow: s.workflowId, payload: s.payload, card } };
       } catch (e: any) { return { result: { error: e.message } }; }
     }
     case 'open_screen': return { result: { ok: SCREENS.includes(input.screen) }, navigate: SCREENS.includes(input.screen) ? input.screen : undefined };
   }
   return { result: null };
+}
+
+// ------------------------------------------------------------------ the confirm card
+// One sentence and the facts stated once, in the person's words. The card is
+// what the person confirms; it never shows the payload, a type code or a tool.
+
+const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+function spanOf(a: string, b: string, ar: boolean) {
+  const [, am, ad] = a.split('-').map(Number), [, bm, bd] = b.split('-').map(Number);
+  const M = ar ? MONTHS_AR : MONTHS_EN;
+  if (a === b) return `${ad} ${M[am - 1]}`;
+  return am === bm ? (ar ? `${ad} إلى ${bd} ${M[bm - 1]}` : `${ad} to ${bd} ${M[bm - 1]}`) : (ar ? `${ad} ${M[am - 1]} إلى ${bd} ${M[bm - 1]}` : `${ad} ${M[am - 1]} to ${bd} ${M[bm - 1]}`);
+}
+const sar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
+
+async function confirmCard(p: Persona, s: any, lang: 'en' | 'ar', ctx: Ctx): Promise<{ lines: string[] }> {
+  const ar = lang === 'ar';
+  const pl = s.payload ?? {};
+  const name = ar ? s.title_ar : s.title;
+  if (s.workflowId === 'WF-15') {
+    const lines = [`${name.split(/[,،]/)[0]}, ${spanOf(pl.start, pl.end, ar)}, ${pl.days} ${ar ? 'أيام' : pl.days === 1 ? 'day' : 'days'}.`];
+    if (pl.type_code === 'ANNUAL') {
+      const b = (await balances(ctx, p.person_id, Number(String(pl.start).slice(0, 4)))).find((x: any) => x.type_code === 'ANNUAL');
+      if (b) lines.push(ar ? `سيتبقى لك ${round2(b.balance - pl.days)} يوماً.` : `You will have ${round2(b.balance - pl.days)} days left.`);
+    }
+    return { lines };
+  }
+  if (s.workflowId === 'WF-14') {
+    const to = pl.addressee || (ar ? 'لمن يهمه الأمر' : 'to whom it may concern');
+    const first = ar ? `${name} موجّه إلى ${to}، باللغة ${pl.language === 'ar' ? 'العربية' : 'الإنجليزية'}.` : `${name} for ${to}, in ${pl.language === 'ar' ? 'Arabic' : 'English'}.`;
+    const second = pl.letter_type === 'SALARY_TRANSFER' ? (ar ? 'تعتمده عمليات الموارد البشرية قبل إصداره.' : 'HR Operations approves it before it is issued.') : (ar ? `يصدر خلال ${pol().letterHours} ساعات عمل.` : `Ready within ${pol().letterHours} working hours.`);
+    return { lines: [first, second] };
+  }
+  if (s.workflowId === 'WF-16') {
+    const monthly = pl.amount / Math.max(1, pl.months);
+    return { lines: [ar ? `سلفة راتب ${sar(pl.amount)} تسدد على ${pl.months} أشهر.` : `Salary advance of ${sar(pl.amount)}, repaid over ${pl.months} months.`, ar ? `يخصم ${sar(monthly)} من راتبك كل شهر.` : `${sar(monthly)} comes off your salary each month.`] };
+  }
+  if (s.workflowId === 'WF-19') return { lines: [ar ? `استقالة، بإشعار بتاريخ ${pl.notice_date}.` : `Resignation, with notice given on ${spanOf(pl.notice_date, pl.notice_date, false)}.`, ar ? 'يحدد مديرك آخر يوم عمل حسب مدة الإشعار في عقدك.' : 'Your last working day follows the notice in your contract.'] };
+  return { lines: [`${name}.`] };
 }

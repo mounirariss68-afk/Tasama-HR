@@ -19,11 +19,17 @@ export const LENS_OF: Record<string, LensId> = {
   team: 'team', 'team-approvals': 'team', 'team-hiring': 'team', 'team-performance': 'team',
   'hr-inbox': 'hr', 'hr-lifecycle': 'hr', 'hr-workforce': 'hr', 'hr-hiring': 'hr', 'hr-onboarding': 'hr', 'hr-performance': 'hr', 'hr-payroll': 'hr', 'hr-exits': 'hr', 'hr-compliance': 'hr', person: 'hr',
   'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama', 'tasama-patterns': 'tasama',
-  agents: 'control', workflows: 'control', scenarios: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control', settings: 'control',
+  agents: 'control', workflows: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control',
 };
-export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team', hr: 'hr-inbox', control: 'agents' };
+/** The rig: reached from the Demo control by every persona, in no lens. */
+export const RIG = new Set(['scenarios', 'settings']);
+export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents' };
+/** A lens's landing for this persona: the joiner starts on Onboarding, the CHRO on the Overview. */
+export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-lifecycle' : LENS_HOME[l]);
 /** Where a persona lands. */
 export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : 'my');
+/** Where a persona lands. */
+export const homeScreen = (p: { key: string; lenses: string[] }): string => lensHome(homeLens(p), p);
 
 type Route = { screen: string; param: string | null };
 
@@ -97,17 +103,9 @@ export function AppState({ children }: { children: ReactNode }) {
   const allowed = useCallback((screen: string) => {
     if (!persona) return true;
     const l = LENS_OF[screen];
-    if (screen === 'settings') return true;
+    if (RIG.has(screen)) return true;
     return l ? persona.lenses.includes(l) : false;
   }, [persona]);
-
-  // Land on the lens home when the screen is empty or not allowed for this persona.
-  useEffect(() => {
-    if (!persona) return;
-    if (!route.screen || !allowed(route.screen)) {
-      window.location.hash = `#/${LENS_HOME[homeLens(persona)]}`;
-    }
-  }, [persona, route.screen, allowed]);
 
   const go = useCallback((screen: string, param: string | null = null) => {
     window.location.hash = `#/${screen}${param ? `/${encodeURIComponent(param)}` : ''}`;
@@ -117,14 +115,14 @@ export function AppState({ children }: { children: ReactNode }) {
   const switchPersona = useCallback((key: string) => {
     setPersonaKey(key);
     setCaseRef(null);
-    loadSession().then((s) => { window.location.hash = `#/${LENS_HOME[homeLens(s.persona)]}`; });
+    loadSession().then((s) => { window.location.hash = `#/${homeScreen(s.persona)}`; });
   }, [loadSession]);
 
   /** Enter another client account. The same persona role is kept; the people behind it are that client's. */
   const switchClient = useCallback((key: string, screen?: string) => {
     setClientKey(key);
     setCaseRef(null);
-    loadSession().then((s) => { window.location.hash = `#/${screen && (LENS_OF[screen] ? s.persona.lenses.includes(LENS_OF[screen]) : true) ? screen : LENS_HOME[homeLens(s.persona)]}`; });
+    loadSession().then((s) => { window.location.hash = `#/${screen && (LENS_OF[screen] ? s.persona.lenses.includes(LENS_OF[screen]) : true) ? screen : homeScreen(s.persona)}`; });
   }, [loadSession]);
 
   // ---------------------------------------------------------------- the Demo Director
@@ -170,6 +168,16 @@ export function AppState({ children }: { children: ReactNode }) {
     auto.current = window.setTimeout(() => { stepScenario(1); }, AUTO_STEP_MS);
     return () => { if (auto.current) window.clearTimeout(auto.current); };
   }, [director?.auto, director?.busy, director?.index, director?.steps.length, stepScenario]);
+
+  // Land on the lens home when the screen is empty or not allowed for this persona.
+  useEffect(() => {
+    if (!persona) return;
+    // A scenario step may show a proof screen outside the persona's lenses (the audit trail for the recruiter): the Director's choice stands.
+    if (director) return;
+    if (!route.screen || !allowed(route.screen)) {
+      window.location.hash = `#/${homeScreen(persona)}`;
+    }
+  }, [persona, route.screen, allowed, director]);
 
   const lens: LensId = LENS_OF[route.screen] ?? (persona ? homeLens(persona) : 'my');
   const client = session?.client ?? null;

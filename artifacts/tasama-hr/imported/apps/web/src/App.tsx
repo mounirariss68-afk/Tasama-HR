@@ -2,29 +2,30 @@
  * Tasama HR — the shell.
  *
  * Atelier frame: backdrop, assistant rail, pinned header, the menu as chrome
- * beside the display area, every screen inside <MainPanel>. The title bar
- * carries the product wordmark and the client switcher; the Tasama lockup
- * sits in the rail.
+ * beside the display area, every screen inside <MainPanel>.
  *
- * Five lenses — Tasama Services, My HR, My Team, HR Workspace, Agent Control —
- * and the persona decides which of them exist. The menu inside a lens also follows the
- * persona: Payroll does not see calibration, Talent acquisition does not see
- * payroll. Persona switching is in the user badge, because nobody wants to
- * navigate mid-demo.
+ * The title bar holds five things (MENU-DISCIPLINE.md): the brand, one lens
+ * picker, notifications and language, the person, and the Demo control.
+ * Lenses are the hats one person wears — Tasama Services, each client's HR
+ * (for Tasama), My HR, My Team, HR Workspace, How it works — and the menu
+ * inside a lens follows the role. The rig (scenarios, persona, client
+ * account, demo data, theme) is in the Demo control, not the menu.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AppShell, ContextNav, LensPicker, MainPanel, TitleBar, TitleBarSearch, UserBadge, Wordmark, useAppChrome, useChatRail, type ContextNavItem } from '@cognirise/atelier/layout';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@cognirise/atelier/components/ui/dropdown-menu';
-import { Bell, Bot, Briefcase, CalendarDays, ClipboardCheck, Coins, DoorOpen, FileText, FlaskConical, GitBranch, Home, Inbox, LayoutGrid, LineChart, Network, Play, Scale, Settings as SettingsIcon, ShieldCheck, Sprout, TrendingUp, UserPlus, Users, Wallet } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@cognirise/atelier/components/ui/dropdown-menu';
+import { Bell, Bot, Briefcase, CalendarDays, ClipboardCheck, Coins, DoorOpen, FileText, GitBranch, Home, Inbox, LayoutGrid, LineChart, Scale, ShieldCheck, Sprout, TrendingUp, UserPlus, Users, Wallet } from 'lucide-react';
 import { useApi } from './lib/api';
 import { LanguageToggle, useLang } from './lib/i18n';
 import { initials, ago } from './lib/format';
-import { useApp, type LensId, LENS_HOME } from './app/state';
+import { useApp, type LensId, lensHome } from './app/state';
+import { DemoControl } from './app/demo-control';
 import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPolicies, TasamaPatterns } from './screens/tasama';
 import { DirectorBar } from './app/director';
-import { Building2, Gauge, Receipt, AlertTriangle, BookOpen, ChevronDown } from 'lucide-react';
+import { Receipt, AlertTriangle, BookOpen } from 'lucide-react';
 import { AssistantRail } from './app/assistant';
 import { CaseDrawer } from './app/case';
+import { plain } from './app/decision';
 
 import { MyHome, MyRequests, MyLeave, MyPay, MyGrowth, MyOnboarding } from './screens/my';
 import { TeamScreen, TeamApprovals, TeamHiring, TeamPerformance } from './screens/team';
@@ -40,52 +41,50 @@ const I = (n: ReactNode) => n;
 
 const MENUS: Record<LensId, Item[]> = {
   tasama: [
-    { id: 'tasama-portfolio', label: 'Portfolio', icon: I(<LayoutGrid size={14} />) },
-    { id: 'tasama-account', label: 'Client accounts', icon: I(<Building2 size={14} />) },
-    { id: 'tasama-sla', label: 'Service levels', icon: I(<Gauge size={14} />) },
+    { id: 'tasama-portfolio', label: 'Overview', icon: I(<LayoutGrid size={14} />) },
     { id: 'tasama-escalations', label: 'Escalations', icon: I(<AlertTriangle size={14} />) },
     { id: 'tasama-patterns', label: 'Patterns', icon: I(<TrendingUp size={14} />) },
     { id: 'tasama-finance', label: 'Finance', icon: I(<Receipt size={14} />) },
     { id: 'tasama-delivery', label: 'Delivery team', icon: I(<Users size={14} />) },
-    { id: 'tasama-policies', label: 'HR policies', icon: I(<BookOpen size={14} />) },
+    { id: 'tasama-policies', label: 'Client handbooks', icon: I(<BookOpen size={14} />) },
   ],
   my: [
+    { id: 'my-onboarding', label: 'Onboarding', icon: I(<UserPlus size={14} />), show: (r) => r.includes('JOINER') },
     { id: 'my-home', label: 'Home', icon: I(<Home size={14} />) },
     { id: 'my-requests', label: 'Requests', icon: I(<ClipboardCheck size={14} />) },
     { id: 'my-leave', label: 'Leave', icon: I(<CalendarDays size={14} />) },
     { id: 'my-pay', label: 'Pay and documents', icon: I(<Wallet size={14} />) },
     { id: 'my-growth', label: 'Growth', icon: I(<Sprout size={14} />) },
-    { id: 'my-onboarding', label: 'Onboarding', icon: I(<UserPlus size={14} />), show: (r) => r.includes('JOINER') },
   ],
   team: [
-    { id: 'team', label: 'Team', icon: I(<Users size={14} />) },
     { id: 'team-approvals', label: 'Approvals', icon: I(<Inbox size={14} />) },
+    { id: 'team', label: 'Team', icon: I(<Users size={14} />) },
     { id: 'team-hiring', label: 'Hiring', icon: I(<UserPlus size={14} />) },
     { id: 'team-performance', label: 'Performance', icon: I(<TrendingUp size={14} />) },
   ],
   hr: [
+    { id: 'hr-lifecycle', label: 'Overview', icon: I(<LayoutGrid size={14} />), show: (_r, k) => k === 'chro' },
     { id: 'hr-inbox', label: 'Inbox', icon: I(<Inbox size={14} />) },
-    { id: 'hr-lifecycle', label: 'Lifecycle', icon: I(<LayoutGrid size={14} />) },
     { id: 'hr-workforce', label: 'Workforce', icon: I(<Users size={14} />) },
-    { id: 'hr-hiring', label: 'Positions and hiring', icon: I(<Briefcase size={14} />), show: (r) => r.some((x) => ['TA', 'HRBP', 'CHRO'].includes(x)) },
-    { id: 'hr-onboarding', label: 'Onboarding and probation', icon: I(<UserPlus size={14} />) },
-    { id: 'hr-performance', label: 'Performance and talent', icon: I(<TrendingUp size={14} />), show: (r) => r.some((x) => ['HRBP', 'CHRO'].includes(x)) },
-    { id: 'hr-payroll', label: 'Payroll and rewards', icon: I(<Coins size={14} />), show: (r) => r.some((x) => ['PAYROLL', 'CHRO'].includes(x)) },
-    { id: 'hr-exits', label: 'Exits and relations', icon: I(<DoorOpen size={14} />), show: (r) => r.some((x) => ['PAYROLL', 'HRBP', 'CHRO'].includes(x)) },
-    { id: 'hr-compliance', label: 'Compliance', icon: I(<ShieldCheck size={14} />), show: (r) => r.some((x) => ['PAYROLL', 'HRBP', 'CHRO'].includes(x)) },
+    { id: 'hr-hiring', label: 'Hiring', icon: I(<Briefcase size={14} />), show: (r) => r.some((x) => ['TA', 'HRBP', 'CHRO'].includes(x)) },
+    { id: 'hr-onboarding', label: 'Onboarding', icon: I(<UserPlus size={14} />) },
+    { id: 'hr-performance', label: 'Performance', icon: I(<TrendingUp size={14} />), show: (r) => r.some((x) => ['HRBP', 'CHRO'].includes(x)) },
+    { id: 'hr-payroll', label: 'Payroll', icon: I(<Coins size={14} />), show: (r) => r.some((x) => ['PAYROLL', 'CHRO'].includes(x)) },
+    { id: 'hr-exits', label: 'Exits', icon: I(<DoorOpen size={14} />), show: (r) => r.some((x) => ['PAYROLL', 'HRBP', 'CHRO'].includes(x)) },
+    // For the CHRO, Compliance is a tab of the Overview, so the lens stays at eight.
+    { id: 'hr-compliance', label: 'Compliance', icon: I(<ShieldCheck size={14} />), show: (r, k) => k !== 'chro' && r.some((x) => ['PAYROLL', 'HRBP', 'CHRO'].includes(x)) },
   ],
   control: [
     { id: 'agents', label: 'Agents', icon: I(<Bot size={14} />) },
     { id: 'workflows', label: 'Workflows', icon: I(<GitBranch size={14} />) },
-    { id: 'scenarios', label: 'Scenarios', icon: I(<Play size={14} />) },
-    { id: 'connector', label: 'HRMS connector', icon: I(<Network size={14} />) },
-    { id: 'evidence', label: 'Evidence', icon: I(<Scale size={14} />) },
-    { id: 'policies', label: 'Policies', icon: I(<FileText size={14} />) },
+    { id: 'policies', label: 'Rules', icon: I(<FileText size={14} />) },
+    { id: 'evidence', label: 'Audit trail', icon: I(<Scale size={14} />) },
     { id: 'value', label: 'Value', icon: I(<LineChart size={14} />) },
-    { id: 'settings', label: 'Settings', icon: I(<SettingsIcon size={14} />) },
   ],
 };
-const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'control', label: 'Agent Control' }];
+const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'control', label: 'How it works' }];
+/** Which menu item a screen that is not in the menu lights up. */
+const NAV_OF: Record<string, string> = { 'tasama-account': 'tasama-portfolio', 'tasama-sla': 'tasama-portfolio', person: 'hr-workforce', connector: 'evidence' };
 
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
@@ -99,65 +98,12 @@ const SCREENS: Record<string, () => ReactNode> = {
   evidence: () => <EvidenceScreen />, policies: () => <PoliciesScreen />, value: () => <ValueScreen />, settings: () => <SettingsScreen />,
 };
 
-function PersonaMenu() {
-  const { persona, session, switchPersona, go } = useApp();
-  const { bi, t } = useLang();
-  if (!persona || !session) return null;
-  const row = (p: any) => (
-    <DropdownMenuItem key={p.key} onSelect={() => switchPersona(p.key)} className="items-start gap-3 py-2">
-      <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${p.key === persona.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}>{initials(p.display_name)}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{bi(p.label, p.label_ar)}</span>
-        <span className="block truncate text-xs text-muted-foreground">{bi(p.display_name, p.display_name_ar)} · {bi(p.role_title, p.role_title_ar)}</span>
-      </span>
-      {p.inbox ? <span className="mono-chip is-warn">{p.inbox}</span> : null}
-    </DropdownMenuItem>
-  );
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <span><UserBadge name={bi(persona.display_name, persona.display_name_ar)} role={bi(persona.label, persona.label_ar)} initials={initials(persona.display_name)} /></span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>{t('Tasama HR Services')}</DropdownMenuLabel>
-        {session.personas.filter((p) => p.key === 'tasama').map(row)}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{t('Inside')} {bi(session.client.short, session.client.name_ar)}</DropdownMenuLabel>
-        {session.personas.filter((p) => p.key !== 'tasama').map(row)}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => go('settings')}><SettingsIcon className="me-2 h-4 w-4" />{t('Settings and approval limits')}</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/** The client account in view. Personas inside a client are that client's people; Tasama works across all. */
-function ClientSwitcher() {
-  const { session, switchClient, route } = useApp();
-  const { bi, t } = useLang();
-  if (!session) return null;
-  const c = session.client;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button type="button" className="flex min-w-0 items-center gap-2 rounded-full border border-border/70 bg-card/50 px-3 py-1.5 text-sm hover:bg-card">
-          <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate font-medium">{bi(c.short, c.name_ar)}</span>
-          <span className={`mono-chip shrink-0 ${c.hrms === 'ODOO' ? 'is-warn' : 'is-primary'}`}>{c.hrms === 'ODOO' ? 'Odoo' : 'Oracle'}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-80">
-        <DropdownMenuLabel>{t('Client account')}</DropdownMenuLabel>
-        {session.clients.map((x) => (
-          <DropdownMenuItem key={x.key} onSelect={() => switchClient(x.key, route.screen)} className="items-start gap-3 py-2">
-            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${x.key === c.key ? 'bg-primary' : 'border border-border'}`} />
-            <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{bi(x.name, x.name_ar)}</span><span className="block text-xs text-muted-foreground">{bi(x.sector, x.sector_ar)} · {x.hrmsLabel}</span></span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+/** The person: who is looking. Switching persona is in the Demo control. */
+function PersonBadge() {
+  const { persona } = useApp();
+  const { bi } = useLang();
+  if (!persona) return null;
+  return <UserBadge name={bi(persona.display_name, persona.display_name_ar)} role={bi(persona.label, persona.label_ar)} initials={initials(persona.display_name)} />;
 }
 
 function Notifications() {
@@ -178,7 +124,7 @@ function Notifications() {
         {(data ?? []).slice(0, 8).map((x) => (
           <DropdownMenuItem key={x.id} onSelect={() => x.link?.startsWith('case:') && openCase(x.link.slice(5))} className="block py-2">
             <span className="block text-sm font-medium">{bi(x.title, x.title_ar)}</span>
-            <span className="block text-xs text-muted-foreground">{x.body} · {ago(x.created_at, lang)}</span>
+            <span className="block text-xs text-muted-foreground">{plain(x.body)} · {ago(x.created_at, lang)}</span>
           </DropdownMenuItem>
         ))}
         {!data?.length ? <p className="px-2 py-3 text-sm text-muted-foreground">{t('Nothing new.')}</p> : null}
@@ -201,11 +147,20 @@ void Search;
 
 export default function App() {
   const rail = useChatRail(true);
+  const { persona: who } = useApp();
+  // The assistant is where the employee's and the manager's work starts; people who work in lists get the room.
+  useEffect(() => { if (who) rail.setOpen(['employee', 'joiner', 'manager'].includes(who.key) && window.innerWidth >= 1024); }, [who?.key]);
   const chrome = useAppChrome();
   const { persona, route, go, lens, booting, director } = useApp();
   const { t } = useLang();
-  const lenses = useMemo(() => LENSES.filter((l) => persona?.lenses.includes(l.id)), [persona]);
+  const { session, switchClient } = useApp();
+  const tasama = persona?.key === 'tasama';
+  // For Tasama, each client's HR is a lens of its own: one picker instead of a lens picker and a client switcher.
+  const lenses = useMemo(() => LENSES.filter((l) => persona?.lenses.includes(l.id)).flatMap((l) => (tasama && l.id === 'hr' ? (session?.clients ?? []).map((c) => ({ id: `hr:${c.key}`, label: `${c.short} HR` })) : [{ id: l.id, label: l.label }])), [persona, tasama, session]);
+  const lensValue = tasama && lens === 'hr' ? `hr:${session?.client.key}` : lens;
+  const pickLens = (id: string) => { if (id.startsWith('hr:')) switchClient(id.slice(3), 'hr-inbox'); else go(lensHome(id as LensId, persona)); };
   const items = useMemo(() => (MENUS[lens] ?? []).filter((i) => !i.show || i.show(persona?.roles ?? [], persona?.key ?? '')).map((i) => ({ ...i, onSelect: () => go(i.id) })), [lens, persona, go]);
+  const navValue = route.screen === 'hr-compliance' && persona?.key === 'chro' ? 'hr-lifecycle' : NAV_OF[route.screen] ?? route.screen;
   const screen = SCREENS[route.screen];
   return (
     <>
@@ -215,14 +170,14 @@ export default function App() {
         chatRail={<AssistantRail rail={rail} />}
         titleBar={
           <TitleBar
-            brand={<button type="button" onClick={() => go(LENS_HOME[lens])} className="flex items-center gap-2"><img src="/brand/mark.png" alt="" className="h-7 w-7 dark:hidden" /><img src="/brand/mark-on-dark.png" alt="" className="hidden h-7 w-7 dark:block" /><Wordmark className="text-lg">{t('Tasama HR')}</Wordmark></button>}
-            search={<ClientSwitcher />}
-            lens={lenses.length ? <LensPicker lenses={lenses} value={lens} onChange={(id) => go(LENS_HOME[id as LensId])} /> : undefined}
-            utilities={<div className="flex items-center gap-3"><LanguageToggle /><Notifications /></div>}
-            user={<PersonaMenu />}
+            brand={<button type="button" onClick={() => go(lensHome(lens, persona))} className="flex items-center gap-2"><img src="/brand/mark.png" alt="" className="h-7 w-7 dark:hidden" /><img src="/brand/mark-on-dark.png" alt="" className="hidden h-7 w-7 dark:block" /><Wordmark className="text-lg">{t('Tasama HR')}</Wordmark><span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('demo')}</span></button>}
+            theme={false}
+            lens={lenses.length > 1 ? <LensPicker lenses={lenses} value={lensValue} onChange={pickLens} /> : undefined}
+            utilities={<div className="flex items-center gap-3"><Notifications /><LanguageToggle /></div>}
+            user={<div className="flex items-center gap-3"><PersonBadge /><DemoControl /></div>}
           />
         }
-        contextNav={<ContextNav items={items} value={route.screen === 'person' ? 'hr-workforce' : route.screen} chrome={chrome} />}
+        contextNav={<ContextNav items={items} value={navValue} chrome={chrome} />}
       >
         <MainPanel>{persona && screen ? screen() : <div className="p-10 text-center text-sm text-muted-foreground">{booting ? t('Preparing the demo data: the five client accounts and Tasama\'s records are being built. This takes about a minute; the page opens by itself.') : t('Loading…')}</div>}{director ? <div aria-hidden className="h-56" /> : null}</MainPanel>
       </AppShell>
@@ -231,4 +186,4 @@ export default function App() {
     </>
   );
 }
-void FlaskConical; void Search; void Gauge; void Receipt; void AlertTriangle;
+

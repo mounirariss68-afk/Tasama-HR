@@ -38,7 +38,8 @@ export function ago(s: string | Date | null | undefined, lang: Lang = 'en') {
 export function until(s: string | Date | null | undefined, lang: Lang = 'en') {
   if (!s) return '—';
   const h = (new Date(s).getTime() - Date.now()) / 3600_000;
-  if (h < 0) return lang === 'ar' ? `متأخر ${Math.round(-h)} س` : `${Math.round(-h)}h overdue`;
+  if (h <= -48) return lang === 'ar' ? `متأخر ${Math.round(-h / 24)} يوم` : `${Math.round(-h / 24)} days overdue`;
+  if (h < 0) return lang === 'ar' ? `متأخر ${Math.max(1, Math.round(-h))} س` : `${Math.max(1, Math.round(-h))}h overdue`;
   if (h < 48) return lang === 'ar' ? `خلال ${Math.round(h)} س` : `due in ${Math.round(h)}h`;
   return lang === 'ar' ? `خلال ${Math.round(h / 24)} يوم` : `due in ${Math.round(h / 24)}d`;
 }
