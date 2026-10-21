@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@cognirise/atelier/components/ui/dropdown-menu';
 import { useTheme } from '@cognirise/atelier/layout';
-import { Building2, Check, Monitor, Moon, Play, RotateCcw, SlidersHorizontal, Sun, UserRound } from 'lucide-react';
+import { Building2, Check, Monitor, Moon, Play, RotateCcw, SlidersHorizontal, Sun } from 'lucide-react';
 import { useApi, post, bump } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { initials } from '../lib/format';
@@ -49,21 +49,6 @@ export function DemoControl() {
             {level('tasama').map(scenarioItem)}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => go('scenarios')}>{t('All scenarios, with what each shows')}</DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger><UserRound className="me-2 h-4 w-4" />{t('Persona')}: <span className="ms-1 truncate text-muted-foreground">{bi(persona.label, persona.label_ar)}</span></DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-[70vh] w-80 overflow-y-auto">
-            {session.personas.map((p) => (
-              <DropdownMenuItem key={p.key} onSelect={() => switchPersona(p.key)} className="items-start gap-3 py-2">
-                <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${p.key === persona.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}>{initials(p.display_name)}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{bi(p.label, p.label_ar)}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{bi(p.display_name, p.display_name_ar)} · {bi(p.role_title, p.role_title_ar)}</span>
-                  {p.key === persona.key && p.approval_limits.length ? <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">{t('May approve')}: {p.approval_limits.map((l) => bi(l.what, l.what_ar)).join('; ')}</span> : null}
-                </span>
-              </DropdownMenuItem>
-            ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {inClient ? (

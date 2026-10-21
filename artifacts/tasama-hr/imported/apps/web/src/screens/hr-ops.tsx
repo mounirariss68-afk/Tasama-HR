@@ -51,7 +51,9 @@ export function HrPayroll() {
         </Panel>
       </>}>
         <Panel icon={<Banknote size={16} />} title="Payroll runs">
-          <div className="space-y-1.5">{closed.map((p: any) => <div key={p.id} className="flex items-center gap-3 text-sm"><span className="w-20 shrink-0">{month(p.period_name, lang)}</span><Bar value={p.gross} max={maxG} /><span className="w-32 shrink-0 text-end font-mono text-xs tabular-nums">{aed(p.gross, lang)}</span><Chip>{p.lines}</Chip><Chip tone="success">{t('Paid through Mudad')}</Chip></div>)}</div>
+          {/* Monthly gross barely moves, so bars would only decorate: the months as a table, paid on time. */}
+          <Table><thead><tr><th>{t('Month')}</th><th className="text-end">{t('Employees')}</th><th className="text-end">{t('Gross')}</th><th></th></tr></thead>
+            <tbody>{[...closed].reverse().slice(0, 6).map((p: any) => <tr key={p.id}><td>{month(p.period_name, lang)}</td><td className="text-end tabular-nums">{p.lines}</td><td className="text-end tabular-nums">{aed(p.gross, lang)}</td><td><Chip tone="success">{t('Paid through Mudad')}</Chip></td></tr>)}</tbody></Table>
         </Panel>
         <Panel icon={<RefreshCw size={16} />} title="Pay changes made through Tasama HR">
           <Table><thead><tr><th>{t('Employee')}</th><th>{t('Element')}</th><th className="text-end">{t('Amount')}</th><th>{t('From')}</th></tr></thead>

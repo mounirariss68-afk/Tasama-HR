@@ -14,6 +14,9 @@ import { CoverStrip } from '../app/viz';
 import { rowTitle } from '../app/decision';
 import { LifecycleRing, stageCounts } from '../app/ring';
 
+/** Requests about the person themselves (leave, pay, letters, probation, promotion, exit), not work they run (a calibration, a payroll check). */
+const PERSONAL = new Set(['WF-08', 'WF-12', 'WF-14', 'WF-15', 'WF-16', 'WF-19', 'WF-20']);
+
 export function TeamScreen() {
   const { t, bi, lang } = useLang();
   const { go, openCase } = useApp();
@@ -48,7 +51,7 @@ export function TeamScreen() {
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {m.probation_status === 'IN_PROBATION' ? <Chip tone="warn">{t('Probation ends')} {dateShort(m.probation_end_date, lang)}</Chip> : null}
                   {m.away.slice(0, 1).map((a: any) => <Chip key={a.start_date} tone="primary">{t('Away')} {dateShort(a.start_date, lang)}–{dateShort(a.end_date, lang)}</Chip>)}
-                  {m.open.length ? <Chip tone="warn">{m.open.length} {t('open case')}</Chip> : null}
+                  {m.open.filter((c: any) => PERSONAL.has(c.workflow_id)).slice(0, 2).map((c: any) => <button key={c.ref} type="button" onClick={() => openCase(c.ref)} className="mono-chip is-warn hover:opacity-80">{bi(c.title, c.title_ar)}</button>)}
                   {m.talent?.flight_risk === 'HIGH' ? <Chip tone="danger">{t('Flight risk')}</Chip> : null}
                 </div>
                 {m.goals !== null ? <div className="mt-3 flex items-center gap-2"><Bar value={m.goals} /><span className="font-mono text-[11px]">{m.goals}%</span></div> : null}
@@ -103,7 +106,7 @@ export function DecisionInbox({ scope = 'inbox', only }: { scope?: 'inbox' | 'al
   useEffect(() => { if (!rows.find((r) => r.ref === sel)) setSel(rows[0]?.ref ?? null); }, [rows, sel]);
   return (
     <InboxLayout
-      tabs={<InboxTabs value={tab} onChange={setTab} items={[{ id: 'waiting', label: t('Needs my decision'), count: (waiting ?? []).length, tone: 'attention' }, { id: 'escalated', label: t('Escalated'), count: (all ?? []).filter((r) => r.status === 'ESCALATED').length }, { id: 'all', label: t('All in my scope'), count: (all ?? []).length }]} />}
+      tabs={<InboxTabs value={tab} onChange={setTab} items={[{ id: 'waiting', label: t('Needs my decision'), tone: 'attention' }, { id: 'escalated', label: t('Escalated') }, { id: 'all', label: t('All in my scope') }]} />}
       list={<InboxList label={tab === 'all' ? t('Most recent first') : t('Oldest due first')} emptyState={<Empty>{t('Nothing here.')}</Empty>}>
         {rows.map((r) => (
           <CaseRow key={r.ref} r={r} selected={sel === r.ref} onSelect={() => setSel(r.ref)} unread={r.status === 'WAITING' && tab === 'waiting'} />

@@ -392,12 +392,11 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
     <div>
       <div className="flex items-center gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{card.kind}</span>
-        {mine || isHR ? <span className="font-mono text-[11px] text-muted-foreground/70">{c.ref}</span> : null}
-        <span className="ms-auto">{open && c.sla_due ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
+        {/* The clock is the decider's; the person who asked sees where the request is, not HR's deadline. */}
+        <span className="ms-auto">{open && c.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
       <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-      {open && c.sla_due ? <div className="mt-2.5"><ClockBar start={c.created_at} due={c.sla_due} label={<><span>{`${mine ? t('You asked on') : t('Asked on')} ${date(c.created_at, lang)} · ${t('now with')} ${holder}`}</span><span>{t('due')} {date(c.sla_due, lang)}</span></>} /></div> : null}
-      {open && c.sla_due ? null : <p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
     </div>
   );
 
@@ -464,7 +463,7 @@ export function CaseRow({ r, selected, onSelect, unread, mine }: { r: any; selec
     <InboxItem selected={selected} onSelect={onSelect} unread={unread}
       thumbnail={mine ? undefined : <span className="flex h-full w-full items-center justify-center bg-primary/10 text-sm font-semibold text-primary">{initials(who)}</span>}
       reference={<span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{kind}</span>}
-      meta={open && r.sla_due ? <ClockBar compact start={r.created_at} due={r.sla_due} /> : undefined}
+      meta={open && r.sla_due && !mine ? <ClockBar compact start={r.created_at} due={r.sla_due} /> : undefined}
       state={state} title={mine ? what : who} preview={mine ? (open ? `${t('With')} ${bi(r.waiting_on_name, r.waiting_on_name_ar) || roleName(r.waiting_on_role, bi)}` : date(r.closed_at ?? r.updated_at, lang)) : what.toLowerCase() === kind.toLowerCase() ? `${t('Asked')} ${date(r.created_at, lang)}` : what} />
   );
 }

@@ -10,7 +10,7 @@ import { aed, ago, date, dateShort, daysUntil, month, num } from '../lib/format'
 import { useApp } from '../app/state';
 import { Bar, Btn, Chip, Empty, Field, Hero, Kv, Ref, Screen, SourceStamp, StatusChip, Table, useClientName, StatRow } from '../app/ui';
 import { CaseRow, CaseView } from '../app/case';
-import { owner, plain } from '../app/decision';
+import { owner, plain, rowParts } from '../app/decision';
 import { Columns, SegmentBar, YearHeatmap } from '../app/viz';
 
 /** The annual leave balance as one bar: taken, booked, left. */
@@ -138,7 +138,7 @@ export function MyHome() {
   return (
     <Screen hero={
       <Hero tone="surface" eyebrow={`${t('Hello')}${lang === 'ar' ? '، ' : ', '}${first}`} title={open.length ? `${open.length} ${t(open.length === 1 ? 'request in progress' : 'requests in progress')}` : t('Nothing is waiting on HR')}
-        lede={pending ? `${t('You start on')} ${date(w.start_date, lang)}. ${t('Dalil has your pre-boarding checklist.')}` : `${bi(w.job_name, w.job_name_ar)} · ${bi(w.department_name, w.department_name_ar)} · ${t('since')} ${date(w.original_hire_date, lang)}`}
+        lede={pending ? `${t('You start on')} ${date(w.start_date, lang)}. ${t('Dalil has your pre-boarding checklist.')}` : `${bi(w.job_name, w.job_name_ar)} · ${bi(w.department_name, w.department_name_ar)}.${me.nextPay ? ` ${t('Next pay')}: ${dateShort(me.nextPay.pay_date, lang)}.` : ''}`}
         actions={<><Btn kind="primary" onClick={() => setNr('')}><Plus className="h-4 w-4" />{t('New request')}</Btn><Btn onClick={() => go(pending ? 'my-onboarding' : 'my-leave')}>{pending ? t('Pre-boarding') : t('Book leave')}</Btn></>}
         feature={<HeroFeature label="Annual leave left" value={`${num(annual?.balance ?? 0, 0)} ${t('days')}`} support={<div className="w-56"><LeaveBar b={annual} /></div>} />}
       />}>
@@ -149,12 +149,9 @@ export function MyHome() {
           </div>
         </Panel>
       </>}>
-        <Panel icon={<Wallet size={16} />} title={`${t('Net pay')}: ${aed(me.payslips[0]?.net, lang)} ${t('last month')}`} action={<PanelAction onClick={() => go('my-pay')}>{me.nextPay ? `${t('Next pay')} ${dateShort(me.nextPay.pay_date, lang)}` : t('Payslips')}</PanelAction>}>
-          <Columns height={96} values={[...me.payslips].slice(0, 12).reverse().map((p: any) => Math.round(p.net))} labels={[...me.payslips].slice(0, 12).reverse().map((p: any) => month(p.period_name, lang).split(' ')[0])} format={(v) => aed(v, lang)} markLast />
-        </Panel>
         <Panel icon={<Bell size={16} />} title="What changed" action={<PanelAction>{t('Last 30 days')}</PanelAction>}>
           <div className="space-y-2">
-            {me.notifications.length ? me.notifications.slice(0, 5).map((n: any) => (
+            {me.notifications.length ? me.notifications.filter((n: any, i: number, all: any[]) => all.findIndex((m: any) => m.title === n.title && m.body === n.body) === i).slice(0, 5).map((n: any) => (
               <FeedCard key={n.id} tags={<Chip tone="primary">{t('Update')}</Chip>} timestamp={ago(n.created_at, lang)} headline={plain(bi(n.title, n.title_ar))} consequence={plain(n.body)} onOpen={n.link?.startsWith('case:') ? () => openCase(n.link.slice(5)) : undefined} />
             )) : me.payslips.slice(0, 2).map((p: any) => (
               <FeedCard key={p.id} tags={<Chip tone="success">{t('Payslip')}</Chip>} timestamp={date(p.pay_date, lang)} headline={`${month(p.period_name, lang)}: ${aed(p.net, lang)} ${t('net')}`} consequence={t('Paid through Mudad. Open Pay and documents for the lines.')} onOpen={() => go('my-pay')} />
@@ -194,19 +191,22 @@ export function EosSummary({ eos }: { eos: any }) {
 export function MyRequests() {
   const { t, bi, lang } = useLang();
   const { data } = useApi<any[]>('/requests?view=mine', { poll: 8000 });
-  const [sel, setSel] = useState<string | null>(null);
+  const { openCase } = useApp();
   const [nr, setNr] = useState(false);
   const rows = data ?? [];
-  const openN = rows.filter((r) => ['WAITING', 'RUNNING', 'ESCALATED'].includes(r.status)).length;
-  useEffect(() => { if (!sel && rows[0]) setSel(rows[0].ref); }, [rows, sel]);
+  const openRows = rows.filter((r) => ['WAITING', 'RUNNING', 'ESCALATED'].includes(r.status));
+  const closed = rows.filter((r) => !['WAITING', 'RUNNING', 'ESCALATED'].includes(r.status));
+  const openN = openRows.length;
   return (
     <Screen hero={<Hero tone="surface" eyebrow="My HR" title={openN ? `${openN} ${t(openN === 1 ? 'request is open' : 'requests are open')}` : t('Nothing you asked for is open')} lede={t('Everything you have asked HR for, and who has it now.')} actions={<Btn kind="primary" onClick={() => setNr(true)}><Plus className="h-4 w-4" />{t('New request')}</Btn>} />}>
-      <InboxLayout
-        list={<InboxList label={t('My requests')} count={rows.length}>
-          {rows.map((r) => <CaseRow key={r.ref} r={r} mine selected={sel === r.ref} onSelect={() => setSel(r.ref)} />)}
-        </InboxList>}
-        reader={sel ? <CaseView caseRef={sel} /> : <InboxReader empty={t('Choose a request to see where it is.')} />}
-      />
+      {/* One person's few requests: a list that opens each in the drawer, not a list and a reader showing the same request twice. */}
+      <PageColumns aside={<Panel icon={<CheckCircle2 size={16} />} title="Closed">
+        {closed.length ? <Table><tbody>{closed.slice(0, 12).map((r) => <tr key={r.ref} className="clickable" onClick={() => openCase(r.ref)}><td className="text-sm">{rowParts(r, bi, t).what}</td><td className="whitespace-nowrap text-xs text-muted-foreground">{date(r.closed_at ?? r.updated_at, lang)}</td><td><StatusChip status={r.status} /></td></tr>)}</tbody></Table> : <Empty>{t('Nothing closed yet.')}</Empty>}
+      </Panel>}>
+        <Panel icon={<ClipboardCheck size={16} />} title="Still with someone">
+          <div className="space-y-2">{openRows.length ? openRows.map((r) => <CaseRow key={r.ref} r={r} mine onSelect={() => openCase(r.ref)} />) : <Empty>{t('Nothing open. Ask Rafeeq or start a request.')}</Empty>}</div>
+        </Panel>
+      </PageColumns>
       <NewRequest open={nr} onClose={() => setNr(false)} />
     </Screen>
   );
@@ -261,18 +261,19 @@ export function MyPay() {
     <Screen hero={<Hero tone="surface" eyebrow="My HR" title={`${aed(total, lang)} ${t('gross a month')}`} lede={`${t('Basic')} ${aed(w.basic, lang)} · ${t('housing')} ${aed(w.housing, lang)} · ${t('transport and other')} ${aed(w.transport + w.other_allowance, lang)}. ${t('Last net pay')} ${aed(me.payslips[0]?.net, lang)}.`}
       actions={<><Btn kind="primary" onClick={() => setNr('SALARY_CERTIFICATE')}>{t('Salary certificate')}</Btn><Btn onClick={() => setNr('ADVANCE')}>{t('Salary advance')}</Btn></>}
       />}>
-      <PageColumns aside={<Panel icon={<Landmark size={16} />} title="End of service"><EosSummary eos={me.eos} /></Panel>}>
-        {me.payslips.length ? <Panel icon={<Wallet size={16} />} title="Payslips" action={<PanelAction>{t('Net pay, last 12 months')}</PanelAction>}>
-          <div className="mb-4"><Columns height={72} values={[...me.payslips].slice(0, 12).reverse().map((p: any) => Math.round(p.net))} labels={[...me.payslips].slice(0, 12).reverse().map((p: any) => month(p.period_name, lang).split(' ')[0])} format={(v) => aed(v, lang)} markLast /></div>
-          <Table><thead><tr><th>{t('Period')}</th><th>{t('Paid')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Deductions')}</th><th className="text-end">{t('Net')}</th></tr></thead>
-            <tbody>{me.payslips.map((p: any) => <tr key={p.id} className="clickable" onClick={() => setSlip(p)}><td>{month(p.period_name, lang)}</td><td>{date(p.pay_date, lang)}</td><td className="text-end tabular-nums">{aed(p.gross, lang)}</td><td className="text-end tabular-nums">{aed(p.deductions, lang)}</td><td className="text-end font-semibold tabular-nums">{aed(p.net, lang)}</td></tr>)}</tbody></Table>
-        </Panel> : null}
+      {/* End of service is shown at an exit, not on the employee's pay page: HR sees it on the person record and in the exit case. */}
+      <PageColumns aside={<>
         <Panel icon={<FileText size={16} />} title="Letters issued">
           {me.documents.length ? <div className="space-y-2">{me.documents.map((d: any) => <RecordCard key={d.document_number} state={<StatusChip status={d.status} />} title={t(({ SALARY_CERTIFICATE: 'Salary certificate', EMPLOYMENT_CERTIFICATE: 'Employment certificate', SALARY_TRANSFER: 'Salary transfer letter', NOC_TRAVEL: 'No-objection letter for travel', NOC_DRIVING: 'Introduction letter (to whom it may concern)', EXPERIENCE: 'Experience letter' } as any)[d.type] ?? d.type)} meta={<span className="text-xs text-muted-foreground">{d.addressee || t('To whom it may concern')} · {date(d.issued_at, lang)}</span>} onOpen={() => setDoc(d)} />)}</div> : <Empty>{t('No letters yet.')}</Empty>}
         </Panel>
         <Panel icon={<Wallet size={16} />} title="Salary advances" action={<PanelAction onClick={() => setNr('ADVANCE')}>{t('Request')}</PanelAction>}>
           {me.advances.length ? me.advances.map((a: any) => <StatusRow key={a.advance_number} name={aed(a.amount, lang)} detail={`${aed(a.monthly_recovery, lang)} × ${a.months} · ${t('outstanding')} ${aed(a.outstanding, lang)}`} status={<StatusChip status={a.status} />} />) : <p className="text-sm text-muted-foreground">{t('No advances. Limit today')}: {aed(me.advanceMax, lang)}.</p>}
         </Panel>
+      </>}>
+        {me.payslips.length ? <Panel icon={<Wallet size={16} />} title="Payslips" action={<PanelAction>{t('Open a month for its lines')}</PanelAction>}>
+          <Table><thead><tr><th>{t('Period')}</th><th>{t('Paid')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Deductions')}</th><th className="text-end">{t('Net')}</th></tr></thead>
+            <tbody>{me.payslips.map((p: any) => <tr key={p.id} className="clickable" onClick={() => setSlip(p)}><td>{month(p.period_name, lang)}</td><td>{date(p.pay_date, lang)}</td><td className="text-end tabular-nums">{aed(p.gross, lang)}</td><td className="text-end tabular-nums">{aed(p.deductions, lang)}</td><td className="text-end font-semibold tabular-nums">{aed(p.net, lang)}</td></tr>)}</tbody></Table>
+        </Panel> : null}
       </PageColumns>
       <Dialog open={!!slip} onOpenChange={(o) => !o && setSlip(null)}>
         <DialogContent className="max-w-lg"><DialogTitle>{t('Payslip')} · {slip ? month(slip.period_name, lang) : ''}</DialogTitle>

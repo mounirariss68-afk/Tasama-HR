@@ -30,6 +30,7 @@ import { plain } from './app/decision';
 import { MyHome, MyRequests, MyLeave, MyPay, MyGrowth, MyOnboarding } from './screens/my';
 import { TeamScreen, TeamApprovals, TeamHiring, TeamPerformance } from './screens/team';
 import { HrInbox, Lifecycle, Workforce, PersonScreen } from './screens/hr-core';
+import { ChroOverview } from './screens/chro';
 import { HrHiring, HrOnboarding, HrPerformance } from './screens/hr-talent';
 import { HrPayroll, HrExits, HrCompliance } from './screens/hr-ops';
 import { AgentsScreen, WorkflowsScreen, ScenariosScreen, ConnectorScreen, EvidenceScreen, PoliciesScreen, ValueScreen, SettingsScreen } from './screens/control';
@@ -63,7 +64,7 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'team-performance', label: 'Performance', icon: I(<TrendingUp size={14} />) },
   ],
   hr: [
-    { id: 'hr-lifecycle', label: 'Overview', icon: I(<LayoutGrid size={14} />), show: (_r, k) => k === 'chro' },
+    { id: 'hr-overview', label: 'Overview', icon: I(<LayoutGrid size={14} />), show: (_r, k) => k === 'chro' },
     { id: 'hr-inbox', label: 'Inbox', icon: I(<Inbox size={14} />) },
     { id: 'hr-workforce', label: 'Workforce', icon: I(<Users size={14} />) },
     { id: 'hr-hiring', label: 'Hiring', icon: I(<Briefcase size={14} />), show: (r) => r.some((x) => ['TA', 'HRBP', 'CHRO'].includes(x)) },
@@ -91,19 +92,39 @@ const SCREENS: Record<string, () => ReactNode> = {
   'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <TasamaPolicies />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
-  'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,
+  'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-overview': () => <ChroOverview />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,
   'hr-hiring': () => <HrHiring />, 'hr-onboarding': () => <HrOnboarding />, 'hr-performance': () => <HrPerformance />,
   'hr-payroll': () => <HrPayroll />, 'hr-exits': () => <HrExits />, 'hr-compliance': () => <HrCompliance />,
   agents: () => <AgentsScreen />, workflows: () => <WorkflowsScreen />, scenarios: () => <ScenariosScreen />, connector: () => <ConnectorScreen />,
   evidence: () => <EvidenceScreen />, policies: () => <PoliciesScreen />, value: () => <ValueScreen />, settings: () => <SettingsScreen />,
 };
 
-/** The person: who is looking. Switching persona is in the Demo control. */
-function PersonBadge() {
-  const { persona } = useApp();
-  const { bi } = useLang();
-  if (!persona) return null;
-  return <UserBadge name={bi(persona.display_name, persona.display_name_ar)} role={bi(persona.label, persona.label_ar)} initials={initials(persona.display_name)} />;
+/** The person: who is looking. Click to view the platform as someone else, with what they may approve. */
+function PersonaMenu() {
+  const { persona, session, switchPersona } = useApp();
+  const { bi, t } = useLang();
+  if (!persona || !session) return null;
+  const row = (p: any) => (
+    <DropdownMenuItem key={p.key} onSelect={() => switchPersona(p.key)} className="items-start gap-3 py-2">
+      <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${p.key === persona.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}>{initials(p.display_name)}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{bi(p.label, p.label_ar)}</span>
+        <span className="block truncate text-xs text-muted-foreground">{bi(p.display_name, p.display_name_ar)} · {bi(p.role_title, p.role_title_ar)}</span>
+        {p.key === persona.key && p.approval_limits?.length ? <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">{t('May approve')}: {p.approval_limits.map((l: any) => bi(l.what, l.what_ar)).join('; ')}</span> : null}
+      </span>
+    </DropdownMenuItem>
+  );
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="rounded-full text-start" aria-label={t('View the platform as')}><UserBadge name={bi(persona.display_name, persona.display_name_ar)} role={bi(persona.label, persona.label_ar)} initials={initials(persona.display_name)} /></button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-[75vh] w-80 overflow-y-auto">
+        <DropdownMenuLabel>{t('View the platform as')}</DropdownMenuLabel>
+        {session.personas.map(row)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 function Notifications() {
@@ -160,7 +181,7 @@ export default function App() {
   const lensValue = tasama && lens === 'hr' ? `hr:${session?.client.key}` : lens;
   const pickLens = (id: string) => { if (id.startsWith('hr:')) switchClient(id.slice(3), 'hr-inbox'); else go(lensHome(id as LensId, persona)); };
   const items = useMemo(() => (MENUS[lens] ?? []).filter((i) => !i.show || i.show(persona?.roles ?? [], persona?.key ?? '')).map((i) => ({ ...i, onSelect: () => go(i.id) })), [lens, persona, go]);
-  const navValue = route.screen === 'hr-compliance' && persona?.key === 'chro' ? 'hr-lifecycle' : NAV_OF[route.screen] ?? route.screen;
+  const navValue = route.screen === 'hr-compliance' && persona?.key === 'chro' ? 'hr-overview' : NAV_OF[route.screen] ?? route.screen;
   const screen = SCREENS[route.screen];
   return (
     <>
@@ -174,7 +195,7 @@ export default function App() {
             theme={false}
             lens={lenses.length > 1 ? <LensPicker lenses={lenses} value={lensValue} onChange={pickLens} /> : undefined}
             utilities={<div className="flex items-center gap-3"><Notifications /><LanguageToggle /></div>}
-            user={<div className="flex items-center gap-3"><PersonBadge /><DemoControl /></div>}
+            user={<div className="flex items-center gap-3"><PersonaMenu /><DemoControl /></div>}
           />
         }
         contextNav={<ContextNav items={items} value={navValue} chrome={chrome} />}

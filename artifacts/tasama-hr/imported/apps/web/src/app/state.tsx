@@ -17,7 +17,7 @@ export type LensId = 'tasama' | 'my' | 'team' | 'hr' | 'control';
 export const LENS_OF: Record<string, LensId> = {
   'my-home': 'my', 'my-requests': 'my', 'my-leave': 'my', 'my-pay': 'my', 'my-growth': 'my', 'my-onboarding': 'my',
   team: 'team', 'team-approvals': 'team', 'team-hiring': 'team', 'team-performance': 'team',
-  'hr-inbox': 'hr', 'hr-lifecycle': 'hr', 'hr-workforce': 'hr', 'hr-hiring': 'hr', 'hr-onboarding': 'hr', 'hr-performance': 'hr', 'hr-payroll': 'hr', 'hr-exits': 'hr', 'hr-compliance': 'hr', person: 'hr',
+  'hr-inbox': 'hr', 'hr-lifecycle': 'hr', 'hr-overview': 'hr', 'hr-workforce': 'hr', 'hr-hiring': 'hr', 'hr-onboarding': 'hr', 'hr-performance': 'hr', 'hr-payroll': 'hr', 'hr-exits': 'hr', 'hr-compliance': 'hr', person: 'hr',
   'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama', 'tasama-patterns': 'tasama',
   agents: 'control', workflows: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control',
 };
@@ -25,7 +25,7 @@ export const LENS_OF: Record<string, LensId> = {
 export const RIG = new Set(['scenarios', 'settings']);
 export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents' };
 /** A lens's landing for this persona: the joiner starts on Onboarding, the CHRO on the Overview. */
-export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-lifecycle' : LENS_HOME[l]);
+export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-overview' : LENS_HOME[l]);
 /** Where a persona lands. */
 export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : 'my');
 /** Where a persona lands. */

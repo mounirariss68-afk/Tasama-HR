@@ -32,7 +32,7 @@ export function HrInbox() {
 export function OverviewTabs() {
   const { persona } = useApp();
   if (persona?.key !== 'chro') return null;
-  return <RouteTabs items={[{ id: 'hr-lifecycle', label: 'In flight' }, { id: 'hr-compliance', label: 'Compliance' }]} />;
+  return <RouteTabs items={[{ id: 'hr-overview', label: 'Overview' }, { id: 'hr-compliance', label: 'Compliance' }]} />;
 }
 
 export function Lifecycle() {
@@ -56,7 +56,6 @@ export function Lifecycle() {
   return (
     <Screen hero={<Hero tone="surface" landing eyebrow="HR Workspace" title={(() => { const c = stageCounts(data.inflight); const i = c.indexOf(Math.max(...c)); return `${data.inflight.length} ${t('cases in flight; most are in')} ${bi(STAGES[i].en, STAGES[i].ar).toLowerCase()}`; })()} lede={status || t('What arrived and from where, who holds what is in flight, and where the finished work went.')}
       media={<div className="flex h-full items-center justify-center py-3 pe-6"><LifecycleRing counts={stageCounts(data.inflight)} center={data.inflight.length} centerLabel={t('in flight')} /></div>} />}>
-      <OverviewTabs />
       <div className="flex flex-wrap gap-1.5">
         <button type="button" onClick={() => setStage('all')} className={`mono-chip ${stage === 'all' ? 'is-primary' : ''}`}>{t('All stages')}</button>
         {STAGES.map((s) => <button key={s.key} type="button" onClick={() => setStage(s.key)} className={`mono-chip ${stage === s.key ? 'is-primary' : ''}`}>{bi(s.en, s.ar)}</button>)}

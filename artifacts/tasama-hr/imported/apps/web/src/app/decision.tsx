@@ -118,12 +118,13 @@ export function caseCard(c: any, x: T): Card {
       const away: any[] = o.away ?? [];
       const issues: string[] = o.issues ?? [];
       const facts: Fact[] = [];
-      if (after !== null) facts.push({ k: t('Balance after'), v: `${after} ${t('days left')}`, tone: after < 0 ? 'danger' : undefined, wide: true,
-        viz: <SegmentBar segments={[{ label: t('This request'), value: p.days, tone: 'primary' }, { label: t('Left after'), value: Math.max(0, after), tone: 'success' }]} format={(v) => `${v} ${t('days')}`} /> });
+      if (after !== null) facts.push({ k: t('Annual leave'), v: after < 0 ? `${-after} ${t('days short')}` : `${after} ${t('days left after this request')}`, tone: after < 0 ? 'danger' : undefined, wide: true,
+        note: `${t('This request uses')} ${p.days} ${t('of the')} ${Math.round(o.balance * 10) / 10} ${t('days available')}.`,
+        viz: <SegmentBar legend={false} total={Math.max(o.balance, p.days)} segments={[{ label: t('This request'), value: p.days, tone: after < 0 ? 'danger' : 'primary' }, { label: t('Left'), value: Math.max(0, after), tone: 'muted' }]} format={(v) => `${v} ${t('days')}`} /> });
       facts.push({ k: t('Team cover'), v: away.length ? `${away.length} ${t(away.length === 1 ? 'other away' : 'others away')}` : t('No one else away'), tone: away.length >= 2 ? 'danger' : away.length ? 'warn' : undefined, wide: true,
         viz: <CoverStrip from={addDays(p.start, -2)} days={Math.min(14, (new Date(p.end).getTime() - new Date(p.start).getTime()) / 86400000 + 5)} rows={[{ name: first(who) || t('Request'), ranges: [{ start: p.start, end: p.end, self: true }] }, ...away.map((a) => ({ name: first(a.display_name), ranges: [{ start: String(a.start_date).slice(0, 10), end: String(a.end_date).slice(0, 10) }] }))]} /> });
-      if (p.type_code === 'ANNUAL') facts.push({ k: t('Notice'), v: `${lead} ${t('working days')}`, tone: short ? 'warn' : undefined,
-        viz: <CapBar value={lead} cap={10} tone={short ? 'warn' : 'success'} capLabel={t('policy 10')} /> });
+      // Notice is a minimum, not a cap: a sentence, no bar.
+      if (p.type_code === 'ANNUAL') facts.push({ k: t('Notice'), v: `${lead} ${t('working days')}`, tone: short ? 'warn' : undefined, note: t('The leave policy asks for at least 10 working days.') });
       if (p.reason) facts.push({ k: t('Reason'), v: p.reason });
       const headline = mine ? `${t('Your')} ${p.days} ${t('days of')} ${t(type)}, ${range(p.start, p.end, lang)}` : `${who} ${t('asks for')} ${p.days} ${t(p.days === 1 ? 'day of' : 'days of')} ${t(type)}, ${range(p.start, p.end, lang)}`;
       const ok = !issues.length;

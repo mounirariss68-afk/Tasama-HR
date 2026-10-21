@@ -155,7 +155,7 @@ export function TasamaAccount() {
           <div className="flex flex-wrap gap-1.5">{c.services.map((s: any) => <Chip key={s.key}>{bi(s.label, s.label_ar)}</Chip>)}</div>
           <dl className="mt-3 grid grid-cols-2 gap-3"><Kv k={t('Service credits capped at')} v={`${c.credit_cap_pct}% ${t('of the monthly fee')}`} /><Kv k={t('Phase')} v={<StatusChip status={c.phase} />} /></dl>
         <h3 className="mt-5 mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('Satisfaction survey')}</h3>
-          <div className="space-y-1.5">{data.csat.map((x: any) => <div key={x.period} className="flex items-center gap-3 text-sm"><span className="w-16 shrink-0 text-xs text-muted-foreground">{month(x.period, lang)}</span><Bar value={x.score} max={maxCsat} tone={x.score < 4 ? 'warn' : 'primary'} /><span className="w-10 shrink-0 text-end font-mono text-xs">{x.score}</span></div>)}</div>
+          {data.csat.length ? <p className="text-sm">{data.csat[data.csat.length - 1].score} / 5 {t('last month')} · {t('between')} {Math.min(...data.csat.map((x: any) => x.score))} {t('and')} {Math.max(...data.csat.map((x: any) => x.score))} {t('this year')}</p> : null}
         </Panel>
               </>}>
               <Panel icon={<Gauge size={16} />} title="Service levels by month" action={<AgentTag id="raqeeb" />}>

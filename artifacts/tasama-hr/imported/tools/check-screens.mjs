@@ -27,7 +27,7 @@ const LENS_SCREENS = {
   tasama: ['tasama-portfolio', 'tasama-account', 'tasama-sla', 'tasama-escalations', 'tasama-patterns', 'tasama-finance', 'tasama-delivery', 'tasama-policies'],
   my: ['my-home', 'my-requests', 'my-leave', 'my-pay', 'my-growth', 'my-onboarding'],
   team: ['team', 'team-approvals', 'team-hiring', 'team-performance'],
-  hr: ['hr-inbox', 'hr-lifecycle', 'hr-workforce', 'hr-hiring', 'hr-onboarding', 'hr-performance', 'hr-payroll', 'hr-exits', 'hr-compliance'],
+  hr: ['hr-overview', 'hr-inbox', 'hr-workforce', 'hr-hiring', 'hr-onboarding', 'hr-performance', 'hr-payroll', 'hr-exits', 'hr-compliance'],
   control: ['agents', 'workflows', 'connector', 'evidence', 'policies', 'value'],
   // The rig: in the Demo control, open to every persona.
   rig: ['scenarios', 'settings'],
