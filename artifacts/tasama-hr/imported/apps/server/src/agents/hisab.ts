@@ -27,7 +27,7 @@ export async function precheck(ctx: Ctx, periodName?: string) {
                          WHERE e.effective_start <= $2 AND e.effective_end >= $1`, [period.start_date, period.end_date])).rows);
   const people = await read(ctx, 'workers', 'expand=workRelationships,salaries', 'Workers on the payroll', async () =>
     (await ctx.c.query(`SELECT p.id, p.person_number, p.display_name, p.display_name_ar, p.is_saudi, p.iban_masked, p.bank_name,
-                               wr.start_date, wr.end_date, wr.worker_type, d.name AS department,
+                               wr.start_date, wr.end_date, wr.worker_type, d.name AS department, (SELECT g.first_registered FROM hcm.gosi_registrations g WHERE g.person_id = p.id) AS gosi_from,
                                s.basic, s.housing, s.transport, s.other_allowance, s.date_from AS salary_from, s.action_code AS salary_action
                           FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id
                           JOIN LATERAL (SELECT * FROM hcm.assignments a WHERE a.person_id=p.id ORDER BY effective_start DESC LIMIT 1) a ON true
@@ -78,7 +78,7 @@ export async function precheck(ctx: Ctx, periodName?: string) {
       detail: `Joined ${p.start_date}. Salary record includes housing of ${money(p.housing)}; no HOUSING entry exists.`, fix: 'Add the HOUSING recurring entry from the hire date.', amount: round2(p.housing * days / 30), rule: 'HR-06 §6.1' });
     const missEr = !has('GOSI_ER'), missEe = p.is_saudi && !has('GOSI_EE');
     if (missEr || missEe) {
-      const gp = gosi((p.basic ?? 0) + (p.housing ?? 0), p.start_date, p.is_saudi, period.end_date);
+      const gp = gosi((p.basic ?? 0) + (p.housing ?? 0), p.gosi_from ?? p.start_date, p.is_saudi, period.end_date);
       const pct = (r: number) => `${round2(r * 100)}%`;
       const missing = [missEe ? `GOSI_EE ${money(gp.employee)}` : '', missEr ? `GOSI_ER ${money(gp.employer)}` : ''].filter(Boolean);
       add(p, { code: 'GOSI_MISSING', severity: 'HIGH', title: p.is_saudi ? 'GOSI contributions missing for a Saudi national' : 'GOSI occupational hazards contribution missing', title_ar: p.is_saudi ? 'اشتراكات التأمينات الاجتماعية غير مسجلة لموظف سعودي' : 'اشتراك الأخطار المهنية في التأمينات الاجتماعية غير مسجل',

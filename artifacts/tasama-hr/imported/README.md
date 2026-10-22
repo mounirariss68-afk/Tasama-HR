@@ -63,9 +63,10 @@ Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is
 | Check | Command | Result, 22 October 2026 |
 |---|---|---|
 | Types | `npm run typecheck` | Clean |
-| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 73 of 73 pass |
-| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 163 views, 0 problems |
-| The Director | Every scenario, every step, twice through the Director's routes | 10 scenarios, 0 failing steps |
+| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 80 of 80 pass |
+| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 166 views, 0 problems |
+| The payroll engine | `npm run check:golden`: Tasama's July 2025 template run, and hand-worked cases | 43 of 43 figures match; 21 of 21 cases |
+| The Director | Every scenario, every step, twice through the Director's routes | 11 scenarios, 0 failing steps |
 
 Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app. The canon's agent budget is exceeded on purpose: the payroll addendum brings the platform to 27 agents (20 built so far), each with its own job (`design/payroll-addendum.md` §6).
 

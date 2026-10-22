@@ -9,7 +9,7 @@ export type Worker = {
   nationality: string; is_saudi: boolean; date_of_birth: string; work_email: string; mobile: string;
   national_id_masked: string; national_id_expiry: string; passport_expiry: string; iqama_expiry: string | null;
   bank_name: string; iban_masked: string; photo_seed: number;
-  worker_type: string; start_date: string; original_hire_date: string; end_date: string | null; last_working_day: string | null; termination_action: string | null;
+  worker_type: string; start_date: string; original_hire_date: string; gosi_first_registered: string | null; end_date: string | null; last_working_day: string | null; termination_action: string | null;
   assignment_number: string; effective_start: string; position_id: number | null; position_code: string | null;
   job_code: string; job_name: string; job_name_ar: string; job_family: string;
   department_id: number; department_code: string; department_name: string; department_name_ar: string; division: string; division_ar: string;
@@ -26,6 +26,7 @@ export const WORKER_SQL = (where: string) => `
          p.date_of_birth, p.work_email, p.mobile, p.national_id_masked, p.national_id_expiry, p.passport_expiry, p.iqama_expiry,
          p.bank_name, p.iban_masked, p.photo_seed,
          wr.worker_type, wr.start_date, wr.original_hire_date, wr.end_date, wr.last_working_day, wr.termination_action,
+         (SELECT g.first_registered FROM hcm.gosi_registrations g WHERE g.person_id = p.id) AS gosi_first_registered,
          a.assignment_number, a.effective_start, a.position_id, pos.code AS position_code,
          j.code AS job_code, j.name AS job_name, j.name_ar AS job_name_ar, j.family AS job_family,
          d.id AS department_id, d.code AS department_code, d.name AS department_name, d.name_ar AS department_name_ar, d.division, d.division_ar,

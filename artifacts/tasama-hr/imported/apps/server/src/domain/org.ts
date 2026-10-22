@@ -177,6 +177,7 @@ export const ELEMENT_TYPES = [
   ['TRANSPORT', 'Transport allowance', 'بدل المواصلات', 'EARNING', true],
   ['OTHER_ALW', 'Other allowance', 'بدلات أخرى', 'EARNING', true],
   ['OVERTIME', 'Overtime', 'العمل الإضافي', 'EARNING', false],
+  ['OT_HOURS', 'Overtime hours worked', 'ساعات العمل الإضافي', 'INFORMATION', false],
   ['BONUS', 'Performance bonus', 'مكافأة الأداء', 'EARNING', false],
   ['ADVANCE_PAY', 'Salary advance payment', 'دفعة السلفة', 'EARNING', false],
   ['ADVANCE_REC', 'Salary advance recovery', 'استرداد السلفة', 'DEDUCTION', true],

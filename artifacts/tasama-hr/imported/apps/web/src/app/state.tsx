@@ -20,7 +20,7 @@ export const LENS_OF: Record<string, LensId> = {
   'hr-inbox': 'hr', 'hr-lifecycle': 'hr', 'hr-overview': 'hr', 'hr-workforce': 'hr', 'hr-hiring': 'hr', 'hr-onboarding': 'hr', 'hr-performance': 'hr', 'hr-payroll': 'hr', 'hr-exits': 'hr', 'hr-compliance': 'hr', person: 'hr',
   'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama', 'tasama-patterns': 'tasama',
   agents: 'control', workflows: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control',
-  'payroll-months': 'payroll', 'payroll-inbox': 'payroll', 'payroll-policies': 'payroll',
+  'payroll-months': 'payroll', 'payroll-inbox': 'payroll', 'payroll-runs': 'payroll', 'payroll-policies': 'payroll',
 };
 /** The rig: reached from the Demo control by every persona, in no lens. */
 export const RIG = new Set(['scenarios', 'settings', 'present']);

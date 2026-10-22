@@ -237,6 +237,29 @@ CREATE TABLE hcm.payroll_results (
   UNIQUE (period_id, person_id)
 );
 
+-- design/payroll-addendum.md §5: GOSI rates follow the FIRST registration with GOSI, which can be
+-- years before the hire with this employer. NEW = first registered on or after 3 Jul 2024.
+CREATE TABLE hcm.gosi_registrations (
+  person_id        int PRIMARY KEY REFERENCES hcm.persons(id),
+  first_registered date NOT NULL,
+  system           text NOT NULL,      -- LEGACY | NEW
+  source           text NOT NULL       -- PRIOR_EMPLOYER | THIS_EMPLOYER
+);
+
+-- The end-of-service and leave provisions at each closed month's end, from the payroll engine.
+CREATE TABLE hcm.payroll_provisions (
+  period_id     int NOT NULL REFERENCES hcm.payroll_periods(id),
+  person_id     int NOT NULL REFERENCES hcm.persons(id),
+  eos_wage      numeric(12,2) NOT NULL,
+  eos_accrued   numeric(12,2) NOT NULL,
+  eos_month     numeric(12,2) NOT NULL,
+  leave_days    numeric(8,3) NOT NULL,
+  leave_accrued numeric(12,2) NOT NULL,
+  leave_month   numeric(12,2) NOT NULL,
+  rules         jsonb NOT NULL,        -- {eos, leave}: the rule behind each figure
+  PRIMARY KEY (period_id, person_id)
+);
+
 CREATE TABLE hcm.advances (
   id              serial PRIMARY KEY,
   advance_number  text UNIQUE NOT NULL,

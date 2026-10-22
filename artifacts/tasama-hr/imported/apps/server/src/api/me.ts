@@ -58,7 +58,7 @@ me.get('/me', async (req, res) => {
     gosi: null,
   };
   if (w.is_saudi) {
-    const g = gosi(w.basic + w.housing, w.original_hire_date, true, today());
+    const g = gosi(w.basic + w.housing, w.gosi_first_registered ?? w.original_hire_date, true, today());
     eos.gosi = { monthlyEmployee: g.employee, monthlyEmployer: g.employer, contributionSalary: g.contributionSalary, rates: [g.eeRate, g.erRate], rule: 'GOSI annuities and SANED, paid separately from the end-of-service award. HR-10 §10.4; HR-11 §11.3' };
   }
   const nextPay = (await pool.query(`SELECT pay_date, period_name FROM hcm.payroll_periods WHERE status IN ('OPEN','RELEASED') ORDER BY start_date LIMIT 1`)).rows[0];

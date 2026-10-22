@@ -3,9 +3,9 @@
  * client's approved terms and one period's confirmed inputs. No I/O, no clock,
  * no Claude. Every line carries the rule that produced it.
  *
- * Phase 2, session 1: gross to net, proration, overtime, GOSI by first
- * registration, the deduction caps, and the end-of-service and leave
- * provisions. Back pay, off-cycle and final settlement follow in later sessions.
+ * Gross to net, proration, overtime and its cap, GOSI by first registration,
+ * the deduction caps, the end-of-service and leave provisions, back pay for
+ * closed months, off-cycle payments and the final settlement.
  */
 import { gosiContribution } from './gosi.js';
 
@@ -34,6 +34,10 @@ export type EngineTerms = {
   /** Art. 107 or the client's higher rate. */
   overtime: Overtime;
   hoursPerDay: number;
+  /** Dimension 3: hours a month the client pays without a further approval; hours beyond are held. */
+  overtimeCapHours?: number | null;
+  /** Where the overtime rule comes from, for the line's citation ("policy 2.0, clause 5.5"). */
+  overtimeSource?: string;
   /** The company pays the employee's GOSI share (dimension 13). */
   gosiAbsorbed?: boolean;
 };
@@ -46,6 +50,10 @@ export type EngineEmployee = {
   hire: string;
   /** First registration with GOSI, from gosi_registrations; the hire date when unknown. */
   gosiFirstRegistered?: string;
+  /** False when the person is not yet registered with GOSI: no contribution is calculated, and the run is flagged. */
+  gosiRegistered?: boolean;
+  /** The company pays this person's GOSI share (a handbook limited to some grades); overrides the terms. */
+  gosiAbsorbed?: boolean;
   lastDay?: string | null;
   /** Monthly contractual amounts by element code: basic, housing, transport, mobile, … */
   elements: Record<string, number>;
@@ -90,7 +98,7 @@ const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 /** Days from a to b, both counted. */
 const daysIncl = (a: string, b: string) => Math.max(0, Math.round((t(b) - t(a)) / DAY) + 1);
 const sum = (els: Record<string, number>, codes: string[]) => codes.reduce((s, c) => s + (els[c] ?? 0), 0);
-const LABEL: Record<string, string> = { basic: 'Basic', housing: 'Housing', transport: 'Transport', mobile: 'Mobile' };
+const LABEL: Record<string, string> = { basic: 'Basic', housing: 'Housing', transport: 'Transport', mobile: 'Mobile', other: 'Other allowance' };
 const label = (c: string) => LABEL[c] ?? c.charAt(0).toUpperCase() + c.slice(1);
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -148,18 +156,26 @@ export function runPayroll(period: { start: string; end: string }, terms: Engine
       const hours = 30 * terms.hoursPerDay;
       const hourly = contractual / hours, basicHourly = (e.elements.basic ?? 0) / hours;
       const rate = terms.overtime === 'LAW' ? hourly + 0.5 * basicHourly : 1.5 * hourly;
-      lines.push({ kind: 'EARNING', code: 'overtime', label: 'Overtime', amount: r2(e.overtimeHours * rate), rule: terms.overtime === 'LAW' ? `${e.overtimeHours} h at the hourly wage plus 50% of the basic hourly wage (Art. 107)` : `${e.overtimeHours} h at 1.5 × the full hourly wage (the client's policy, above Art. 107)` });
+      const cap = terms.overtimeCapHours ?? null;
+      const paidHours = cap != null ? Math.min(e.overtimeHours, cap) : e.overtimeHours;
+      const src = terms.overtimeSource ? `; ${terms.overtimeSource}` : '';
+      lines.push({ kind: 'EARNING', code: 'overtime', label: 'Overtime', amount: r2(paidHours * rate), rule: terms.overtime === 'LAW' ? `${paidHours} h × ${fmt(rate)}: the hourly wage (${fmt(hourly)}) plus 50% of the basic hourly wage (Art. 107${src})` : `${paidHours} h × ${fmt(rate)}: 1.5 × the full hourly wage of ${fmt(hourly)} (above Art. 107${src})` });
+      if (paidHours < e.overtimeHours) flags.push({ code: 'OVERTIME_CAP', severity: 'WARN', text: `${e.overtimeHours - paidHours} h above the policy's ${cap}-hour monthly cap are held: worth ${fmt((e.overtimeHours - paidHours) * rate)}, paid only if the client approves them` });
     }
     for (const x of e.earnings ?? []) lines.push({ kind: 'EARNING', code: x.code, label: x.label, amount: r2(x.amount), rule: 'Confirmed input for the month' });
 
     // GOSI on the registered wage, by first registration and the period's last day.
-    const g = gosiContribution(sum(e.elements, terms.gosiElements), e.isSaudi, e.gosiFirstRegistered ?? e.hire, period.end);
+    const registered = e.gosiRegistered !== false;
+    const g0 = gosiContribution(sum(e.elements, terms.gosiElements), e.isSaudi, e.gosiFirstRegistered ?? e.hire, period.end);
+    const g = registered ? g0 : { ...g0, employee: 0, employer: 0 };
+    if (!registered) flags.push({ code: 'GOSI_NOT_REGISTERED', severity: 'BLOCK', text: `Not registered with GOSI: ${fmt(g0.employee + g0.employer)} a month is not being contributed` });
+    const absorbed = e.gosiAbsorbed ?? terms.gosiAbsorbed;
     const gRule = `${(g.eeRate * 100).toFixed(2)}% employee, ${(g.erRate * 100).toFixed(2)}% employer on ${fmt(g.wage)} (${terms.gosiElements.join(' + ')}, capped at 45,000)`;
     if (g.employee) {
-      if (terms.gosiAbsorbed) lines.push({ kind: 'EMPLOYER', code: 'gosi_ee_absorbed', label: 'GOSI, employee share paid by the company', amount: g.employee, rule: gRule });
+      if (absorbed) lines.push({ kind: 'EMPLOYER', code: 'gosi_ee_absorbed', label: 'GOSI, employee share paid by the company', amount: g.employee, rule: gRule });
       else lines.push({ kind: 'DEDUCTION', code: 'gosi', label: 'GOSI', amount: g.employee, rule: gRule });
     }
-    lines.push({ kind: 'EMPLOYER', code: 'gosi_er', label: 'GOSI, employer', amount: g.employer, rule: gRule });
+    if (g.employer) lines.push({ kind: 'EMPLOYER', code: 'gosi_er', label: 'GOSI, employer', amount: g.employer, rule: gRule });
 
     // Other deductions and the caps: an advance instalment ≤ 10% of the wage (Art. 92); all together ≤ 50% (Art. 93).
     let capped = 0;
@@ -201,4 +217,47 @@ export function runPayroll(period: { start: string; end: string }, terms: Engine
       flags,
     };
   }
+}
+
+/** Back pay (REC): a late or backdated change recalculated for each closed month, paid in the open run. Closed months are never reopened. */
+export function backPay(months: { start: string; end: string }[], terms: EngineTerms, before: EngineEmployee, after: EngineEmployee): { lines: Line[]; total: number } {
+  const lines: Line[] = [];
+  for (const m of months) {
+    const a = runPayroll(m, terms, [before]).employees[0], b = runPayroll(m, terms, [after]).employees[0];
+    const diff = r2(b.gross - a.gross);
+    if (Math.abs(diff) < 0.005) continue;
+    const label = new Date(t(m.start)).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+    lines.push({ kind: 'EARNING', code: `backpay_${m.start.slice(0, 7)}`, label: `Back pay, ${label}`, amount: diff, rule: `${label} recalculated: ${fmt(b.gross)} under the change against ${fmt(a.gross)} paid; the closed month is not reopened` });
+  }
+  return { lines, total: r2(lines.reduce((n, l) => n + l.amount, 0)) };
+}
+
+/** Off-cycle (CAL-19): bonus, tickets, trips, relocation, school fees. No GOSI, no loan deductions, no WPS file. */
+export function offCycle(items: Money[]): { lines: Line[]; total: number } {
+  const lines: Line[] = items.map((x) => ({ kind: 'EARNING', code: x.code, label: x.label, amount: r2(x.amount), rule: 'Off-cycle payment: outside the GOSI wage, no deductions, paid outside the WPS salary file (CAL-19)' }));
+  return { lines, total: r2(lines.reduce((n, l) => n + l.amount, 0)) };
+}
+
+export type Leaving = 'RESIGNATION' | 'TERMINATION' | 'ART_80' | 'ART_87';
+
+/**
+ * Final settlement: salary to the last day, unused leave, the end-of-service award by the kind of leaving
+ * (Art. 84, 85, 87; none under Art. 80), notice not worked, less the outstanding advance in full on its own line.
+ */
+export function finalSettlement(period: { start: string; end: string }, terms: EngineTerms, e: EngineEmployee, o: { leaving: Leaving; noticeDaysUnworked?: number; advanceOutstanding?: number }) {
+  const run = runPayroll(period, terms, [{ ...e, deductions: [] }]).employees[0];
+  const lines: Line[] = run.lines.filter((l) => l.kind === 'EARNING');
+  const daily = sum(e.elements, terms.leaveElements) / 30;
+  const leaveDays = run.provisions.leave.balanceDays;
+  if (leaveDays > 0) lines.push({ kind: 'EARNING', code: 'leave_encashment', label: 'Unused leave', amount: r2(leaveDays * daily), rule: `${leaveDays.toFixed(2)} days × ${fmt(daily)} a day: unused leave is paid on leaving (Art. 111)` });
+  const full = run.provisions.eos.accrued, years = run.provisions.eos.serviceDays / terms.eosYearDays;
+  const factor = o.leaving === 'ART_80' ? 0 : o.leaving === 'RESIGNATION' ? (years < 2 ? 0 : years < 5 ? 1 / 3 : years < 10 ? 2 / 3 : 1) : 1;
+  const why = o.leaving === 'ART_80' ? 'no award: dismissal under Art. 80' : o.leaving === 'RESIGNATION' ? (factor === 0 ? 'resignation under two years: no award (Art. 85)' : factor === 1 ? 'resignation after ten years: the full award (Art. 85)' : `resignation: ${factor === 1 / 3 ? 'one third' : 'two thirds'} of the award (Art. 85)`) : o.leaving === 'ART_87' ? 'the full award (Art. 87)' : 'the full award (Art. 84)';
+  if (factor > 0) lines.push({ kind: 'EARNING', code: 'eos_award', label: 'End-of-service award', amount: r2(full * factor), rule: `${years.toFixed(2)} years on ${fmt(run.provisions.eos.wage)}: ${why}` });
+  if (o.noticeDaysUnworked) lines.push({ kind: 'EARNING', code: 'notice', label: 'Notice not worked', amount: r2(o.noticeDaysUnworked * sum(e.elements, terms.eosElements) / 30), rule: `${o.noticeDaysUnworked} days of notice paid in lieu (Art. 75)` });
+  if (o.advanceOutstanding) lines.push({ kind: 'DEDUCTION', code: 'advance_balance', label: 'Advance outstanding', amount: r2(o.advanceOutstanding), rule: 'The outstanding advance, recovered in full on its own line; whether the 50% cap applies to a final settlement is to be confirmed with Tasama\'s legal team' });
+  if (run.gosi.employee && !terms.gosiAbsorbed) lines.push({ kind: 'DEDUCTION', code: 'gosi', label: 'GOSI', amount: run.gosi.employee, rule: 'GOSI on the final month\'s registered wage' });
+  const gross = r2(lines.filter((l) => l.kind === 'EARNING').reduce((n, l) => n + l.amount, 0));
+  const deductions = r2(lines.filter((l) => l.kind === 'DEDUCTION').reduce((n, l) => n + l.amount, 0));
+  return { lines, gross, deductions, net: r2(gross - deductions), years, factor };
 }

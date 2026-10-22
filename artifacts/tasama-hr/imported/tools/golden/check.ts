@@ -4,7 +4,7 @@
  * fixture lists with a legal reason. Run: npm run check:golden
  */
 import { readFileSync } from 'node:fs';
-import { runPayroll, type EngineEmployee, type EngineTerms } from '../../apps/server/src/domain/payroll/engine.ts';
+import { runPayroll, backPay, offCycle, finalSettlement, type EngineEmployee, type EngineTerms } from '../../apps/server/src/domain/payroll/engine.ts';
 import { gosiContribution } from '../../apps/server/src/domain/payroll/gosi.ts';
 
 const f = JSON.parse(readFileSync(new URL('./july-2025.json', import.meta.url), 'utf8'));
@@ -75,6 +75,14 @@ check('RULE', 'advanceAtCapOk', 0, one({ deductions: [{ code: 'adv', label: 'Adv
 check('RULE', 'eosAfter5Years', 49076.71, // 2,192 days ÷ 365 = 6.0055 years: 5 × 7,000 + 1.0055 × 14,000
    one({ hire: '2019-08-01' }).provisions.eos.accrued);
 check('RULE', 'eosUnpaidBeyond20', 14000 * 0.5 * (daysTo('2024-08-01', '2025-07-31') - 5) / 365, one({ hire: '2024-08-01', eosExcludedDays: 5 }).provisions.eos.accrued);
+check('RULE', 'overtimeCap40of48', 3166.67, amt(one({ overtimeHours: 48 }, { overtimeCapHours: 40 }), 'overtime'));
+check('RULE', 'overtimeCapHolds8', 1, one({ overtimeHours: 48 }, { overtimeCapHours: 40 }).flags.filter((x) => x.code === 'OVERTIME_CAP').length);
+check('RULE', 'backPay2Months', 2000, backPay([{ start: '2025-07-01', end: '2025-07-31' }, { start: '2025-08-01', end: '2025-08-31' }], base, emp({}), emp({ elements: { basic: 11000, housing: 2500, transport: 1000, mobile: 500 } })).total);
+check('RULE', 'offCycleNoDeductions', 5000, offCycle([{ code: 'bonus', label: 'Bonus', amount: 5000 }]).total);
+const fs = finalSettlement(f.period, base, emp({ hire: '2022-08-01', lastDay: '2025-07-15', leave: { entitlementDays: 30, carryoverDays: 0, usedDaysYtd: 0 } }), { leaving: 'RESIGNATION', advanceOutstanding: 2000 });
+check('RULE', 'settlementResign3y', 21844.98, fs.gross); // 15/31 of the month 6,774.20 + 17.5 leave days 8,166.67 + a third of 2.96 years' award 6,904.11
+check('RULE', 'settlementAdvanceLine', 2000, fs.lines.find((l) => l.code === 'advance_balance')?.amount ?? 0);
+check('RULE', 'settlementArt80NoAward', 0, finalSettlement(f.period, base, emp({ hire: '2022-08-01', lastDay: '2025-07-15' }), { leaving: 'ART_80' }).lines.filter((l) => l.code === 'eos_award').length);
 function daysTo(a: string, b: string) { return Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1; }
 
 console.log(rows.join('\n'));

@@ -70,7 +70,7 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: ten Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 10, `${d.length}`]; });
+  await check('API: eleven Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 11, `${d.length}`]; });
   await check('API: twenty agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 20 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
@@ -83,6 +83,43 @@ async function main() {
 
   await check('API: the payroll lead sees every client\'s month', async () => { const d = await api('/payroll/months', 'tasama-lead'); return [d.clients.length === 5 && d.clients.filter((c: any) => c.stage === 'RUN').length === 2, d.clients.map((c: any) => `${c.key}:${c.stage}`).join(' ')]; });
   await check('API: a client employee cannot read the payroll months', async () => { const r = await fetch(`${BASE}/api/payroll/months`, { headers: { 'x-persona': 'employee', 'x-client': 'roshn' } }); return [r.status === 403, `HTTP ${r.status}`]; });
+
+  // Phase 2 (design/payroll-addendum.md §5): the clients held in Tasama HR are paid by the engine.
+  const q1 = async (sql: string) => (await pool.query(sql)).rows;
+  for (const key of ['redsea', 'seven', 'saudicoffee']) {
+    await check(`Engine: every closed month at ${key} has pay lines with their rule, and a provision`, async () => {
+      const [r] = await q1(`SELECT (SELECT COUNT(*) FROM hcm_${key}.payroll_results)::int res, (SELECT COUNT(*) FROM hcm_${key}.payroll_provisions)::int prov,
+        (SELECT COUNT(*) FROM hcm_${key}.payroll_results WHERE NOT (lines->0 ? 'rule'))::int norule`);
+      return [r.res > 0 && r.res === r.prov && r.norule === 0, `${r.res} results, ${r.prov} provisions, ${r.norule} without a rule`];
+    });
+  }
+  await check('Engine: net = gross − deductions on every engine result', async () => {
+    const bad = await q1(`SELECT COUNT(*)::int n FROM (SELECT gross, deductions, net FROM hcm_redsea.payroll_results UNION ALL SELECT gross, deductions, net FROM hcm_seven.payroll_results UNION ALL SELECT gross, deductions, net FROM hcm_saudicoffee.payroll_results) x WHERE abs(gross - deductions - net) > 0.011`);
+    return [bad[0].n === 0, `${bad[0].n} off`];
+  });
+  await check('Engine: a full February is paid in full where a day is a 30th of the month', async () => {
+    const rows = await q1(`SELECT r.days_paid, (SELECT (l->>'amount')::numeric FROM jsonb_array_elements(r.lines) l WHERE l->>'code'='BASIC') basic_paid, e.amount basic
+      FROM hcm_redsea.payroll_results r JOIN hcm_redsea.payroll_periods pp ON pp.id=r.period_id JOIN hcm_redsea.work_relationships wr ON wr.person_id=r.person_id
+      JOIN hcm_redsea.element_entries e ON e.person_id=r.person_id AND e.element_code='BASIC' AND e.effective_start <= pp.start_date AND e.effective_end >= pp.end_date
+      WHERE to_char(pp.start_date,'MM')='02' AND wr.start_date < pp.start_date AND (wr.end_date IS NULL OR wr.end_date > pp.end_date) LIMIT 50`);
+    const off = rows.filter((x: any) => Math.abs(Number(x.basic_paid) - Number(x.basic)) > 0.01 || x.days_paid !== 30);
+    return [rows.length > 0 && off.length === 0, `${rows.length} February results, ${off.length} not paid in full`];
+  });
+  await check('Engine: GOSI follows the first registration, not the hire date', async () => {
+    const rows = await q1(`SELECT g.system, g.source, pp.end_date, (SELECT (l->>'amount')::numeric FROM jsonb_array_elements(r.lines) l WHERE l->>'code'='GOSI_EE') ee,
+        (SELECT SUM((l->>'amount')::numeric) FROM jsonb_array_elements(r.lines) l WHERE l->>'code' IN ('BASIC','HOUSING')) wage, r.days_paid
+      FROM hcm_seven.payroll_results r JOIN hcm_seven.payroll_periods pp ON pp.id=r.period_id JOIN hcm_seven.gosi_registrations g ON g.person_id=r.person_id
+      JOIN hcm_seven.persons p ON p.id=r.person_id WHERE p.is_saudi AND r.days_paid >= 28`);
+    const want = (sys: string, end: string) => sys === 'LEGACY' ? 0.0975 : end >= '2026-07-01' ? 0.1075 : end >= '2025-07-01' ? 0.1025 : 0.0975;
+    const prior = rows.filter((x: any) => x.source === 'PRIOR_EMPLOYER');
+    const bad = rows.filter((x: any) => x.ee != null && Math.abs(Number(x.ee) / Math.min(45000, Number(x.wage)) - want(x.system, new Date(x.end_date).toISOString().slice(0, 10))) > 0.002);
+    return [rows.length > 0 && prior.length > 0 && bad.length === 0, `${rows.length} Saudi results, ${prior.length} first registered with an earlier employer, ${bad.length} at the wrong rate`];
+  });
+  await check('Engine: the July 2025 template run still matches', async () => {
+    const { execSync } = await import('node:child_process');
+    try { const out = execSync('npx tsx tools/golden/check.ts', { encoding: 'utf8' }); return [true, out.trim().split('\n').at(-2) ?? '']; } catch (e: any) { return [false, String(e.stdout ?? e.message).trim().split('\n').at(-2) ?? 'failed']; }
+  });
+
   await pool.end();
   const failed = results.filter((r) => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}  (${r.detail})`);

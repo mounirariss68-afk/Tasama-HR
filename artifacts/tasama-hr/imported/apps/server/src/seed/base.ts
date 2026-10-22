@@ -19,6 +19,11 @@ import { GRADES, ELEMENT_TYPES, ABSENCE_TYPES, orgFor, type DeptSpec } from '../
 import { CLIENTS, type ClientConfig } from '../domain/clients.js';
 import * as N from '../domain/names.js';
 import { addDays, addMonths, iso, monthStart, monthEnd, parse, daysBetween, gosi, yearsBetween, noticeDaysForGrade, annualEntitlement, round2 } from '../domain/rules.js';
+import { NEW_SYSTEM_FROM } from '../domain/payroll/gosi.js';
+import { runPayroll, type EngineEmployee } from '../domain/payroll/engine.js';
+import { ELEMENT_OF, HCM_OF, termsFromRules, gosiAbsorbedGrades } from '../domain/payroll/terms.js';
+import { readRules } from '../domain/payroll-policy.js';
+import { policiesFor } from '../domain/policies.js';
 
 export const SEED = 20261002;
 
@@ -393,6 +398,24 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   const eosRows = persons.filter((sp) => sp.id !== persona.joiner).map((sp) => ({ person_id: sp.id, basis: 'GRATUITY', enrolled_date: iso(sp.hire), fund_name: null, contributions_to_date: null }));
   await insertMany(c, 'hcm.end_of_service', eosRows);
 
+  // ------------------------------------------------------------ GOSI registrations (design/payroll-addendum.md §5)
+  // Most people were first registered when they joined; about half of the Saudis hired since 3 Jul 2024 had
+  // registered with an earlier employer, so they stay on the legacy rates. A separate random stream keeps the
+  // rest of the seed unchanged.
+  const RG = rng(SEED + 31337 * (ci + 1));
+  const regOf = new Map<number, string>();
+  {
+    const regs: any[] = [];
+    for (const sp of persons) {
+      const hire = iso(sp.hire);
+      const prior = sp.nat === 'SA' && hire >= NEW_SYSTEM_FROM && RG.chance(0.5);
+      const first = prior ? iso(addDays(sp.hire, -RG.int(400, 2500))) : hire;
+      regOf.set(sp.id, first);
+      regs.push({ person_id: sp.id, first_registered: first, system: sp.nat === 'SA' && first >= NEW_SYSTEM_FROM ? 'NEW' : 'LEGACY', source: prior ? 'PRIOR_EMPLOYER' : 'THIS_EMPLOYER' });
+    }
+    await insertMany(c, 'hcm.gosi_registrations', regs);
+  }
+
   // ------------------------------------------------------------ elements & entries
   await insertMany(c, 'hcm.element_types', ELEMENT_TYPES.map(([code, name, name_ar, classification, recurring]) => ({ code, name, name_ar, classification, recurring })));
   const ee: any[] = [];
@@ -416,7 +439,7 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
     entry(sp.id, 'TRANSPORT', s.transport, start, end);
     entry(sp.id, 'OTHER_ALW', s.other_allowance, start, end);
     if (sp.id !== planted.payJoiner) {
-      const gp = gosi(s.basic + s.housing, sp.hire, sp.nat === 'SA', A);
+      const gp = gosi(s.basic + s.housing, regOf.get(sp.id) ?? sp.hire, sp.nat === 'SA', A);
       if (gp.employee > 0) entry(sp.id, 'GOSI_EE', gp.employee, start, end);
       entry(sp.id, 'GOSI_ER', gp.employer, start, end);
     }
@@ -443,7 +466,8 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   const allEntries = (await c.query(`SELECT e.*, t.classification, t.name FROM hcm.element_entries e JOIN hcm.element_types t ON t.code = e.element_code`)).rows;
   const wrAll = new Map((await c.query('SELECT person_id, start_date, end_date FROM hcm.work_relationships')).rows.map((w: any) => [w.person_id, w]));
   const results: any[] = [];
-  for (const p of periodIds.slice(0, -1)) {
+  // Clients on Oracle: the HRMS's own results, as before. Clients held in Tasama HR: the payroll engine, after the leave data below.
+  if (client.hrms !== 'PLATFORM') for (const p of periodIds.slice(0, -1)) {
     for (const [pid, w] of wrAll) {
       if (pid === persona.joiner) continue;
       if (w.start_date > p.end_date || (w.end_date && w.end_date < p.start_date)) continue;
@@ -499,6 +523,53 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   absRows.push({ absence_number: `DEMO-ABS-${String(an++).padStart(5, '0')}`, person_id: planted.payUnpaid, type_code: 'UNPAID', start_date: iso(addDays(monthStart(A, 0), 0)), end_date: iso(addDays(monthStart(A, 0), 2)), days: 3, status: 'APPROVED', approver_person_id: managerOf.get(planted.payUnpaid) ?? null, submitted_at: addDays(monthStart(A, 0), -9), comments: 'Family matter', source: 'HRMS' });
   await insertMany(c, 'hcm.absence_balances', balRows);
   await insertMany(c, 'hcm.absences', absRows);
+
+  // ------------------------------------------------------------ closed months from the payroll engine (Tasama HR clients)
+  if (client.hrms === 'PLATFORM') {
+    const rules = readRules(client, policiesFor(client)).map((r) => ({ key: r.key, dim: r.dim, value: r.value, num: r.num, flag: r.flag }));
+    const terms = termsFromRules(`${client.short} policy 1.0`, rules);
+    const absorbedGrades = new Set(gosiAbsorbedGrades(rules));
+    const gradeOf = new Map(persons.map((x) => [x.id, `G${String(x.grade).padStart(2, '0')}`]));
+    const balOf = new Map(balRows.filter((b) => b.type_code === 'ANNUAL').map((b) => [b.person_id, b]));
+    const taken = absRows.filter((a) => a.type_code === 'ANNUAL' && a.status === 'COMPLETED');
+    const unpaidAbs = absRows.filter((a) => a.type_code === 'UNPAID' && a.status !== 'REJECTED');
+    const results2: any[] = [], provisions: any[] = [];
+    for (const p of periodIds.slice(0, -1)) {
+      const ps = iso(parse(p.start_date)), pe = iso(parse(p.end_date));
+      const people: EngineEmployee[] = [];
+      for (const [pid, w] of wrAll) {
+        if (pid === persona.joiner) continue;
+        const ws = iso(parse(w.start_date)), we = w.end_date ? iso(parse(w.end_date)) : null;
+        if (ws > pe || (we && we < ps)) continue;
+        const es = allEntries.filter((e: any) => e.person_id === pid && iso(parse(e.effective_start)) <= pe && iso(parse(e.effective_end)) >= ps);
+        const elements: Record<string, number> = {};
+        for (const e of es) if (ELEMENT_OF[e.element_code]) elements[ELEMENT_OF[e.element_code]] = Number(e.amount);
+        if (!Object.keys(elements).length) continue;
+        const sp = persons.find((x) => x.id === pid);
+        const bal = balOf.get(pid);
+        const used = taken.filter((a) => a.person_id === pid && a.end_date <= pe).reduce((n, a) => n + a.days, 0);
+        const unpaidDays = unpaidAbs.filter((a) => a.person_id === pid && a.start_date <= pe && a.end_date >= ps).reduce((n, a) => n + a.days, 0);
+        people.push({
+          ref: String(pid), isSaudi: sp?.nat === 'SA', hire: ws, lastDay: we, gosiFirstRegistered: regOf.get(pid) ?? ws,
+          gosiRegistered: es.some((e: any) => e.element_code === 'GOSI_ER'), gosiAbsorbed: absorbedGrades.has(gradeOf.get(pid) ?? '') || undefined,
+          elements, unpaidLeaveDays: unpaidDays || undefined,
+          earnings: es.filter((e: any) => e.element_code === 'OVERTIME').map((e: any) => ({ code: 'overtime', label: 'Overtime', amount: Number(e.amount) })),
+          deductions: es.filter((e: any) => e.element_code === 'ADVANCE_REC').map((e: any) => ({ code: 'advance', label: 'Advance recovery', amount: Number(e.amount), kind: 'ADVANCE' as const })),
+          leave: { entitlementDays: bal?.entitlement ?? annualEntitlement(ws, A), carryoverDays: bal?.carried_over ?? 0, usedDaysYtd: used },
+        });
+      }
+      const run = runPayroll({ start: ps, end: pe }, terms, people);
+      for (const r of run.employees) {
+        const lines = r.lines.map((l) => ({ code: HCM_OF[l.code] ?? l.code.toUpperCase(), name: l.label, amount: l.amount, kind: l.kind === 'EMPLOYER' ? 'EMPLOYER_CONTRIBUTION' : l.kind, rule: l.rule }));
+        const er = r.lines.filter((l) => l.kind === 'EMPLOYER').reduce((n, l) => n + l.amount, 0);
+        results2.push({ period_id: p.id, person_id: Number(r.ref), days_paid: r.payDays, gross: r.gross, deductions: r.deductions, employer_contributions: round2(er), net: r.net, lines, wps_status: 'PAID' });
+        const pv = r.provisions;
+        provisions.push({ period_id: p.id, person_id: Number(r.ref), eos_wage: round2(pv.eos.wage), eos_accrued: round2(pv.eos.accrued), eos_month: round2(pv.eos.month), leave_days: Math.round(pv.leave.balanceDays * 1000) / 1000, leave_accrued: round2(pv.leave.accrued), leave_month: round2(pv.leave.monthCost), rules: { eos: pv.eos.rule, leave: pv.leave.rule, terms: run.terms } });
+      }
+    }
+    await insertMany(c, 'hcm.payroll_results', results2);
+    await insertMany(c, 'hcm.payroll_provisions', provisions);
+  }
 
   // ------------------------------------------------------------ talent: goals, check-ins, reviews, profiles
   const fy = (y: number) => `FY${y}`;              // performance year label; the cycle closing now

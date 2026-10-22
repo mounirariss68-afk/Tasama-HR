@@ -213,6 +213,19 @@ The fixture `tools/golden/july-2025.json` holds the template's inputs and output
 | Year-to-date leave entitlement is rounded to three decimals | Reproduces it (`leaveDaysPlaces: 3`) | Unrounded |
 | The Master Data sheet gives one employee a 2025 hire date; the payroll and provision sheets use 2024 | Uses 2024, the date the provisions reconcile with | Not applicable |
 
+**Built, 22 October 2026 (phase 2, sessions 2 and 3).**
+
+| What | How |
+|---|---|
+| GOSI by first registration | `hcm.gosi_registrations`; about half of the Saudis hired since 3 Jul 2024 registered with an earlier employer and stay on the legacy rates. The pre-run check, promotions and the employee's own page read it |
+| History from the engine | The closed months of Red Sea Global, SEVEN and Saudi Coffee are the engine's results under each client's version 1.0, with every line's rule and a row in `hcm.payroll_provisions`. ROSHN and Riyadh Air keep their HRMS's results |
+| A full February under ÷ 30 | Paid in full; the earlier seed paid 28/30 of it |
+| Runs (Payroll lens) | The open month's draft for each client held in Tasama HR: who is paid differently from last month and why, the checks that stop the run, and the provisions by month. Recalculated on every view; nothing is written until the client approves (phase 5) |
+
+**Built, 22 October 2026 (phase 2, session 4).** The engine adds the overtime cap (hours above it are held as a check, not dropped), back pay for closed months, off-cycle payments and the final settlement; each has hand-worked cases in `npm run check:golden` (21 in all). Scenario D2 is on the Stage.
+
+**D2 changed from Riyadh Air to Red Sea Global (22 October 2026).** Riyadh Air runs its payroll in Oracle HCM, so the platform does not price its pay. Red Sea Global after D1 (overtime at 1.5 × the full hourly wage, clause 5.3) against Saudi Coffee (the law's rate, capped at 40 hours) shows two different rules on the same 48 hours and continues the storyline from D1. If D1 has not run, D2's first step activates Red Sea Global's revised policy as D1 would.
+
 ## 6. Eight new agents each do one job, and none of them can approve or release anything
 
 The first draft listed ten. Two jobs are folded into agents that already do the same work:
@@ -325,7 +338,7 @@ Each scenario has a different shape and answers one question for the room. Each 
 |---|---|---|---|---|---|---|---|---|
 | **Every client's own rules** | D10 | A new client moves in from Excel | End to end | Soudah Development (new) | "How fast can you take on a client whose payroll lives in spreadsheets?" | The shared folder (section 13) | Payroll lead | The roster, history and policy filling in, then the go-live decision |
 | | D1 | A handbook becomes rules | Governance, with a refusal | Red Sea Global, then SEVEN | "Can it read our client's handbook, and will it catch a rule that breaks the law?" | Edges 1, 2 | Payroll lead, client CHRO | The rule tiles, the unclear clause, the refused clause |
-| | D2 | Same overtime, different pay | Policy effect | Riyadh Air and Saudi Coffee | "Will each client really be paid by its own rules?" | Approved policies | Payroll specialist | Two pay lines side by side, each citing its rule |
+| | D2 | Same overtime, different pay | Policy effect | Red Sea Global and Saudi Coffee | "Will each client really be paid by its own rules?" | Approved policies | Payroll specialist | Two pay lines side by side, each citing its rule |
 | | D3 | A month of fingerprints | Exception | Saudi Coffee | "Can attendance reach payroll without anyone typing?" | Edges 6, 7 | Employee, client HR operations | One employee's month and the fine against the cap |
 | **Changes on time** | D5 | The 15th without chasing | Real time | Riyadh Air | "What happens when the client is late?" | Edge 5 | Client HR operations | The Oracle HCM worker record; the change routed to next month |
 | | D4 | From offer to first payslip | End to end | SEVEN | "Is a hire entered once?" | Edge 8 | Client HR operations, Payroll specialist | The Tasama HR employee record, created once |
@@ -357,7 +370,7 @@ Each phase ends with its scenarios playing twice through the Director from a Res
 | 2 Payroll engine | `domain/payroll/*`; GOSI table and `gosi_registrations`; `gratuity()` change; provisions; back pay; off-cycle; six months of history replacing the authored results; `tasama.payroll_runs` derived; golden fixture; Runs › Draft and checks and Provisions; Stage records for D2 | 4 | **July 2025 matches**; D2; balances and caps asserted |
 | 3 Attendance | Schedules, upload with column map, Hudoor, justification and confirmation, the cap; Attendance screen; Stage records for D3 | 2 | D3 |
 | 4 Intake and contracts | Wared, Aqd, `contracts`, Inputs screen, the client's This month tab, WF-28 on `hire-to-onboard`; Stage records for D4, D5 | 3 | D4, D5 |
-| 5 Reconciliation and approval | Mutabaqa; Runs › Differences, Approval and Payslips; the client's Approval and Reports tabs; Wathiqa payslips; back pay and settlement for D9; re-pointed `payroll-escalation` | 2 | D6, D9; `payroll-escalation` |
+| 5 Reconciliation and approval | Mutabaqa; Runs › Approval and Payslips (Runs › Draft, Checks and Provisions came with phase 2); the client's Approval and Reports tabs; Wathiqa payslips; back pay and settlement for D9; re-pointed `payroll-escalation` | 2 | D6, D9; `payroll-escalation` |
 | 5b A new client from Excel | The Soudah shared folder generator and files (`tools/new-client/`, `demo-files/soudah/`); the client registry; the Add a payroll client screen; Intiqal (WF-24) with its seven lanes; staging and go-live; Reset and scenario start remove the client; Stage records for D10 | 3 | D10 twice in a row, with a Reset between and without one |
 | 6 Banks, WPS and Mudad | `bank_formats`, Tahweel, Payments screen, return files, WPS; Stage records for D7 | 2 | D7 |
 | 7 Finance | Account map, Qaid, four journals, Oracle import file and Odoo CSV, Journals screen; the Payroll costs lens; Stage records for D8 | 2 | D8 |

@@ -9,6 +9,7 @@ import { CLIENTS, clientByKey } from '../domain/clients.js';
 import { DIMENSIONS } from '../domain/payroll-policy.js';
 import { startCase } from '../engine/core.js';
 import { activeVersion, rulesOf } from '../payroll/policy.js';
+import { draftRun, provisionHistory } from '../payroll/run.js';
 import { personaOf, isPayrollTeam, isTasama, type Persona } from './session.js';
 
 export const payroll = Router();
@@ -118,4 +119,31 @@ payroll.get('/payroll/policies-compare', async (req, res) => {
     return { key, short: c.short, name_ar: c.name_ar, version: v?.version ?? null, rules };
   });
   res.json({ dim: DIMENSIONS.find((d) => d.n === dim), rows });
+});
+
+/** Every client's open run: the draft for clients held in Tasama HR; clients on Oracle run their payroll there. */
+payroll.get('/payroll/runs', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const rows = await forEachClient(async (key) => {
+    const c = clientByKey(key)!;
+    if (c.hrms !== 'PLATFORM') return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: null };
+    const d = await draftRun(pool);
+    if (!d) return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: null };
+    const blocks = d.rows.reduce((n, r) => n + r.flags.filter((f: any) => f.severity === 'BLOCK').length, 0);
+    const prevNet = d.rows.reduce((n, r) => n + (r.prev_net ?? 0), 0);
+    return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: { period: d.period, people: d.rows.length, gross: d.totals.gross, net: d.totals.net, prev_net: Math.round(prevNet * 100) / 100, blocks, version: d.version } };
+  });
+  res.json({ clients: rows });
+});
+
+/** One client's draft run, its checks and its provisions. */
+payroll.get('/payroll/runs/:client', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  if (c.hrms !== 'PLATFORM') return res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, draft: null });
+  const out = await withClient(c.key, async () => ({ draft: await draftRun(pool), history: await provisionHistory(pool) }));
+  res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, ...out });
 });

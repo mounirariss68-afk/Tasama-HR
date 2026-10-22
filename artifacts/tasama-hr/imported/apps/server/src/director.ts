@@ -21,11 +21,15 @@ import { basiraScan } from './tasama/basira.js';
 import { precheck } from './agents/hisab.js';
 import { reasonLabel } from './domain/reasons.js';
 import { policiesFor } from './domain/policies.js';
+import { readHandbook } from './agents/nizam.js';
+import { saveVersion, nextVersion, READINGS } from './payroll/policy.js';
+import { draftRun } from './payroll/run.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
 type Text = string | ((c: Ctx) => Promise<string> | string);
 type Action =
   | { kind: 'show' }
+  | { kind: 'overtime_inputs' }
   | { kind: 'start'; starter: keyof typeof STARTERS; as: string }
   | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; edits?: Record<string, any> }
   | { kind: 'raqeeb_scan' }
@@ -159,6 +163,71 @@ async function policyRecord(c: Ctx): Promise<Rec | null> {
     ['Overtime rate', ot ? `${ot.value}${ot.flag === 'UNCLEAR' && !ot.resolution ? ' (unclear)' : ''}` : '—'], ['Business trips', r('trips')?.resolution ?? r('trips')?.value ?? '—'],
     ['Activated by', v.activated_by ?? 'Waiting for the client'],
   ] };
+}
+
+// ------------------------------------------------------------------ scenario D2: the same overtime priced by two clients' policies
+
+const D2_REF = 'Scenario D2: overtime';
+const D2_HOURS = 48;
+const D2_CLIENTS = ['redsea', 'saudicoffee'] as const;
+
+/** D2 starts where D1 ends: Red Sea Global on its revised policy, overtime read as 1.5 × the full hourly wage. */
+async function ensureRedSeaRevised() {
+  await withClient('redsea', async () => {
+    const v = (await pool.query(`SELECT r.value FROM layer.policy_versions v JOIN layer.policy_rules r ON r.version_id=v.id AND r.key='overtime.rate' WHERE v.status='ACTIVE'`)).rows[0];
+    if (v && /full hourly/i.test(v.value)) return;
+    const c = clientByKey('redsea')!;
+    const { P } = await people();
+    const chro = await nameOf(P.chro);
+    const reading = await readHandbook(c, { revised: true, useClaude: false });
+    const ch = READINGS['overtime.rate'].find((r) => r.code === 'GROSS_1_5')!;
+    await tx(async (x) => {
+      const version = await nextVersion(x);
+      await x.query(`UPDATE layer.policy_versions SET status='SUPERSEDED' WHERE status='ACTIVE'`);
+      const id = await saveVersion(x, reading, { version, status: 'ACTIVE', effective: iso(now()), activatedBy: chro });
+      await x.query(`UPDATE layer.policy_rules SET value=$2, num=$3, resolution=$4 WHERE version_id=$1 AND key='overtime.rate'`, [id, ch.value, ch.num, `Read as ${ch.label.toLowerCase()}`]);
+      for (const p of policiesFor(c, true)) for (const k of p.clauses) await x.query(`UPDATE layer.policy_clauses SET text_en=$2, text_ar=$3 WHERE id=$1`, [`${p.id} §${k.ref}`, k.en, k.ar]);
+    });
+  });
+}
+
+/** One settled employee per client with a similar salary, not one of the people other scenarios use. */
+async function d2Person(key: string) {
+  return withClient(key, async () => {
+    const { T } = await people();
+    const planted = Object.values(T).filter((v) => typeof v === 'number');
+    return (await pool.query(
+      `SELECT p.id, p.display_name FROM hcm.element_entries e JOIN hcm.persons p ON p.id=e.person_id JOIN hcm.work_relationships wr ON wr.person_id=p.id
+        WHERE e.element_code='BASIC' AND e.effective_end='4712-12-31' AND wr.end_date IS NULL AND wr.worker_type='E' AND wr.start_date < $1::date - 60
+          AND EXISTS (SELECT 1 FROM hcm.element_entries g WHERE g.person_id=p.id AND g.element_code='GOSI_ER' AND g.effective_end >= $1)
+          AND NOT EXISTS (SELECT 1 FROM hcm.element_entries a WHERE a.person_id=p.id AND a.element_code IN ('ADVANCE_REC','OVERTIME') AND a.effective_end >= $1)
+          AND NOT (p.id = ANY($2::int[]))
+        ORDER BY abs(e.amount - 12000), p.id LIMIT 1`, [iso(now()), planted])).rows[0] as { id: number; display_name: string };
+  });
+}
+
+/** The person's overtime line in the client's draft run: amount, hours paid, the rule and what is held. */
+async function d2Line(key: string, personId: number) {
+  return withClient(key, async () => {
+    const d = await draftRun(pool);
+    const r = d?.rows.find((x) => x.person_id === personId);
+    const l = r?.lines.find((x: any) => x.code === 'overtime');
+    const held = r?.flags.find((f: any) => f.code === 'OVERTIME_CAP');
+    return { name: r?.name ?? '', amount: l?.amount ?? 0, rule: l?.rule ?? '', held: held?.text ?? null, hours: l ? Number(String(l.rule).split(' h')[0]) : 0 };
+  });
+}
+
+async function overtimeRecord(c: Ctx): Promise<Rec | null> {
+  const who = c.out.d2 as Record<string, { id: number; name: string }> | undefined;
+  if (!who) return null;
+  const fields: [string, string][] = [];
+  for (const key of D2_CLIENTS) {
+    const l = await d2Line(key, who[key].id);
+    fields.push([`${clientByKey(key)!.short} · ${l.name}`, `${l.hours} of ${D2_HOURS} h paid · SAR ${l.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`]);
+    fields.push(['Rule', l.rule]);
+    if (l.held) fields.push(['Held', l.held]);
+  }
+  return { system: 'Tasama HR · Runs', title: `Overtime, ${monthLabel(monthStart(now()))}`, fields };
 }
 
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
@@ -323,6 +392,21 @@ export const SCRIPTS: Scenario[] = [
         async () => { const rule = await withClient('seven', async () => (await pool.query(`SELECT r.* FROM layer.policy_rules r JOIN layer.policy_versions v ON v.id=r.version_id WHERE v.status='ACTIVE' AND r.key='eoswage'`)).rows[0]); return `SEVEN's handbook pays end of service on basic salary only. The law counts the last actual wage, basic plus the regular allowances (Art. 2, 84). Nizam refused the rule when SEVEN's policy was read, so the payroll engine will pay on the full wage${rule?.resolution ? `: "${rule.resolution}"` : ''}.`; }, undefined,
         { focus: { fact: 'Refused at SEVEN: end of service on basic salary only. Payroll will pay on basic plus the fixed allowances (Art. 2, 84).' } }),
     ] },
+  { key: 'overtime-two-clients', level: 'tasama', client: 'redsea', shape: 'Policy effect', shape_ar: 'أثر السياسة', title: 'Same overtime, different pay', title_ar: 'العمل الإضافي نفسه وأجر مختلف',
+    summary: 'Two employees with similar salaries each work 48 hours of overtime in the same month, one at Red Sea Global and one at Saudi Coffee. Tasama\'s payroll specialist enters the hours once for each. The engine prices them by each client\'s own approved policy, and every pay line names the rule it came from.', summary_ar: 'موظفان براتبين متقاربين يعمل كل منهما 48 ساعة إضافية في الشهر نفسه، أحدهما في البحر الأحمر الدولية والآخر في الشركة السعودية للقهوة؛ يحسب المحرك كل ساعة وفق سياسة العميل المعتمدة ويذكر القاعدة في كل بند.',
+    record: async (c) => overtimeRecord(c),
+    steps: [
+      S('o1', 'The same hours at two clients', 'الساعات نفسها لدى عميلين', 'Overtime approved by each client', 'tasama-specialist', 'payroll-runs', { kind: 'overtime_inputs' },
+        (c) => `${c.out.d2.redsea.name} at Red Sea Global and ${c.out.d2.saudicoffee.name} at Saudi Coffee each worked ${D2_HOURS} hours of overtime this month, approved by their managers. Nasser entered the hours once for each. Nothing else is typed: the engine prices them by each client's active policy.`, undefined,
+        { chat: async (c) => [person('Red Sea Global HR operations', `${c.out.d2.redsea.name}: ${D2_HOURS} hours of overtime this month, approved.`, 'Client portal'), person('Saudi Coffee HR operations', `${c.out.d2.saudicoffee.name}: ${D2_HOURS} hours of overtime this month, approved.`, 'Client portal')] }),
+      S('o2', 'Red Sea Global pays its own rate', 'البحر الأحمر الدولية تدفع وفق سعرها', 'Red Sea Global policy 2.0', 'tasama-specialist', 'payroll-runs/redsea', SHOW,
+        async (c) => { const l = await d2Line('redsea', c.out.d2.redsea.id); return `Red Sea Global's policy, as its CHRO activated it, reads "time and a half" as 1.5 × the full hourly wage, which is more than the law's minimum. ${l.name} is paid SAR ${l.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} for all ${l.hours} hours, and the line says why: ${l.rule}.`; }),
+      S('o3', 'Saudi Coffee pays the law\'s rate, up to its cap', 'الشركة السعودية للقهوة تدفع وفق النظام حتى سقفها', 'Saudi Coffee policy 1.0', 'tasama-specialist', 'payroll-runs/saudicoffee', SHOW,
+        async (c) => { const l = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `Saudi Coffee's policy pays overtime at the law's rate, the hourly wage plus half the basic hourly wage, and caps it at 40 hours a month. ${l.name} is paid SAR ${l.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} for ${l.hours} hours. ${l.held ? `The other ${D2_HOURS - l.hours} hours are held for Saudi Coffee to approve, not dropped: they show as a check on the run.` : ''}`; }),
+      S('o4', 'Each client paid by its own rules', 'كل عميل يدفع وفق قواعده', 'Runs', 'tasama-specialist', 'payroll-runs/saudicoffee', SHOW,
+        async (c) => { const a = await d2Line('redsea', c.out.d2.redsea.id), b = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `The same ${D2_HOURS} hours: SAR ${a.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} at Red Sea Global, SAR ${b.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} at Saudi Coffee. Nobody chose a formula or remembered a cap: each run read its client's approved policy, and each line cites it.`; }, undefined,
+        { focus: { fact: async (c: Ctx) => { const a = await d2Line('redsea', c.out.d2.redsea.id), b = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `Same ${D2_HOURS} hours of overtime: Red Sea Global pays SAR ${Math.round(a.amount).toLocaleString('en-US')}; Saudi Coffee pays SAR ${Math.round(b.amount).toLocaleString('en-US')} and holds ${D2_HOURS - b.hours} hours for approval.`; } } }),
+    ] },
   { key: 'sla-rescue', level: 'tasama', client: 'riyadhair', shape: 'Service level at risk', shape_ar: 'مستوى خدمة معرض للتجاوز', title: 'Raqeeb catches a request before it breaches', title_ar: 'رقيب يلتقط طلباً قبل تجاوز مستوى الخدمة',
     summary: 'A leave request at Riyadh Air has been waiting on the manager for almost two days. Raqeeb flags it with hours to spare, reminds the manager, and the Tasama HR Operations Manager decides on the manager\'s behalf with a reason.', summary_ar: 'طلب إجازة في طيران الرياض ينتظر المدير منذ يومين؛ يرصده رقيب ويذكّر المدير ويقرر مدير العمليات نيابة عنه مع ذكر السبب.',
     record: async (c) => workerRecord(c, await subjectOf(c.refs.leave)),
@@ -394,6 +478,26 @@ export const SCRIPTS: Scenario[] = [
 async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
   switch (a.kind) {
     case 'show': return 'Showing';
+    case 'overtime_inputs': {
+      await ensureRedSeaRevised();
+      const who: Record<string, { id: number; name: string }> = {};
+      for (const key of D2_CLIENTS) {
+        const p = await d2Person(key);
+        who[key] = { id: p.id, name: p.display_name };
+        await withClient(key, async () => {
+          const per = (await pool.query(`SELECT start_date, end_date FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+          await pool.query(`DELETE FROM hcm.element_entries WHERE reference=$1`, [D2_REF]);
+          await pool.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'OT_HOURS',$3,$4,$5,'TASAMA_HR',$6)`, [`DEMO-EE-D2-${key}`, p.id, D2_HOURS, per.start_date, per.end_date, D2_REF]);
+        });
+      }
+      c.out.d2 = who;
+      for (const key of D2_CLIENTS) {
+        const l = await d2Line(key, who[key].id);
+        await tasamaTrail(pool, { client_key: key, actor_type: 'HUMAN', actor_id: 'tasama-specialist', actor_name: 'Nasser AlFarraj, Tasama', act: 'WRITE', summary: `Entered ${D2_HOURS} h of approved overtime for ${who[key].name} (${clientByKey(key)!.short}).`, summary_ar: `أدخل ${D2_HOURS} ساعة عمل إضافي معتمدة لـ ${who[key].name}.` });
+        await tasamaTrail(pool, { client_key: key, actor_type: 'SYSTEM', actor_id: 'engine', actor_name: 'Tasama HR', act: 'CHECK', summary: `Priced ${l.hours} h at SAR ${l.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} for ${who[key].name}: ${l.rule}.${l.held ? ` ${l.held}.` : ''}`, summary_ar: `حُسبت ${l.hours} ساعة لـ ${who[key].name}.` });
+      }
+      return `${D2_HOURS} h entered for ${who.redsea.name} and ${who.saudicoffee.name}`;
+    }
     case 'start': { const ref = await STARTERS[a.starter](c); c.refs[a.as] = ref; return `Opened ${ref}`; }
     case 'decide': {
       const k = await caseOf(c.refs[a.ref]);
@@ -501,6 +605,8 @@ export async function startScenario(key: string, clientKey: string) {
     await pool.query(`UPDATE layer.policy_versions SET status='ACTIVE' WHERE version='1.0'`);
     for (const p of policiesFor(clientByKey('redsea')!)) for (const k of p.clauses) await pool.query(`UPDATE layer.policy_clauses SET text_en=$2, text_ar=$3 WHERE id=$1`, [`${p.id} §${k.ref}`, k.en, k.ar]);
   });
+  // D2 starts with no overtime entered; its first step enters it.
+  if (key === 'overtime-two-clients') for (const k of D2_CLIENTS) await withClient(k, async () => { await pool.query(`DELETE FROM hcm.element_entries WHERE reference=$1`, [D2_REF]); });
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }
   const run = (await pool.query(`INSERT INTO tasama.director_runs (key, client_key) VALUES ($1,$2) RETURNING *`, [key, client])).rows[0];
   return { run: run.id, client, scenario: outline(s) };

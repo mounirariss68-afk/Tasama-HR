@@ -611,7 +611,7 @@ export const HANDLERS: Record<string, H> = {
     await write(h.conn, 'POST', 'elementEntries', 'End-date and replace recurring pay entries', async () => {
       await h.c.query(`UPDATE hcm.element_entries SET effective_end=$2 WHERE person_id=$1 AND element_code IN ('BASIC','HOUSING','TRANSPORT','OTHER_ALW','GOSI_EE','GOSI_ER') AND effective_end='4712-12-31'`, [pid, iso(addDays(eff, -1))]);
       const s = { basic, ...allowances(basic) };
-      const per = (await h.c.query(`SELECT is_saudi, (SELECT start_date FROM hcm.work_relationships WHERE person_id=$1) s FROM hcm.persons WHERE id=$1`, [pid])).rows[0];
+      const per = (await h.c.query(`SELECT is_saudi, COALESCE((SELECT first_registered FROM hcm.gosi_registrations WHERE person_id=$1), (SELECT start_date FROM hcm.work_relationships WHERE person_id=$1)) s FROM hcm.persons WHERE id=$1`, [pid])).rows[0];
       const rows: [string, number][] = [['BASIC', s.basic], ['HOUSING', s.housing], ['TRANSPORT', s.transport], ['OTHER_ALW', s.other]];
       const gs = gosi(s.basic + s.housing, per.s, per.is_saudi, eff);
       if (per.is_saudi) rows.push(['GOSI_EE', gs.employee]);
@@ -648,8 +648,8 @@ export const HANDLERS: Record<string, H> = {
         for (const [code, amt] of [['BASIC', s.basic], ['HOUSING', s.housing], ['TRANSPORT', s.transport], ['OTHER_ALW', s.other_allowance]] as const) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, source, reference) VALUES ($1,$2,$3,$4,$5,'RAFEEQ',$6)`, [`DEMO-EE-F${(await h.c.query(`SELECT nextval('hcm.misc_seq') n`)).rows[0].n}`, f.person_id, code, amt, s.date_from, h.req.ref]);
       });
       if (f.code === 'MISSING_ELEMENT' || f.code === 'GOSI_MISSING') await write(h.conn, 'POST', 'elementEntries', `Add missing ${f.code === 'GOSI_MISSING' ? 'GOSI' : 'HOUSING'} for ${f.person_number}`, async () => {
-        const s = (await h.c.query(`SELECT s.*, wr.start_date, p.is_saudi FROM hcm.salaries s JOIN hcm.work_relationships wr ON wr.person_id=s.person_id JOIN hcm.persons p ON p.id=s.person_id WHERE s.person_id=$1 AND s.date_to='4712-12-31'`, [f.person_id])).rows[0];
-        const rows: [string, number][] = f.code === 'GOSI_MISSING' ? (() => { const gs = gosi(s.basic + s.housing, s.start_date, s.is_saudi, asOf()); return (s.is_saudi ? [['GOSI_EE', gs.employee], ['GOSI_ER', gs.employer]] : [['GOSI_ER', gs.employer]]) as [string, number][]; })() : [['HOUSING', s.housing]];
+        const s = (await h.c.query(`SELECT s.*, wr.start_date, COALESCE((SELECT g.first_registered FROM hcm.gosi_registrations g WHERE g.person_id=s.person_id), wr.start_date) AS gosi_from, p.is_saudi FROM hcm.salaries s JOIN hcm.work_relationships wr ON wr.person_id=s.person_id JOIN hcm.persons p ON p.id=s.person_id WHERE s.person_id=$1 AND s.date_to='4712-12-31'`, [f.person_id])).rows[0];
+        const rows: [string, number][] = f.code === 'GOSI_MISSING' ? (() => { const gs = gosi(s.basic + s.housing, s.gosi_from, s.is_saudi, asOf()); return (s.is_saudi ? [['GOSI_EE', gs.employee], ['GOSI_ER', gs.employer]] : [['GOSI_ER', gs.employer]]) as [string, number][]; })() : [['HOUSING', s.housing]];
         for (const [code, amt] of rows) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, source, reference) VALUES ($1,$2,$3,$4,$5,'RAFEEQ',$6) ON CONFLICT DO NOTHING`, [`DEMO-EE-F${(await h.c.query(`SELECT nextval('hcm.misc_seq') n`)).rows[0].n}`, f.person_id, code, amt, s.start_date, h.req.ref]);
         if (f.code === 'GOSI_MISSING') await ext(h, 'GOSI', 'POST', '/gosi/employer/registrations', `Register ${f.person_number}`);
       });

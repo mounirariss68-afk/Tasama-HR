@@ -4,14 +4,14 @@
  * specialist's; Client policies is shared with Tasama Services.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { HeroFeature, Panel, PanelAction } from '@cognirise/atelier/layout';
+import { HeroFeature, Panel, PanelAction, StatTile } from '@cognirise/atelier/layout';
 import { InboxLayout, InboxList, InboxReader } from '@cognirise/atelier/archetypes';
 import { BookOpen, CalendarRange, FileText, Scale } from 'lucide-react';
 import { bump, getClient, post, setClientKey, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { date, num } from '../lib/format';
 import { useApp } from '../app/state';
-import { Btn, Chip, Empty, Hero, Screen, TabStrip, Table } from '../app/ui';
+import { Btn, Chip, Empty, Hero, Screen, StatRow, TabStrip, Table } from '../app/ui';
 import { CaseRow, CaseView } from '../app/case';
 
 const DAY = 86_400_000;
@@ -240,6 +240,160 @@ export function ClientPolicies() {
           </div>
         </Panel>
       ) : <Empty icon={<BookOpen size={18} />}>{t('Choose a client.')}</Empty>}
+    </Screen>
+  );
+}
+
+/* ------------------------------------------------------------------ Runs */
+
+const sarK = (n: number) => (Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e4 ? `${Math.round(n / 1e3)}K` : num(n));
+
+/** The largest changes from last month's net pay, person by person: up to the right, down to the left. */
+function ChangeBars({ rows }: { rows: any[] }) {
+  const { t } = useLang();
+  const max = Math.max(1, ...rows.map((r) => Math.abs(r.change)));
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => {
+        const w = `${Math.abs(r.change) / max * 50}%`;
+        return (
+          <div key={r.person_id} className="grid grid-cols-[11rem_1fr_6.5rem] items-center gap-3 text-sm" title={`${r.name}: ${num(r.prev_net, 2)} → ${num(r.net, 2)}`}>
+            <span className="truncate">{r.name}</span>
+            <div className="relative h-3">
+              <div className="absolute inset-y-0 start-1/2 w-px bg-border" />
+              <div className={`absolute inset-y-0 rounded-sm ${r.change >= 0 ? 'start-1/2 bg-primary' : 'end-1/2 bg-warn'}`} style={{ width: w }} />
+            </div>
+            <span className="text-end font-mono text-xs tabular-nums">{r.change >= 0 ? '+' : '−'}{num(Math.abs(r.change), 2)}</span>
+          </div>
+        );
+      })}
+      <div className="grid grid-cols-[11rem_1fr_6.5rem] gap-3 text-[11px] text-muted-foreground"><span /><div className="flex justify-between"><span>{t('Paid less than last month')}</span><span>{t('Paid more')}</span></div><span /></div>
+    </div>
+  );
+}
+
+/** End-of-service and leave balances at each month's end, with this month's draft. */
+function ProvisionTrend({ points }: { points: { label: string; eos: number; leave: number; draft?: boolean }[] }) {
+  const { t } = useLang();
+  const W = 720, H = 200, L = 56, R = 16, T = 12, B = 28;
+  const max = Math.max(...points.map((p) => p.eos), 1) * 1.08;
+  const x = (i: number) => L + (points.length === 1 ? 0 : i / (points.length - 1)) * (W - L - R);
+  const y = (v: number) => T + (1 - v / max) * (H - T - B);
+  const path = (k: 'eos' | 'leave') => points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(p[k])}`).join(' ');
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * max);
+  const series: [('eos' | 'leave'), string, string][] = [['eos', 'End of service', 'var(--color-chart-1)'], ['leave', 'Leave', 'var(--color-chart-2)']];
+  return (
+    <div>
+      <div className="mb-2 flex gap-4 text-xs">{series.map(([k, l, c]) => <span key={k} className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded" style={{ background: c }} />{t(l)}</span>)}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={t('End-of-service and leave balances by month')}>
+        {ticks.map((v) => <g key={v}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="var(--color-border)" strokeWidth="1" /><text x={L - 8} y={y(v) + 4} textAnchor="end" fontSize="10" fill="var(--color-muted-foreground)">{sarK(v)}</text></g>)}
+        {points.map((p, i) => <text key={p.label} x={x(i)} y={H - 8} textAnchor="middle" fontSize="10" fill="var(--color-muted-foreground)">{p.label}</text>)}
+        {series.map(([k, , c]) => <path key={k} d={path(k)} fill="none" stroke={c} strokeWidth="2" />)}
+        {series.map(([k, l, c]) => points.map((p, i) => <circle key={`${k}${i}`} cx={x(i)} cy={y(p[k])} r={p.draft ? 5 : 4} fill={p.draft ? 'var(--color-card)' : c} stroke={c} strokeWidth="2"><title>{`${t(l)} · ${p.label}${p.draft ? ` (${t('draft')})` : ''}: SAR ${num(p[k])}`}</title></circle>))}
+      </svg>
+    </div>
+  );
+}
+
+function PersonLines({ r }: { r: any }) {
+  const { t } = useLang();
+  return (
+    <details className="mt-1">
+      <summary className="cursor-pointer text-xs text-muted-foreground">{t('How this was calculated')}</summary>
+      <table className="mt-2 w-full text-xs"><tbody>
+        {r.lines.map((l: any, i: number) => <tr key={i} className="border-t border-border/40"><td className="py-1 pe-3">{t(l.label)}</td><td className="py-1 pe-3 text-end font-mono tabular-nums">{l.kind === 'DEDUCTION' ? '−' : ''}{num(l.amount, 2)}</td><td className="py-1 text-muted-foreground">{l.rule}{l.kind === 'EMPLOYER' ? ` · ${t('paid by the company, not on the payslip')}` : ''}</td></tr>)}
+        <tr className="border-t border-border/40"><td className="py-1 pe-3">{t('End of service, accrued')}</td><td className="py-1 pe-3 text-end font-mono tabular-nums">{num(r.eos.accrued, 2)}</td><td className="py-1 text-muted-foreground">{r.eos.rule}</td></tr>
+        <tr className="border-t border-border/40"><td className="py-1 pe-3">{t('Leave, accrued')}</td><td className="py-1 pe-3 text-end font-mono tabular-nums">{num(r.leave.accrued, 2)}</td><td className="py-1 text-muted-foreground">{r.leave.rule}</td></tr>
+      </tbody></table>
+    </details>
+  );
+}
+
+export function PayrollRuns() {
+  const { t, bi, lang } = useLang();
+  const { route, session, go } = useApp();
+  const { data: all } = useApi<any>('/payroll/runs', { poll: 20000 });
+  const platform = (all?.clients ?? []).filter((c: any) => c.draft);
+  const [key, setKey] = useState<string | null>(route.param);
+  useEffect(() => { setKey(route.param ?? (session?.client.hrms === 'PLATFORM' ? session.client.key : null)); }, [route.param, session?.client.key]);
+  const current = key ?? platform[0]?.key ?? null;
+  const { data } = useApi<any>(current ? `/payroll/runs/${current}` : null, { poll: 20000 });
+  const [tab, setTab] = useState('draft');
+  const [showAll, setShowAll] = useState(false);
+  const d = data?.draft;
+  const rows: any[] = d?.rows ?? [];
+  const checks = rows.flatMap((r) => r.flags.map((f: any) => ({ ...f, r })));
+  const blocks = checks.filter((c) => c.severity === 'BLOCK');
+  const changed = rows.filter((r) => r.change != null && Math.abs(r.change) >= 1).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+  const joiners = rows.filter((r) => r.prev_net == null);
+  const prevNet = rows.reduce((s, r) => s + (r.prev_net ?? 0), 0);
+  const monthWord = d ? new Date(`${d.period.start}T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+  const name = data ? bi(data.client.short, data.client.name_ar) : '';
+  const listed = showAll ? rows : rows.filter((r) => r.flags.length || (r.change != null && Math.abs(r.change) >= 1) || r.prev_net == null);
+  const hist: any[] = data?.history ?? [];
+  const mon = (pn: string) => new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'short', timeZone: 'UTC' });
+  const points = [...hist.map((h) => ({ label: mon(h.period_name), eos: h.eos, leave: h.leave })), ...(d ? [{ label: mon(d.period.name), eos: rows.reduce((s, r) => s + r.eos.accrued, 0), leave: rows.reduce((s, r) => s + r.leave.accrued, 0), draft: true }] : [])];
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="Payroll"
+      title={d ? `${name}'s ${monthWord} ${t('run pays')} SAR ${sarK(d.totals.net)} ${t('to')} ${rows.length} ${t('people')}${blocks.length ? `; ${blocks.length} ${t(blocks.length === 1 ? 'check stops it' : 'checks stop it')}` : `; ${t('nothing stops it')}`}` : t('Runs')}
+      lede={t('The draft is the engine\'s calculation from the employee master, the month\'s confirmed changes and the client\'s active policy. Every line names the rule behind it. Nothing is paid until the client approves.')}
+      feature={d ? <HeroFeature label="Net pay against last month" value={`${d.totals.net - prevNet >= 0 ? '+' : '−'}SAR ${sarK(Math.abs(d.totals.net - prevNet))}`} support={<span className="text-xs text-muted-foreground">{changed.length} {t('people paid differently')} · {joiners.length} {t('new')}</span>} /> : undefined} />}>
+      <div className="flex flex-wrap gap-2">
+        {(all?.clients ?? []).map((c: any) => (
+          <button key={c.key} type="button" disabled={!c.draft} onClick={() => { setKey(c.key); setShowAll(false); }}
+            className={`min-w-[9.5rem] rounded-xl border px-3 py-2 text-start transition-colors ${current === c.key ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-primary/40'} disabled:cursor-default disabled:opacity-60 disabled:hover:border-border/60`}>
+            <p className="text-sm font-semibold">{bi(c.short, c.name_ar)}</p>
+            <p className="text-[11px] text-muted-foreground">{c.draft ? `${c.draft.people} ${t('people')} · ${c.draft.blocks ? `${c.draft.blocks} ${t('stop the run')}` : t('ready to check')}` : t('Runs in Oracle HCM')}</p>
+          </button>
+        ))}
+      </div>
+      {d ? (
+        <>
+          <StatRow>
+            <StatTile label="Gross pay" value={`SAR ${sarK(d.totals.gross)}`} trend={{ direction: 'flat', label: `${t('policy')} v${d.version ?? '—'}` }} />
+            <StatTile label="Deductions" value={`SAR ${sarK(d.totals.deductions)}`} trend={{ direction: 'flat', label: `GOSI SAR ${sarK(d.totals.gosiEmployee ?? 0)}` }} />
+            <StatTile label="Net pay" value={`SAR ${sarK(d.totals.net)}`} trend={{ direction: d.totals.net >= prevNet ? 'up' : 'down', label: `${t('last month')} SAR ${sarK(prevNet)}` }} />
+            <StatTile label="Cut-off · pay day" value={`${date(d.period.cutoff, lang).split(' ').slice(0, 2).join(' ')} · ${date(d.period.pay, lang).split(' ').slice(0, 2).join(' ')}`} />
+          </StatRow>
+          <Panel icon={<FileText size={16} />} title={tab === 'checks' ? (blocks.length ? `${blocks.length} ${t(blocks.length === 1 ? 'check stops the run until it is fixed' : 'checks stop the run until they are fixed')}` : t('No check stops the run')) : tab === 'provisions' ? `${t('End of service owed reaches')} SAR ${sarK(points.at(-1)?.eos ?? 0)} ${t('at the end of')} ${monthWord}` : changed.length ? `${changed.length} ${t('people are paid differently from last month')}` : t('Everyone is paid as last month')}>
+            <TabStrip items={[{ id: 'draft', label: 'Draft' }, { id: 'checks', label: 'Checks' }, { id: 'provisions', label: 'Provisions' }]} value={tab} onChange={setTab} />
+            <div className="mt-4">
+              {tab === 'draft' ? (
+                <div className="space-y-5">
+                  {changed.length ? <ChangeBars rows={changed.slice(0, 10)} /> : null}
+                  <Table><thead><tr><th>{t('Person')}</th><th>{t('Department')}</th><th className="text-end">{t('Days')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Deductions')}</th><th className="text-end">{t('Net')}</th><th className="text-end">{t('Last month')}</th></tr></thead>
+                    <tbody>{listed.map((r) => (
+                      <tr key={r.person_id} className="align-top">
+                        <td><span className="font-medium">{bi(r.name, r.name_ar)}</span>{r.flags.length ? <span className="ms-2"><Chip tone={r.flags.some((f: any) => f.severity === 'BLOCK') ? 'danger' : 'warn'}>{t(r.flags.some((f: any) => f.severity === 'BLOCK') ? 'Stops the run' : 'Check')}</Chip></span> : r.prev_net == null ? <span className="ms-2"><Chip tone="primary">{t('New')}</Chip></span> : null}<PersonLines r={r} /></td>
+                        <td>{r.department}</td>
+                        <td className="text-end tabular-nums">{r.pay_days}</td>
+                        <td className="text-end tabular-nums">{num(r.gross, 2)}</td>
+                        <td className="text-end tabular-nums">{num(r.deductions, 2)}</td>
+                        <td className="text-end font-medium tabular-nums">{num(r.net, 2)}</td>
+                        <td className="text-end tabular-nums text-muted-foreground">{r.prev_net == null ? '—' : num(r.prev_net, 2)}</td>
+                      </tr>))}</tbody></Table>
+                  {!showAll && listed.length < rows.length ? <Btn small onClick={() => setShowAll(true)}>{t('Show everyone')} ({rows.length})</Btn> : null}
+                </div>
+              ) : tab === 'checks' ? (
+                checks.length ? (
+                  <div className="grid gap-3 md:grid-cols-2">{checks.map((c, i) => (
+                    <div key={i} className="rounded-xl glass-l3 p-3">
+                      <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{bi(c.r.name, c.r.name_ar)}</p><Chip tone={c.severity === 'BLOCK' ? 'danger' : 'warn'}>{t(c.severity === 'BLOCK' ? 'Stops the run' : 'Check')}</Chip></div>
+                      <p className="mt-1 text-sm">{c.text}</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{c.r.department} · {t('net')} {num(c.r.net, 2)}</p>
+                    </div>))}</div>
+                ) : <Empty icon={<Scale size={18} />}>{t('Every line is within the law and the client\'s policy.')}</Empty>
+              ) : (
+                <div className="space-y-4">
+                  <ProvisionTrend points={points} />
+                  <p className="text-xs text-muted-foreground">{t('End of service: half a month\'s wage a year for five years, a month a year after (Art. 84), on basic plus the regular allowances. Leave: each person\'s unused days at a day\'s wage. The month\'s charge is the change in each balance.')}</p>
+                  <Btn small onClick={() => go('payroll-policies', current!)}>{t('The policy behind these rules')}</Btn>
+                </div>
+              )}
+            </div>
+          </Panel>
+        </>
+      ) : <Empty icon={<FileText size={18} />}>{t('Choose a client whose payroll Tasama runs.')}</Empty>}
     </Screen>
   );
 }
