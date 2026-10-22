@@ -212,9 +212,9 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('activate', 'HUMAN', 'CHRO', 'The client\'s CHRO activates the version', 'الرئيس التنفيذي للموارد البشرية لدى العميل يفعّل النسخة', 'The version and what changes', 'Activated, or returned', 'Activate the version'),
       S('apply', 'SYSTEM', 'platform', 'Activate the version for payroll and the assistants', 'تفعيل النسخة للرواتب والمساعدين', 'Activated version', 'The active policy; the previous version kept for the record', 'None'),
     ] },
-  { id: 'WF-29', num: 29, name: 'Attendance month', name_ar: 'شهر الحضور', stage: 'Pay', coverage: 'implemented', trigger: 'The month\'s punch export is uploaded', agents: ['hudoor'], decision_by: 'The employee explains; the client\'s HR operations confirms',
+  { id: 'WF-29', num: 29, name: 'Attendance month', name_ar: 'شهر الحضور', stage: 'Pay', coverage: 'implemented', trigger: 'The month\'s attendance file is uploaded', agents: ['hudoor'], decision_by: 'The employee explains; the client\'s HR operations confirms',
     steps: [
-      S('read', 'AGENT', 'hudoor', 'Read the punches against schedules and leave; propose unpaid days and fines', 'قراءة البصمات مقابل الجداول والإجازات واقتراح أيام الغياب والغرامات', 'The punch export, schedules, approved leave, the penalty table', 'Each day marked; per person, unpaid days and a fine capped at five days\' wage', 'Which days are late, absent or covered by leave'),
+      S('read', 'AGENT', 'hudoor', 'Read the attendance against schedules and leave; propose unpaid days and fines', 'قراءة الحضور مقابل الجداول والإجازات واقتراح أيام الغياب والغرامات', 'The attendance file, schedules, approved leave, the penalty table', 'Each day marked; per person, unpaid days and a fine capped at five days\' wage', 'Which days are late, absent or covered by leave'),
       S('confirm', 'HUMAN', 'PAYROLL', 'The client\'s HR operations confirms, after employees have explained', 'عمليات الموارد البشرية لدى العميل تؤكد بعد سماع الموظفين', 'The proposed amounts and the explanations', 'Each explanation accepted or not; the amounts confirmed', 'Confirm the deductions'),
       S('apply', 'SYSTEM', 'platform', 'Enter the confirmed amounts in the open payroll month', 'إدخال المبالغ المؤكدة في شهر الرواتب المفتوح', 'Confirmed amounts', 'Unpaid days and fines as entries in the open month', 'None'),
     ] },

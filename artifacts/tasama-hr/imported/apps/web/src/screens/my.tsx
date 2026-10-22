@@ -123,7 +123,7 @@ function useMe() { return useApi<any>('/me'); }
 
 // ------------------------------------------------------------------ Home
 
-/** A late arrival or absence from the month's punches, to explain before any fine (Art. 71). Shown only when there is one. */
+/** A late arrival or absence from the month's attendance, to explain before any fine (Art. 71). Shown only when there is one. */
 function ExplainAttendance() {
   const { t, lang } = useLang();
   const { data } = useApi<any>('/attendance/mine');
@@ -136,7 +136,7 @@ function ExplainAttendance() {
     <Panel icon={<CalendarDays size={16} />} title={rows.some((r) => !r.justification) ? t('A day from last month needs your explanation') : t('Your explanation is with HR operations')}>
       <div className="space-y-3">{rows.map((r) => (
         <div key={r.day} className="rounded-lg border border-border/60 p-3">
-          <p className="text-sm font-medium">{date(r.day, lang)}: {r.status === 'LATE' ? `${t('arrived at')} ${r.first_in}, ${r.minutes_late} ${t('minutes late')}` : t('no punch recorded')}</p>
+          <p className="text-sm font-medium">{date(r.day, lang)}: {r.status === 'LATE' ? `${t('arrived at')} ${r.first_in}, ${r.minutes_late} ${t('minutes late')}` : t('no attendance recorded')}</p>
           {r.justification ? <p className="mt-1 text-sm text-muted-foreground">“{r.justification}”</p> : (
             <div className="mt-2 flex gap-2">
               <input className="input flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm" placeholder={t('Why were you late? HR operations reads this before deciding.')} value={text[r.day] ?? ''} onChange={(e) => setText({ ...text, [r.day]: e.target.value })} />

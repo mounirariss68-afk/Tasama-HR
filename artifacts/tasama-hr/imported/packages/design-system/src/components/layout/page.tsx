@@ -100,8 +100,9 @@ export function PageHero({
         </div>
       ) : null}
 
-      <PageContainer width={width} className="relative">
-        <div className={cn(media ? 'lg:max-w-[54%]' : feature ? 'lg:pe-[300px]' : undefined)}>
+      <PageContainer width={width} className={cn('relative', feature && !media && 'lg:flex lg:items-center lg:gap-8')}>
+        {/* The featured figure sits beside the text, not over it, so a long headline or a long label never collide. */}
+        <div className={cn(media ? 'lg:max-w-[54%]' : feature ? 'min-w-0 lg:flex-1' : undefined)}>
           <div className={cn('flex flex-col gap-6', !media && !feature && 'md:flex-row md:items-end md:justify-between')}>
             <div className="space-y-3">
               {eyebrow ? <p className="eyebrow">{tr(eyebrow)}</p> : null}
@@ -114,9 +115,10 @@ export function PageHero({
           </div>
           {children ? <div className="mt-8">{children}</div> : null}
         </div>
+        {feature && !media ? <div className="hidden shrink-0 lg:block">{feature}</div> : null}
       </PageContainer>
 
-      {feature ? (
+      {feature && media ? (
         <div className="pointer-events-none absolute end-8 top-1/2 hidden -translate-y-1/2 lg:block">
           <div className="pointer-events-auto">{feature}</div>
         </div>

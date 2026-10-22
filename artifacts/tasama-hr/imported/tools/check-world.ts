@@ -134,7 +134,7 @@ async function main() {
     const days = evaluateDays({ start: '2026-09-01', end: '2026-09-03', people: [{ personId: 1, schedule: sch }], punches: [], leave: [{ personId: 1, start: '2026-09-01', end: '2026-09-03', ref: 'X' }] });
     return [days.every((d) => d.status === 'LEAVE'), days.map((d) => d.status).join(',')];
   });
-  await check('Attendance: Saudi Coffee\'s device export maps itself and names 37 late arrivals', async () => {
+  await check('Attendance: Saudi Coffee\'s attendance file maps itself and names 37 late arrivals', async () => {
     const r = await fetch(`${BASE}/api/payroll/attendance/saudicoffee/export`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'saudicoffee' } });
     const csv = await r.text();
     const m = await (await fetch(`${BASE}/api/payroll/attendance/saudicoffee/map`, { method: 'POST', headers: { 'x-persona': 'tasama-lead', 'x-client': 'saudicoffee', 'content-type': 'application/json' }, body: JSON.stringify({ csv }) })).json();

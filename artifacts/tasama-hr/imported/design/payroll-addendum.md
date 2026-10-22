@@ -89,7 +89,7 @@ The README's client table and first paragraph change with this section.
 | Months | "See where every client's month stands against its cut-off and pay day" | Clients behind plan this month | Calendar strip per client: cut-off, approval and pay day, today marked |
 | Inbox | "Decide what waits on me" | Cases waiting on me | Clock bar per row (existing) |
 | Inputs | "See which changes each client has sent and which are still expected" | Changes still expected before the cut-off | Segment bar per client: confirmed, expected, late |
-| Attendance | "Turn a month of punches into confirmed deductions" | Deductions waiting for confirmation | Heat strip per employee across the month |
+| Attendance | "Turn a month of attendance into confirmed deductions" | Deductions waiting for confirmation | Heat strip per employee across the month |
 | Runs | "Run, check and explain a client's payroll" | Blockers left in open runs | Findings by severity as one stacked bar |
 | Payments | "Send the bank and WPS files and follow every failed line" | Lines not yet paid | Funnel: sent, accepted by the bank, paid, accepted in WPS |
 | Journals | "Post the month to the client's ledger" | Journals waiting to post | Bullet per journal: debit against credit, mapping coverage |
@@ -231,16 +231,18 @@ The fixture `tools/golden/july-2025.json` holds the template's inputs and output
 | What | How |
 |---|---|
 | Schedules | `layer.work_schedules` and `layer.schedule_members` for every client: a shift pattern for site, coffee-house and production staff, office hours for the rest, with each client's grace period |
-| The device file | Saudi Coffee's export is generated from the seed as the device would write it (`Emp No., Punch Date, Punch Time, In/Out, Terminal`, dd/mm/yyyy). Hudoor proposes the column map from the file's own headers; a person confirms it before anything is read |
+| The attendance file | Saudi Coffee's file is generated from the seed as the device would write it (`Emp No., Att. Date, Att. Time, In/Out, Terminal`, dd/mm/yyyy). Hudoor proposes the column map from the file's own headers; a person confirms it before anything is read |
 | Hudoor (A2) and WF-29 | Each scheduled day becomes on time, late, absent or approved leave. Unpaid absence and fines are kept apart. The employee explains on My HR (or through Rafeeq); client HR operations confirms; the confirmed amounts become entries in the open payroll month, and the engine stops fines at five days' wage as a last guard |
 | Attendance (Payroll lens) | Upload with the column map; a heat strip per person across the month, with the fine against the five-day cap |
 | D3 | Four steps: the export arrives, an employee explains a 52-minute late morning, HR operations confirms, the barista's fines stop at the cap |
+
+**Words (22 October 2026, the owner's instruction):** screens, cases and narration say "attendance" and "attendance file", never "punches" or "fingerprints". Internal table names keep `attendance_punches`.
 
 **Changed to make D3 true (22 October 2026):**
 
 - Saudi Coffee's lateness rule is now its work regulation's penalty table, not a minute deduction. A minute deduction at the minute rate could never reach five days' wage, so edge 7 could not happen under it. The synthetic table: written warnings for the first two late arrivals in a month, 25% of a day's wage for the third to fifth, 50% from the sixth. Grace period 5 minutes.
 - The attendance month is the month before the open payroll month; its confirmed amounts are paid in the open month.
-- In the seed data, most scheduled days with no punch are approved leave, so the export shows many more than six; four are absences, as planned.
+- In the seed data, most scheduled days with no attendance recorded are approved leave, so the file shows many more than six; four are absences, as planned.
 
 ## 6. Eight new agents each do one job, and none of them can approve or release anything
 
@@ -254,7 +256,7 @@ The first draft listed ten. Two jobs are folded into agents that already do the 
 | Nizam (نظام) | Policy reader | Itemises a handbook on the 27 dimensions and flags rules below the law or unclear | Handbook, law table | Draft policy version | Payroll lead | A1 | Reading the handbook; the offline resolver reads the handbook's structured source |
 | Aqd (عقد) | Contract drafter | Drafts the contract from an accepted offer and reads contracts a client sends | Offer, policy, template | Contract draft | Client HR operations | A2 | Reading a client's contract |
 | Wared (وارد) | Inputs and cut-off | Pre-fills each month's expected changes, reminds, escalates, routes late changes | Master, leave, hiring, exits, calendar | Expected inputs, reminders (A3 inside the contact rules) | Payroll specialist | A3 | — |
-| Hudoor (حضور) | Attendance | Turns punches into late, absent and covered days, and proposes deductions | Punches, schedules, leave, penalty rules | Proposed deductions | Client HR operations | A2 | — |
+| Hudoor (حضور) | Attendance | Turns the month's attendance into late, absent and covered days, and proposes deductions | Attendance file, schedules, leave, penalty rules | Proposed deductions | Client HR operations | A2 | — |
 | Tamin (تأمين) | GOSI | Sets each person's insured group and rate, raises registration and exclusion tasks, checks the GOSI bill against payroll | Master, `gosi_registrations` | GOSI tasks (`external()`) | Payroll specialist | A2 | — |
 | Mutabaqa (مطابقة) | Reconciliation | Explains every difference from last month and between payroll, bank file and WPS file | Runs, payments | Explanations on the run | Payroll lead | A2 | Wording an explanation |
 | Tahweel (تحويل) | Payments | Builds the bank and WPS files, reads return files, follows failed lines | Approved run, bank formats | Files, Mudad upload (`external()`) | Payroll lead | A2 | — |
@@ -283,7 +285,7 @@ No agent runs at A4. Every write to a master or a ledger is a SYSTEM step after 
 | WF-26 Client policy | A handbook is uploaded or changed | Nizam | Lead recommends, client CHRO activates | Full |
 | WF-27 Monthly inputs and cut-off | The month opens (cut-off − 10 days) | Wared | Client HR operations | Full |
 | WF-28 Offer to contract to payroll | Offer accepted (WF-05 creates the pending worker, as today) | Aqd, Dalil, Tamin | Client HR operations sends the contract; signing turns the pending worker into an employee. The record is not re-entered | Full |
-| WF-29 Attendance month | Punch export uploaded | Hudoor | Employee justifies, client HR operations confirms | Full |
+| WF-29 Attendance month | Attendance file uploaded | Hudoor | Employee justifies, client HR operations confirms | Full |
 | WF-30 Payroll run | Cut-off passed | Hisab, Tamin | Specialist prepares, lead validates | Full. WF-13 (the pre-run check) becomes its first step and keeps its id |
 | WF-31 Differences and client approval | Run validated | Mutabaqa | Client CHRO | Full |
 | WF-32 Payslips | Run approved | Wathiqa | — (A3) | Full |
@@ -301,7 +303,7 @@ The seed anchor today is the day the seed runs, so a client's position against i
 | Red Sea Global | 16th | 26th | Cut-off passed yesterday; run prepared, blockers open |
 | ROSHN | 18th | 27th | Cut-off tomorrow; inputs mostly confirmed; last month paid, its journal not yet posted |
 | SEVEN | 18th | 27th | Cut-off tomorrow; a joiner starting on the 19th |
-| Saudi Coffee | 20th | 28th | Last month's punch export waiting for review |
+| Saudi Coffee | 20th | 28th | Last month's attendance file waiting for review |
 
 **History.** Six months of runs, provisions, payments and journals for each client, calculated by the engine. Each client's history starts at the later of its contract start and six months back; Saudi Coffee's starts in June 2026.
 
@@ -325,7 +327,7 @@ The seed anchor today is the day the seed runs, so a client's position against i
 | 3 | A Saudi at Red Sea Global, first registered with GOSI in September 2025 | 10.75% / 12.75% applied, where the template would apply 9.75% / 11.75% (D6) |
 | 4 | A Bahraini national at SEVEN | Home-country scheme instead of the 2% non-Saudi line |
 | 5 | A Riyadh Air promotion entered on the 17th, after the 15th cut-off | Routed to next month as back pay, with the effect shown to the client (D5) |
-| 6 | Saudi Coffee's punch export: 37 late arrivals and the scheduled days with no punch, most of them approved leave, leaving 4 absences | Hudoor sets the leave days aside, one employee explains a lateness, client HR operations confirms (D3) |
+| 6 | Saudi Coffee's attendance file: 37 late arrivals and the scheduled days with no attendance recorded, most of them approved leave, leaving 4 absences | Hudoor sets the leave days aside, one employee explains a lateness, client HR operations confirms (D3) |
 | 7 | A Saudi Coffee barista whose lateness fines would pass five days' wage | The fine stops at the Art. 70 cap. The barista's one unexcused absence day is unpaid and is not counted against the cap (D3) |
 | 8 | An offer accepted at SEVEN on the 14th, starting on the 19th | Contract drafted and signed, the same record becomes the employee, GOSI registered, 13 days paid this month (D4) |
 | 9 | Red Sea Global's open run | 14 differences from last month, each explained (D6) |
@@ -355,7 +357,7 @@ Each scenario has a different shape and answers one question for the room. Each 
 | **Every client's own rules** | D10 | A new client moves in from Excel | End to end | Soudah Development (new) | "How fast can you take on a client whose payroll lives in spreadsheets?" | The shared folder (section 13) | Payroll lead | The roster, history and policy filling in, then the go-live decision |
 | | D1 | A handbook becomes rules | Governance, with a refusal | Red Sea Global, then SEVEN | "Can it read our client's handbook, and will it catch a rule that breaks the law?" | Edges 1, 2 | Payroll lead, client CHRO | The rule tiles, the unclear clause, the refused clause |
 | | D2 | Same overtime, different pay | Policy effect | Red Sea Global and Saudi Coffee | "Will each client really be paid by its own rules?" | Approved policies | Payroll specialist | Two pay lines side by side, each citing its rule |
-| | D3 | A month of fingerprints | Exception | Saudi Coffee | "Can attendance reach payroll without anyone typing?" | Edges 6, 7 | Employee, client HR operations | One employee's month and the fine against the cap |
+| | D3 | A month of attendance | Exception | Saudi Coffee | "Can attendance reach payroll without anyone typing?" | Edges 6, 7 | Employee, client HR operations | One employee's month and the fine against the cap |
 | **Changes on time** | D5 | The 15th without chasing | Real time | Riyadh Air | "What happens when the client is late?" | Edge 5 | Client HR operations | The Oracle HCM worker record; the change routed to next month |
 | | D4 | From offer to first payslip | End to end | SEVEN | "Is a hire entered once?" | Edge 8 | Client HR operations, Payroll specialist | The Tasama HR employee record, created once |
 | | D9 | Back pay and a leaver | Exception | ROSHN | "Can it correct the past without reopening a closed month?" | Edges 12, 13 | Payroll specialist | The recalculated months and the settlement |

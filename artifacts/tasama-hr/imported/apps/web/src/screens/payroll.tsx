@@ -444,7 +444,7 @@ function HeatStrip({ people, from, to }: { people: any[]; from: string; to: stri
 const FIELDS: [string, string][] = [['employee', 'Employee number'], ['date', 'Date'], ['time', 'Time'], ['direction', 'In or out'], ['device', 'Device']];
 
 /** Drop the device's file; Hudoor proposes which column is which; a person confirms before anything is read. */
-function UploadPunches({ client, onDone }: { client: string; onDone: () => void }) {
+function UploadAttendance({ client, onDone }: { client: string; onDone: () => void }) {
   const { t } = useLang();
   const [file, setFile] = useState<{ name: string; csv: string } | null>(null);
   const [m, setM] = useState<any>(null);
@@ -459,7 +459,7 @@ function UploadPunches({ client, onDone }: { client: string; onDone: () => void 
         <div className="space-y-3">
         <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground hover:border-primary/50"
           onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) f.text().then((x) => load(f.name, x)); }}>
-          <span className="font-medium text-foreground">{t('Drop the device\'s punch export here')}</span>
+          <span className="font-medium text-foreground">{t('Drop the attendance file here')}</span>
           <span>{t('A CSV file, in whatever columns the device writes')}</span>
           <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then((x) => load(f.name, x)); }} />
         </label>
@@ -467,14 +467,14 @@ function UploadPunches({ client, onDone }: { client: string; onDone: () => void 
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-sm"><span className="font-medium">{file?.name}</span> · {num(m.rows)} {t('punches')}. {t('Hudoor read the file\'s own headers; check which column is which before it reads the punches.')}</p>
+          <p className="text-sm"><span className="font-medium">{file?.name}</span> · {num(m.rows)} {t('attendance records')}. {t('Hudoor read the file\'s own headers; check which column is which before it reads the attendance.')}</p>
           <Table><thead><tr><th>{t('Needed')}</th><th>{t('Column in the file')}</th><th>{t('First rows')}</th></tr></thead>
             <tbody>{FIELDS.map(([f, l]) => (
               <tr key={f}><td>{t(l)}</td>
                 <td><select className="input rounded-md border border-border bg-background px-2 py-1 text-sm" value={m.map[f] ?? ''} onChange={(e) => setM({ ...m, map: { ...m.map, [f]: e.target.value || null } })}>
                   <option value="">{t('Not in the file')}</option>{m.headers.map((h: string) => <option key={h} value={h}>{h}</option>)}</select></td>
                 <td className="font-mono text-xs text-muted-foreground">{m.map[f] ? m.sample.map((r: string[]) => r[m.headers.indexOf(m.map[f])]).join(' · ') : '—'}</td></tr>))}</tbody></Table>
-          <div className="flex gap-2"><Btn kind="primary" onClick={read} disabled={busy || !m.map.employee || !m.map.date || !m.map.time}>{t('Read the punches')}</Btn><Btn onClick={() => { setM(null); setFile(null); }}>{t('Choose another file')}</Btn></div>
+          <div className="flex gap-2"><Btn kind="primary" onClick={read} disabled={busy || !m.map.employee || !m.map.date || !m.map.time}>{t('Read the attendance')}</Btn><Btn onClick={() => { setM(null); setFile(null); }}>{t('Choose another file')}</Btn></div>
         </div>
       )}
       {err ? <p className="text-sm text-danger">{err}</p> : null}
@@ -496,12 +496,12 @@ export function PayrollAttendance() {
   const name = data ? bi(data.client.short, data.client.name_ar) : '';
   const monthName = up ? new Date(`${up.from}T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
   const waiting = up && up.status === 'READ' ? data.people.filter((p: any) => p.fine || p.unpaid_days).length : 0;
-  const title = !data ? t('Attendance') : !up ? `${name}: ${t('the month\'s punch export has not arrived yet')}`
-    : up.status === 'READ' ? `${name}${t('’s')} ${monthName} ${t('punches')}: ${data.people.filter((p: any) => p.fine).length} ${t('fines and')} ${tot.unpaid_days} ${t('unpaid days wait for HR operations')}`
+  const title = !data ? t('Attendance') : !up ? `${name}: ${t('the month\'s attendance file has not arrived yet')}`
+    : up.status === 'READ' ? `${name}${t('’s')} ${monthName} ${t('attendance')}: ${data.people.filter((p: any) => p.fine).length} ${t('fines and')} ${tot.unpaid_days} ${t('unpaid days wait for HR operations')}`
     : `${name}${t('’s')} ${monthName} ${t('deductions are in this month\'s run')}`;
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll" title={title}
-      lede={t('Hudoor reads the client\'s fingerprint export against each person\'s schedule and approved leave. Unpaid absence and lateness fines are kept apart: a fine comes only after the employee is heard, and stops at five days\' wage a month.')}
+      lede={t('Hudoor reads the client\'s attendance file against each person\'s schedule and approved leave. Unpaid absence and lateness fines are kept apart: a fine comes only after the employee is heard, and stops at five days\' wage a month.')}
       feature={<HeroFeature label="Deductions waiting for confirmation" value={num(waiting)} support={up?.ref ? <Btn small onClick={() => openCase(up.ref, current!)}>{t(up.status === 'READ' ? 'Open the decision' : 'Open the record')}</Btn> : undefined} />} />}>
       <div className="flex flex-wrap gap-2">
         {(all?.clients ?? []).map((c: any) => (
@@ -513,8 +513,8 @@ export function PayrollAttendance() {
         ))}
       </div>
       {data && !up ? (
-        <Panel icon={<FileText size={16} />} title={t('Upload the month\'s punches')}>
-          {persona?.roles.includes('TASAMA_PAYROLL') ? <UploadPunches client={current!} onDone={reload} /> : <Empty>{t('Tasama\'s payroll team uploads the export.')}</Empty>}
+        <Panel icon={<FileText size={16} />} title={t('Upload the month\'s attendance')}>
+          {persona?.roles.includes('TASAMA_PAYROLL') ? <UploadAttendance client={current!} onDone={reload} /> : <Empty>{t('Tasama\'s payroll team uploads the attendance file.')}</Empty>}
         </Panel>
       ) : null}
       {up && tot ? (
@@ -530,7 +530,7 @@ export function PayrollAttendance() {
             <details className="mt-4 border-t border-border/60 pt-3">
               <summary className="cursor-pointer text-sm font-medium">{t('How this was read')}</summary>
               <div className="mt-2 space-y-2 text-sm text-muted-foreground">
-                <p>{up.file} · {num(up.rows)} {t('punches from')} {up.device} · {t('uploaded by')} {up.by}. {t('Columns')}: {Object.entries(up.map).filter(([, v]) => v).map(([k, v]) => `${v} → ${t(FIELDS.find((f) => f[0] === k)?.[1] ?? k)}`).join(', ')}.</p>
+                <p>{up.file} · {num(up.rows)} {t('attendance records from')} {up.device} · {t('uploaded by')} {up.by}. {t('Columns')}: {Object.entries(up.map).filter(([, v]) => v).map(([k, v]) => `${v} → ${t(FIELDS.find((f) => f[0] === k)?.[1] ?? k)}`).join(', ')}.</p>
                 <p>{t('Penalty table in the client\'s work regulation, counted within the month')}: {data.table.map((s: any) => `${t('from the')} ${s.from}${s.from === 1 ? t('st') : s.from === 3 ? t('rd') : t('th')} ${t('late arrival')}, ${t(s.label)}`).join('; ')}. {t('Fines in a month stop at')} {data.capDays} {t('days\' wage (Art. 70), after the employee is heard (Art. 71). A day absent without leave is not paid; that is not a fine and has no cap.')}</p>
               </div>
             </details>

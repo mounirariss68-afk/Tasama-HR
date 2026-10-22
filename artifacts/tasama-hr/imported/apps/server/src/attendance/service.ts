@@ -28,7 +28,7 @@ export async function deviceExport(c: Q) {
   const people = (await c.query(`SELECT p.id, p.person_number, wr.start_date, wr.end_date FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id WHERE wr.worker_type='E' AND wr.start_date <= $2 AND (wr.end_date IS NULL OR wr.end_date >= $1) ORDER BY p.person_number`, [meta.from, meta.to])).rows;
   const R = rng(20261018);
   const away = (await c.query(`SELECT person_id, to_char(start_date,'YYYY-MM-DD') s, to_char(end_date,'YYYY-MM-DD') e FROM hcm.absences WHERE status IN ('APPROVED','COMPLETED') AND start_date <= $2 AND end_date >= $1`, [meta.from, meta.to])).rows;
-  const lines = ['Emp No.,Punch Date,Punch Time,In/Out,Terminal'];
+  const lines = ['Emp No.,Att. Date,Att. Time,In/Out,Terminal'];
   for (const p of people) {
     const s = sch.get(p.id); if (!s) continue;
     for (const day of monthDays(meta.from, meta.to)) {

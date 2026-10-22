@@ -267,11 +267,11 @@ export function caseCard(c: any, x: T): Card {
       const month = new Date(`${at.from}T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' });
       const facts: Fact[] = [
         { k: t('Late arrivals'), v: num(at.lates), note: `${at.fined} ${t(at.fined === 1 ? 'person fined under the penalty table' : 'people fined under the penalty table')}` },
-        { k: t('Absent'), v: `${at.absences} ${t(at.absences === 1 ? 'day' : 'days')}`, note: `${t('Of')} ${at.noPunch} ${t('days with no punch')}, ${at.leaveCovered} ${t('were approved leave')}` },
+        { k: t('Absent'), v: `${at.absences} ${t(at.absences === 1 ? 'day' : 'days')}`, note: `${t('Of')} ${at.noPunch} ${t('days with no attendance recorded')}, ${at.leaveCovered} ${t('were approved leave')}` },
         { k: t('Fines'), v: aed(at.fines, lang), tone: at.capped?.length ? 'warn' : undefined, note: at.capped?.length ? `${at.capped.length} ${t(at.capped.length === 1 ? 'person stopped at five days\' wage' : 'people stopped at five days\' wage')} (${t('Art. 70')})` : undefined },
         { k: t('Explained by employees'), v: num(at.explained ?? 0), wide: Boolean(at.explanations?.length), note: at.explanations?.length ? `${at.explanations[0].name}, ${date(at.explanations[0].day, lang)}${at.explanations[0].minutes_late ? ` (${at.explanations[0].minutes_late} ${t('minutes late')})` : ''}: “${at.explanations[0].text}” ${t('An explained day is excused unless you decide otherwise.')}` : t('An explained day is excused unless you decide otherwise.') },
       ];
-      return { kind, headline: `${month}${t('’s punches')}: ${at.fined} ${t(at.fined === 1 ? 'fine' : 'fines')} ${t('and')} ${at.unpaidDays} ${c.status === 'COMPLETED' ? t(at.unpaidDays === 1 ? 'unpaid day, confirmed' : 'unpaid days, confirmed') : t(at.unpaidDays === 1 ? 'unpaid day to confirm' : 'unpaid days to confirm')}`, facts, rec: recOf(c) };
+      return { kind, headline: `${month}${t('’s attendance')}: ${at.fined} ${t(at.fined === 1 ? 'fine' : 'fines')} ${t('and')} ${at.unpaidDays} ${c.status === 'COMPLETED' ? t(at.unpaidDays === 1 ? 'unpaid day, confirmed' : 'unpaid days, confirmed') : t(at.unpaidDays === 1 ? 'unpaid day to confirm' : 'unpaid days to confirm')}`, facts, rec: recOf(c) };
     }
     case 'WF-06': return { kind, headline: `${who}${t('’s pre-boarding is blocked; start date')} ${date(p.start_date, lang)}`, facts: [], rec: recOf(c) };
     default: return base;

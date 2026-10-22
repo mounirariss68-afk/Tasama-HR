@@ -407,7 +407,8 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
   const letterReady = c.workflow_id === 'WF-14' && c.status === 'COMPLETED' && c.payload?.body;
   const letter = letterReady ? letterDocument({ ...c.payload, type: c.payload.letter_type, document_number: c.result?.document_number ?? c.ref, status: 'ISSUED' }) : null;
   const overdue = c.sla_due && new Date(c.sla_due).getTime() < Date.now();
-  const holder = c.canDecide ? t('you') : bi(c.waiting_on_name, c.waiting_on_name_ar) || roleName(c.waiting_on_role, bi);
+  // Name the person and their role, so whoever is looking knows whose decision it is.
+  const holder = c.canDecide ? t('you') : [bi(c.waiting_on_name, c.waiting_on_name_ar), roleName(c.waiting_on_role, bi)].filter(Boolean).join(', ') + (c.waiting_on_role === 'PAYROLL' || c.waiting_on_role === 'CHRO' ? ` ${t('at')} ${bi(c.client_short, c.client_ar)}` : '');
 
   const header = (
     <div>

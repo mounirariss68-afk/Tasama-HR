@@ -78,7 +78,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     const { summary } = await readUpload(h.c, h.req.payload.upload_id);
     await h.c.query(`UPDATE layer.attendance_uploads SET request_id=$2 WHERE id=$1`, [h.req.payload.upload_id, h.req.id]);
     const capped = summary.capped.length;
-    await h.trail({ act: 'CHECK', summary: `Read ${Number(h.req.payload.rows).toLocaleString('en-US')} punches for ${summary.people} people: ${summary.lates} late arrivals and ${summary.noPunch} scheduled days with no punch, ${summary.leaveCovered} of them approved leave, so ${summary.absences} absences.` });
+    await h.trail({ act: 'CHECK', summary: `Read ${Number(h.req.payload.rows).toLocaleString('en-US')} attendance records for ${summary.people} people: ${summary.lates} late arrivals and ${summary.noPunch} scheduled days with no attendance recorded, ${summary.leaveCovered} of them approved leave, so ${summary.absences} absences.` });
     if (capped) await h.trail({ act: 'CHECK', summary: `${capped === 1 ? 'One person\'s' : `${capped} people's`} lateness fines would pass five days' wage; they stop at the cap (Art. 70). Unpaid absence is kept apart: it is not a fine and has no cap.` });
     await h.setResult({ attendance: summary });
     return { status: 'DONE', decision: `${summary.fined} fines, ${summary.unpaidDays} unpaid days proposed`, outputs: summary,
