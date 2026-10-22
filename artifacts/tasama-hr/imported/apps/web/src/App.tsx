@@ -21,7 +21,7 @@ import { initials, ago } from './lib/format';
 import { useApp, type LensId, lensHome } from './app/state';
 import { DemoControl } from './app/demo-control';
 import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPatterns } from './screens/tasama';
-import { ClientPolicies, PayrollInbox, PayrollMonths, PayrollRuns } from './screens/payroll';
+import { ClientPolicies, PayrollAttendance, PayrollInbox, PayrollMonths, PayrollRuns } from './screens/payroll';
 import { DirectorBar } from './app/director';
 import { PresentBar, PresentOverlay, usePresent } from './app/present';
 import { ClientTile, TitleBrand } from './app/brand';
@@ -46,10 +46,11 @@ type Item = ContextNavItem & { show?: (roles: string[], key: string) => boolean 
 const I = (n: ReactNode) => n;
 
 const MENUS: Record<LensId, Item[]> = {
-  // Tasama's payroll team (design/payroll-addendum.md §3). Inputs, Attendance, Payments and Journals join as their phases are built.
+  // Tasama's payroll team (design/payroll-addendum.md §3). Inputs, Payments and Journals join as their phases are built.
   payroll: [
     { id: 'payroll-months', label: 'Months', icon: I(<CalendarDays size={14} />) },
     { id: 'payroll-inbox', label: 'Inbox', icon: I(<Inbox size={14} />) },
+    { id: 'payroll-attendance', label: 'Attendance', icon: I(<ClipboardCheck size={14} />) },
     { id: 'payroll-runs', label: 'Runs', icon: I(<Wallet size={14} />) },
     { id: 'payroll-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
   ],
@@ -102,7 +103,7 @@ const NAV_OF: Record<string, string> = { 'tasama-account': 'tasama-portfolio', '
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
   'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <ClientPolicies />,
-  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-policies': () => <ClientPolicies />,
+  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-policies': () => <ClientPolicies />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
   'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-overview': () => <ChroOverview />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,

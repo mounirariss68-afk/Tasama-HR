@@ -83,6 +83,7 @@ const fs = finalSettlement(f.period, base, emp({ hire: '2022-08-01', lastDay: '2
 check('RULE', 'settlementResign3y', 21844.98, fs.gross); // 15/31 of the month 6,774.20 + 17.5 leave days 8,166.67 + a third of 2.96 years' award 6,904.11
 check('RULE', 'settlementAdvanceLine', 2000, fs.lines.find((l) => l.code === 'advance_balance')?.amount ?? 0);
 check('RULE', 'settlementArt80NoAward', 0, finalSettlement(f.period, base, emp({ hire: '2022-08-01', lastDay: '2025-07-15' }), { leaving: 'ART_80' }).lines.filter((l) => l.code === 'eos_award').length);
+check('RULE', 'fineCapFiveDays', 2333.33, amt(one({ deductions: [{ code: 'late_fine', label: 'Lateness fine', amount: 5000, kind: 'FINE' }] }), 'late_fine')); // 5 × 14,000 ÷ 30 (Art. 70)
 function daysTo(a: string, b: string) { return Math.round((Date.parse(b) - Date.parse(a)) / 864e5) + 1; }
 
 console.log(rows.join('\n'));

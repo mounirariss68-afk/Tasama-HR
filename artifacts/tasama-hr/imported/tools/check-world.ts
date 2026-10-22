@@ -70,8 +70,8 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: eleven Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 11, `${d.length}`]; });
-  await check('API: twenty agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 20 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
+  await check('API: twelve Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 12, `${d.length}`]; });
+  await check('API: twenty-one agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 21 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
   await check('API: the server refuses a decision that is not yours', async () => {
@@ -118,6 +118,29 @@ async function main() {
   await check('Engine: the July 2025 template run still matches', async () => {
     const { execSync } = await import('node:child_process');
     try { const out = execSync('npx tsx tools/golden/check.ts', { encoding: 'utf8' }); return [true, out.trim().split('\n').at(-2) ?? '']; } catch (e: any) { return [false, String(e.stdout ?? e.message).trim().split('\n').at(-2) ?? 'failed']; }
+  });
+
+  // Phase 3 (design/payroll-addendum.md §5, edges 6 and 7): attendance reaches the run only as confirmed, capped entries.
+  const { evaluateDays, assess } = await import('../apps/server/src/domain/attendance.ts');
+  await check('Attendance: fines stop at five days\' wage, and unpaid absence is kept apart', async () => {
+    const sch = { code: 'S', days: [1, 2, 3, 4, 5, 6, 7], start: '07:00', end: '15:00', graceMin: 5 };
+    const punches = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, '0')}`).filter((d) => d !== '2026-09-20').map((d) => ({ personId: 1, at: `${d}T07:40`, direction: 'IN' as const }));
+    const days = evaluateDays({ start: '2026-09-01', end: '2026-09-30', people: [{ personId: 1, schedule: sch }], punches, leave: [] });
+    const [r] = assess(days, new Map([[1, 9000]]));
+    return [r.lates === 29 && r.capped && r.fine === 1500 && r.unpaidDays === 1 && r.unpaidAmount === 300, `${r.lates} lates, fine ${r.fine} of ${r.fineBeforeCap}, cap ${r.cap}, ${r.unpaidDays} unpaid day ${r.unpaidAmount}`];
+  });
+  await check('Attendance: a day on approved leave is never an absence', async () => {
+    const sch = { code: 'S', days: [1, 2, 3, 4, 5, 6, 7], start: '07:00', end: '15:00', graceMin: 0 };
+    const days = evaluateDays({ start: '2026-09-01', end: '2026-09-03', people: [{ personId: 1, schedule: sch }], punches: [], leave: [{ personId: 1, start: '2026-09-01', end: '2026-09-03', ref: 'X' }] });
+    return [days.every((d) => d.status === 'LEAVE'), days.map((d) => d.status).join(',')];
+  });
+  await check('Attendance: Saudi Coffee\'s device export maps itself and names 37 late arrivals', async () => {
+    const r = await fetch(`${BASE}/api/payroll/attendance/saudicoffee/export`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'saudicoffee' } });
+    const csv = await r.text();
+    const m = await (await fetch(`${BASE}/api/payroll/attendance/saudicoffee/map`, { method: 'POST', headers: { 'x-persona': 'tasama-lead', 'x-client': 'saudicoffee', 'content-type': 'application/json' }, body: JSON.stringify({ csv }) })).json();
+    const meta = (await q1(`SELECT value FROM layer_saudicoffee.meta WHERE key='attendance'`))[0]?.value;
+    const n = meta ? Object.values(meta.lates).reduce((s: number, x: any) => s + x.length, 0) : 0;
+    return [m.map.employee && m.map.date && m.map.time && m.map.direction && n === 37, `map ${JSON.stringify(m.map)}; planted lates ${n}`];
   });
 
   await pool.end();

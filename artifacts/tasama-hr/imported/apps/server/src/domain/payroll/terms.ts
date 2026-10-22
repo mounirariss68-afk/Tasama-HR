@@ -9,7 +9,7 @@ export type RuleRow = { key: string; dim: number; value: string; num?: number | 
 
 /** The element codes the HRMS stores, and the engine's names for them. */
 export const ELEMENT_OF: Record<string, string> = { BASIC: 'basic', HOUSING: 'housing', TRANSPORT: 'transport', OTHER_ALW: 'other' };
-export const HCM_OF: Record<string, string> = { basic: 'BASIC', housing: 'HOUSING', transport: 'TRANSPORT', other: 'OTHER_ALW', overtime: 'OVERTIME', gosi: 'GOSI_EE', gosi_er: 'GOSI_ER', gosi_ee_absorbed: 'GOSI_EE_CO', advance: 'ADVANCE_REC' };
+export const HCM_OF: Record<string, string> = { basic: 'BASIC', housing: 'HOUSING', transport: 'TRANSPORT', other: 'OTHER_ALW', overtime: 'OVERTIME', gosi: 'GOSI_EE', gosi_er: 'GOSI_ER', gosi_ee_absorbed: 'GOSI_EE_CO', advance: 'ADVANCE_REC', late_fine: 'LATE_FINE' };
 
 export function termsFromRules(name: string, rules: RuleRow[]): EngineTerms {
   const get = (k: string) => rules.find((r) => r.key === k);

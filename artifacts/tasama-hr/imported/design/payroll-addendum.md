@@ -226,6 +226,22 @@ The fixture `tools/golden/july-2025.json` holds the template's inputs and output
 
 **D2 changed from Riyadh Air to Red Sea Global (22 October 2026).** Riyadh Air runs its payroll in Oracle HCM, so the platform does not price its pay. Red Sea Global after D1 (overtime at 1.5 × the full hourly wage, clause 5.3) against Saudi Coffee (the law's rate, capped at 40 hours) shows two different rules on the same 48 hours and continues the storyline from D1. If D1 has not run, D2's first step activates Red Sea Global's revised policy as D1 would.
 
+**Built, 22 October 2026 (phase 3, attendance).**
+
+| What | How |
+|---|---|
+| Schedules | `layer.work_schedules` and `layer.schedule_members` for every client: a shift pattern for site, coffee-house and production staff, office hours for the rest, with each client's grace period |
+| The device file | Saudi Coffee's export is generated from the seed as the device would write it (`Emp No., Punch Date, Punch Time, In/Out, Terminal`, dd/mm/yyyy). Hudoor proposes the column map from the file's own headers; a person confirms it before anything is read |
+| Hudoor (A2) and WF-29 | Each scheduled day becomes on time, late, absent or approved leave. Unpaid absence and fines are kept apart. The employee explains on My HR (or through Rafeeq); client HR operations confirms; the confirmed amounts become entries in the open payroll month, and the engine stops fines at five days' wage as a last guard |
+| Attendance (Payroll lens) | Upload with the column map; a heat strip per person across the month, with the fine against the five-day cap |
+| D3 | Four steps: the export arrives, an employee explains a 52-minute late morning, HR operations confirms, the barista's fines stop at the cap |
+
+**Changed to make D3 true (22 October 2026):**
+
+- Saudi Coffee's lateness rule is now its work regulation's penalty table, not a minute deduction. A minute deduction at the minute rate could never reach five days' wage, so edge 7 could not happen under it. The synthetic table: written warnings for the first two late arrivals in a month, 25% of a day's wage for the third to fifth, 50% from the sixth. Grace period 5 minutes.
+- The attendance month is the month before the open payroll month; its confirmed amounts are paid in the open month.
+- In the seed data, most scheduled days with no punch are approved leave, so the export shows many more than six; four are absences, as planned.
+
 ## 6. Eight new agents each do one job, and none of them can approve or release anything
 
 The first draft listed ten. Two jobs are folded into agents that already do the same work:
@@ -309,8 +325,8 @@ The seed anchor today is the day the seed runs, so a client's position against i
 | 3 | A Saudi at Red Sea Global, first registered with GOSI in September 2025 | 10.75% / 12.75% applied, where the template would apply 9.75% / 11.75% (D6) |
 | 4 | A Bahraini national at SEVEN | Home-country scheme instead of the 2% non-Saudi line |
 | 5 | A Riyadh Air promotion entered on the 17th, after the 15th cut-off | Routed to next month as back pay, with the effect shown to the client (D5) |
-| 6 | Saudi Coffee's punch export: 37 late arrivals and 4 absences, 6 of them covered by approved leave | Hudoor removes the 6, one employee justifies a lateness, client HR operations confirms (D3) |
-| 7 | A Saudi Coffee barista whose lateness fines would pass five days' wage | The fine stops at the Art. 70 cap. His one unexcused absence day is unpaid and is not counted against the cap (D3) |
+| 6 | Saudi Coffee's punch export: 37 late arrivals and the scheduled days with no punch, most of them approved leave, leaving 4 absences | Hudoor sets the leave days aside, one employee explains a lateness, client HR operations confirms (D3) |
+| 7 | A Saudi Coffee barista whose lateness fines would pass five days' wage | The fine stops at the Art. 70 cap. The barista's one unexcused absence day is unpaid and is not counted against the cap (D3) |
 | 8 | An offer accepted at SEVEN on the 14th, starting on the 19th | Contract drafted and signed, the same record becomes the employee, GOSI registered, 13 days paid this month (D4) |
 | 9 | Red Sea Global's open run | 14 differences from last month, each explained (D6) |
 | 10 | One Riyadh Air IBAN rejected on the bank's return file | Corrected and paid in a follow-up file; the WPS file still matches (D7) |

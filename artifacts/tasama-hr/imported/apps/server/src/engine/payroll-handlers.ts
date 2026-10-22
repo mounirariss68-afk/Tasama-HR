@@ -14,6 +14,7 @@ import { policiesFor } from '../domain/policies.js';
 import { now } from '../clock.js';
 import { readHandbook, dimensionName } from '../agents/nizam.js';
 import { saveVersion, nextVersion, activeVersion, READINGS, RECOMMENDED } from '../payroll/policy.js';
+import { readUpload, confirmMonth } from '../attendance/service.js';
 
 type H = (h: HCtx) => Promise<StepOutcome>;
 type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; personId: number } | null>;
@@ -71,6 +72,25 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     await h.patch({ readings_applied: lines });
     await h.trail({ act: 'PREPARE', summary: `Prepared version ${h.req.payload.version} for the client's decision${lines.length ? `: ${lines.join('; ')}` : ''}.` });
     return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: `activate version ${h.req.payload.version}${lines.length ? `, with ${lines.join('; ')}, as Tasama's payroll lead recommends` : ''}` } };
+  },
+
+  'WF-29:read': async (h) => {
+    const { summary } = await readUpload(h.c, h.req.payload.upload_id);
+    await h.c.query(`UPDATE layer.attendance_uploads SET request_id=$2 WHERE id=$1`, [h.req.payload.upload_id, h.req.id]);
+    const capped = summary.capped.length;
+    await h.trail({ act: 'CHECK', summary: `Read ${Number(h.req.payload.rows).toLocaleString('en-US')} punches for ${summary.people} people: ${summary.lates} late arrivals and ${summary.noPunch} scheduled days with no punch, ${summary.leaveCovered} of them approved leave, so ${summary.absences} absences.` });
+    if (capped) await h.trail({ act: 'CHECK', summary: `${capped === 1 ? 'One person\'s' : `${capped} people's`} lateness fines would pass five days' wage; they stop at the cap (Art. 70). Unpaid absence is kept apart: it is not a fine and has no cap.` });
+    await h.setResult({ attendance: summary });
+    return { status: 'DONE', decision: `${summary.fined} fines, ${summary.unpaidDays} unpaid days proposed`, outputs: summary,
+      recommend: { verdict: 'APPROVE', summary: `confirm ${summary.fined} fines totalling SAR ${Math.round(summary.fines).toLocaleString('en-US')} and ${summary.unpaidDays} unpaid days, after reading each employee's explanation` } };
+  },
+
+  'WF-29:apply': async (h) => {
+    const r = await confirmMonth(h.c, h.req.payload.upload_id, 'HR operations', h.req.payload.reject ?? []);
+    await h.trail({ act: 'WRITE', summary: `Entered ${r.summary.unpaidDays} unpaid days and SAR ${Math.round(r.summary.fines).toLocaleString('en-US')} of fines for ${r.entries} people in the ${r.period} payroll month; ${r.summary.excused} explained day${r.summary.excused === 1 ? '' : 's'} excused.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
+    const prior = h.req.result.attendance ?? {};
+    await h.setResult({ attendance: { ...prior, ...r.summary, explained: prior.explained ?? r.summary.excused, explanations: prior.explanations ?? [] }, applied: r.period });
+    return { status: 'DONE', decision: `Entered in ${r.period}` };
   },
 
   'WF-26:apply': async (h) => {

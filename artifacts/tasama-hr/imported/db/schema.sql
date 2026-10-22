@@ -838,3 +838,65 @@ CREATE TABLE layer.policy_rules (
   resolution   text,                        -- what the person decided for a flagged rule
   UNIQUE (version_id, key)
 );
+
+-- ---------------------------------------------------------------- attendance (design/payroll-addendum.md §4, phase 3)
+-- A month of punches from the client's devices becomes, per employee per day, late minutes, absences and
+-- days covered by leave (Hudoor); the employee may explain; the client's HR operations confirms; only then
+-- do unpaid absence days and fines reach the run. Two amounts are kept apart: unpaid absence (not a fine,
+-- no cap) and the fine under the penalty regulation (heard first, Art. 71; capped at five days' wage, Art. 70).
+CREATE TABLE layer.work_schedules (
+  id             serial PRIMARY KEY,
+  code           text UNIQUE NOT NULL,
+  name           text NOT NULL,
+  name_ar        text NOT NULL,
+  days           int[] NOT NULL,              -- ISO weekdays worked: 1 Monday … 7 Sunday
+  start_time     time NOT NULL,
+  end_time       time NOT NULL,
+  grace_min      int NOT NULL DEFAULT 0,
+  ramadan_hours  numeric NOT NULL DEFAULT 6
+);
+CREATE TABLE layer.schedule_members (
+  person_id      int PRIMARY KEY,
+  schedule_id    int NOT NULL REFERENCES layer.work_schedules(id)
+);
+CREATE TABLE layer.attendance_uploads (
+  id             serial PRIMARY KEY,
+  file_name      text NOT NULL,
+  device         text,
+  period_start   date NOT NULL,
+  period_end     date NOT NULL,
+  rows           int NOT NULL,
+  column_map     jsonb NOT NULL,              -- {employee, date, time, direction, device}: the file's own headers
+  uploaded_by    text NOT NULL,
+  uploaded_at    timestamptz NOT NULL DEFAULT now(),
+  request_id     int,
+  status         text NOT NULL DEFAULT 'READ' -- READ | CONFIRMED
+);
+CREATE TABLE layer.attendance_punches (
+  id             serial PRIMARY KEY,
+  upload_id      int NOT NULL REFERENCES layer.attendance_uploads(id) ON DELETE CASCADE,
+  person_id      int,
+  employee_code  text NOT NULL,
+  at             timestamp NOT NULL,
+  direction      text NOT NULL,               -- IN | OUT
+  device         text
+);
+CREATE INDEX ON layer.attendance_punches (upload_id, person_id);
+CREATE TABLE layer.attendance_days (
+  id             serial PRIMARY KEY,
+  upload_id      int NOT NULL REFERENCES layer.attendance_uploads(id) ON DELETE CASCADE,
+  person_id      int NOT NULL,
+  day            date NOT NULL,
+  scheduled      boolean NOT NULL,
+  first_in       time,
+  last_out       time,
+  minutes_late   int NOT NULL DEFAULT 0,
+  status         text NOT NULL,               -- ON_TIME | LATE | ABSENT | LEAVE | OFF
+  leave_ref      text,
+  justification  text,
+  justified_at   timestamptz,
+  decision       text,                        -- EXCUSED | DEDUCTED
+  unpaid_days    numeric NOT NULL DEFAULT 0,  -- unexcused absence: not paid, not a fine
+  fine           numeric(12,2) NOT NULL DEFAULT 0, -- lateness under the penalty regulation, before the monthly cap
+  UNIQUE (upload_id, person_id, day)
+);

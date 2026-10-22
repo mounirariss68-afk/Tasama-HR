@@ -104,7 +104,7 @@ export const PAYROLL_POLICY: Record<string, PayrollPolicy> = {
   },
   saudicoffee: {
     weekDays: 'six days a week', weekDays_ar: 'ستة أيام في الأسبوع', shifts: 'Roastery, farm and coffee-house staff work shifts.', shifts_ar: 'يعمل موظفو المحمصة والمزارع والمقاهي وفق مناوبات.',
-    graceMin: 0, latenessMethod: 'MINUTES', roundMin: 15,
+    graceMin: 5, latenessMethod: 'TABLE', roundMin: 0,
     overtimeWho: 'roastery, farm and coffee-house staff', overtimeWho_ar: 'موظفو المحمصة والمزارع والمقاهي', overtimeCap: 40, holidayMultiple: 0, timeOffInstead: false,
     dayRate: 'D30', extra: [{ code: 'SHIFT', name: 'Shift allowance', name_ar: 'بدل المناوبة', pct: 5, inEos: true }],
     housingAdvance: 'MONTHLY', educationSchedule: 'NONE', bonusTiming: 'a fixed half month\'s basic, paid before Ramadan', bonusTiming_ar: 'نصف شهر من الأساسي تُصرف قبل رمضان',

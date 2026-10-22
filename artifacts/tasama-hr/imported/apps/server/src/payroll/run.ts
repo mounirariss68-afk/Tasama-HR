@@ -60,7 +60,11 @@ export async function draftRun(c: Q) {
       elements, unpaidLeaveDays: unpaid || undefined,
       overtimeHours: es.filter((e: any) => e.element_code === 'OT_HOURS').reduce((n: number, e: any) => n + Number(e.amount), 0) || undefined,
       earnings: es.filter((e: any) => e.element_code === 'OVERTIME').map((e: any) => ({ code: 'overtime', label: 'Overtime', amount: Number(e.amount) })),
-      deductions: es.filter((e: any) => e.element_code === 'ADVANCE_REC').map((e: any) => ({ code: 'advance', label: 'Advance recovery', amount: Number(e.amount), kind: 'ADVANCE' as const })),
+      deductions: [
+        ...es.filter((e: any) => e.element_code === 'ADVANCE_REC').map((e: any) => ({ code: 'advance', label: 'Advance recovery', amount: Number(e.amount), kind: 'ADVANCE' as const })),
+        ...es.filter((e: any) => e.element_code === 'LATE_FINE').map((e: any) => ({ code: 'late_fine', label: 'Lateness fine', amount: Number(e.amount), kind: 'FINE' as const })),
+      ],
+      absenceDays: es.filter((e: any) => e.element_code === 'ABSENT_DAYS').reduce((n: number, e: any) => n + Number(e.amount), 0) || undefined,
       leave: { entitlementDays: Number(p.ent ?? 21), carryoverDays: Number(p.carried ?? 0), usedDaysYtd: used },
       eosOpening: opening.get(p.id),
     });

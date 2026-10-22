@@ -123,6 +123,31 @@ function useMe() { return useApi<any>('/me'); }
 
 // ------------------------------------------------------------------ Home
 
+/** A late arrival or absence from the month's punches, to explain before any fine (Art. 71). Shown only when there is one. */
+function ExplainAttendance() {
+  const { t, lang } = useLang();
+  const { data } = useApi<any>('/attendance/mine');
+  const [text, setText] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const rows: any[] = (data?.rows ?? []).filter((r: any) => !r.decision);
+  if (!rows.length) return null;
+  const send = async (day: string) => { setBusy(true); try { await post('/attendance/mine/justify', { day, text: text[day] ?? '' }); bump(); } finally { setBusy(false); } };
+  return (
+    <Panel icon={<CalendarDays size={16} />} title={rows.some((r) => !r.justification) ? t('A day from last month needs your explanation') : t('Your explanation is with HR operations')}>
+      <div className="space-y-3">{rows.map((r) => (
+        <div key={r.day} className="rounded-lg border border-border/60 p-3">
+          <p className="text-sm font-medium">{date(r.day, lang)}: {r.status === 'LATE' ? `${t('arrived at')} ${r.first_in}, ${r.minutes_late} ${t('minutes late')}` : t('no punch recorded')}</p>
+          {r.justification ? <p className="mt-1 text-sm text-muted-foreground">“{r.justification}”</p> : (
+            <div className="mt-2 flex gap-2">
+              <input className="input flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm" placeholder={t('Why were you late? HR operations reads this before deciding.')} value={text[r.day] ?? ''} onChange={(e) => setText({ ...text, [r.day]: e.target.value })} />
+              <Btn small kind="primary" disabled={busy || !(text[r.day] ?? '').trim()} onClick={() => send(r.day)}>{t('Send')}</Btn>
+            </div>
+          )}
+        </div>))}</div>
+    </Panel>
+  );
+}
+
 export function MyHome() {
   const { t, bi, lang } = useLang();
   const { persona, openCase, go } = useApp();
@@ -149,6 +174,7 @@ export function MyHome() {
           </div>
         </Panel>
       </>}>
+        <ExplainAttendance />
         <Panel icon={<Bell size={16} />} title="What changed" action={<PanelAction>{t('Last 30 days')}</PanelAction>}>
           <div className="space-y-2">
             {me.notifications.length ? me.notifications.filter((n: any, i: number, all: any[]) => all.findIndex((m: any) => m.title === n.title && m.body === n.body) === i).slice(0, 5).map((n: any) => (

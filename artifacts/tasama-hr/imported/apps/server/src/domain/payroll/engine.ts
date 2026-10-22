@@ -61,7 +61,7 @@ export type EngineEmployee = {
   unpaidLeaveDays?: number;
   overtimeHours?: number;
   earnings?: Money[];
-  deductions?: (Money & { kind?: 'ADVANCE' | 'OTHER' })[];
+  deductions?: (Money & { kind?: 'ADVANCE' | 'FINE' | 'OTHER' })[];
   leave: { entitlementDays: number; carryoverDays: number; usedDaysYtd: number };
   /** Unpaid leave days beyond 20 in a year, excluded from service (Art. 116). */
   eosExcludedDays?: number;
@@ -179,9 +179,19 @@ export function runPayroll(period: { start: string; end: string }, terms: Engine
 
     // Other deductions and the caps: an advance instalment ≤ 10% of the wage (Art. 92); all together ≤ 50% (Art. 93).
     let capped = 0;
+    const fineCap = r2(5 * contractual / 30);
+    let fines = 0;
     for (const d of e.deductions ?? []) {
-      lines.push({ kind: 'DEDUCTION', code: d.code, label: d.label, amount: r2(d.amount), rule: d.kind === 'ADVANCE' ? 'Advance instalment (Art. 92)' : 'Confirmed deduction' });
-      capped += d.amount;
+      let amount = d.amount, rule = d.kind === 'ADVANCE' ? 'Advance instalment (Art. 92)' : 'Confirmed deduction';
+      if (d.kind === 'FINE') {
+        // Art. 70: fines in a month never exceed five days' wage, whatever the inputs say.
+        const room = Math.max(0, fineCap - fines);
+        if (amount > room + 0.005) flags.push({ code: 'FINE_CAP', severity: 'WARN', text: `A fine of ${fmt(amount)} was cut to ${fmt(room)}: fines in a month stop at five days' wage (${fmt(fineCap)}, Art. 70)` });
+        amount = Math.min(amount, room); fines += amount;
+        rule = `Lateness under the client's penalty table, after the employee was heard (Art. 71); at most five days' wage a month (Art. 70)`;
+      }
+      lines.push({ kind: 'DEDUCTION', code: d.code, label: d.label, amount: r2(amount), rule });
+      capped += amount;
       if (d.kind === 'ADVANCE' && d.amount > 0.1 * contractual + 0.005) flags.push({ code: 'ADVANCE_CAP', severity: 'BLOCK', text: `The instalment of ${fmt(d.amount)} is above 10% of the wage (${fmt(0.1 * contractual)}, Art. 92)` });
     }
     if (capped > 0.5 * contractual + 0.005) flags.push({ code: 'DEDUCTION_CAP', severity: 'BLOCK', text: `Deductions of ${fmt(capped)} are above half the wage (${fmt(0.5 * contractual)}, Art. 93)` });

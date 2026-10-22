@@ -24,12 +24,14 @@ import { policiesFor } from './domain/policies.js';
 import { readHandbook } from './agents/nizam.js';
 import { saveVersion, nextVersion, READINGS } from './payroll/policy.js';
 import { draftRun } from './payroll/run.js';
+import { deviceExport, proposeMap, ingest, justify as justifyDay } from './attendance/service.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
 type Text = string | ((c: Ctx) => Promise<string> | string);
 type Action =
   | { kind: 'show' }
   | { kind: 'overtime_inputs' }
+  | { kind: 'justify_late'; text: string }
   | { kind: 'start'; starter: keyof typeof STARTERS; as: string }
   | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; edits?: Record<string, any> }
   | { kind: 'raqeeb_scan' }
@@ -230,9 +232,42 @@ async function overtimeRecord(c: Ctx): Promise<Rec | null> {
   return { system: 'Tasama HR · Runs', title: `Overtime, ${monthLabel(monthStart(now()))}`, fields };
 }
 
+// ------------------------------------------------------------------ scenario D3: a month of fingerprints
+
+const D3_TEXT = 'My son was admitted to hospital that morning. I have the discharge note.';
+async function attMeta() { return (await pool.query(`SELECT value FROM layer.meta WHERE key='attendance'`)).rows[0]?.value; }
+/** The barista's month as Hudoor read it, and what reaches the run. */
+async function baristaMonth() {
+  const m = await attMeta();
+  const up = (await pool.query(`SELECT id, status FROM layer.attendance_uploads ORDER BY id DESC LIMIT 1`)).rows[0];
+  if (!m || !up) return null;
+  const days = (await pool.query(`SELECT status, minutes_late, fine::float fine, unpaid_days::float unpaid FROM layer.attendance_days WHERE upload_id=$1 AND person_id=$2`, [up.id, m.barista])).rows;
+  const wage = Number((await pool.query(`SELECT SUM(amount) w FROM hcm.element_entries WHERE person_id=$1 AND element_code IN ('BASIC','HOUSING','TRANSPORT','OTHER_ALW') AND effective_end='4712-12-31'`, [m.barista])).rows[0].w);
+  const lates = days.filter((d: any) => d.status === 'LATE');
+  const before = Math.round(days.reduce((s: number, d: any) => s + d.fine, 0) * 100) / 100, cap = Math.round(5 * wage / 30 * 100) / 100;
+  return { name: await nameOf(m.barista), lates: lates.length, minutes: lates.reduce((s: number, d: any) => s + d.minutes_late, 0), before, cap, fine: Math.min(before, cap), unpaid: days.filter((d: any) => d.status === 'ABSENT').length, daily: Math.round(wage / 30 * 100) / 100, confirmed: up.status === 'CONFIRMED' };
+}
+const sar2 = (n: number) => `SAR ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+async function attendanceRecord(): Promise<Rec | null> {
+  const b = await baristaMonth();
+  if (!b) return { system: 'Tasama HR · Attendance', title: 'Punch export', fields: [['Status', 'Waiting for the device export']] };
+  return { system: 'Tasama HR · Attendance', title: `${b.name}'s month`, fields: [
+    ['Late arrivals', `${b.lates}, ${b.minutes} minutes in all`], ['Fines under the penalty table', sar2(b.before)], ['Fine taken', `${sar2(b.fine)}: five days' wage (Art. 70)`],
+    ['Absent without leave', `${b.unpaid} day, ${sar2(b.unpaid * b.daily)}: unpaid, not a fine`], ['Status', b.confirmed ? 'Confirmed; in this month\'s run' : 'Waiting for HR operations'],
+  ] };
+}
+
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
 
 const STARTERS = {
+  attendance: async (c: Ctx) => {
+    const f = await deviceExport(pool);
+    if (!f) throw new Error('No device export for this client');
+    const up = await tx((x) => ingest(x, { fileName: f.fileName, csv: f.csv, map: proposeMap(f.csv), by: 'Nasser AlFarraj' }));
+    const month = new Date(`${f.from}T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-29', type: 'ATTENDANCE_MONTH', title: `${clientByKey(c.client)!.short} attendance, ${month}`, title_ar: `حضور ${clientByKey(c.client)!.name_ar}`, requester: c.P.payroll, subject: c.P.payroll, channel: 'SCENARIO', scenario: c.key, payload: { upload_id: up.uploadId, rows: up.rows, file: f.fileName } }));
+    return r.ref as string;
+  },
   certificate: async (c: Ctx) => {
     const bank = clientByKey(c.client)!.bank[0];
     const r = await tx((x) => startCase(x, { workflowId: 'WF-14', type: 'SALARY_CERTIFICATE', title: letterName('SALARY_CERTIFICATE'), title_ar: letterName('SALARY_CERTIFICATE', true), requester: c.P.employee, subject: c.P.employee, channel: 'SCENARIO', scenario: c.key, payload: { letter_type: 'SALARY_CERTIFICATE', addressee: bank, language: 'en', purpose: 'Personal finance application' } }));
@@ -407,6 +442,22 @@ export const SCRIPTS: Scenario[] = [
         async (c) => { const a = await d2Line('redsea', c.out.d2.redsea.id), b = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `The same ${D2_HOURS} hours: SAR ${a.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} at Red Sea Global, SAR ${b.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} at Saudi Coffee. Nobody chose a formula or remembered a cap: each run read its client's approved policy, and each line cites it.`; }, undefined,
         { focus: { fact: async (c: Ctx) => { const a = await d2Line('redsea', c.out.d2.redsea.id), b = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `Same ${D2_HOURS} hours of overtime: Red Sea Global pays SAR ${Math.round(a.amount).toLocaleString('en-US')}; Saudi Coffee pays SAR ${Math.round(b.amount).toLocaleString('en-US')} and holds ${D2_HOURS - b.hours} hours for approval.`; } } }),
     ] },
+  { key: 'attendance-month', level: 'tasama', client: 'saudicoffee', shape: 'Exception', shape_ar: 'استثناء', title: 'A month of fingerprints', title_ar: 'شهر من البصمات',
+    summary: 'Saudi Coffee\'s fingerprint devices export last month\'s punches. Hudoor reads them against schedules and approved leave, an employee explains one late morning, and HR operations confirms. One barista\'s lateness fines would pass five days\' wage: they stop at the legal cap, and the barista\'s day absent without leave is unpaid on its own line, not counted as a fine.', summary_ar: 'تصدّر أجهزة البصمة في الشركة السعودية للقهوة حضور الشهر الماضي؛ يقرؤه حضور مقابل الجداول والإجازات، وتشرح موظفة تأخراً، وتؤكد عمليات الموارد البشرية. غرامات أحد الموظفين تتوقف عند حد أجر خمسة أيام.',
+    record: async () => attendanceRecord(),
+    steps: [
+      S('a1', 'The punch export arrives', 'وصول تصدير البصمات', 'Device export in the client\'s shared folder (WF-29)', 'tasama-specialist', 'payroll-attendance/saudicoffee', { kind: 'start', starter: 'attendance', as: 'att' },
+        async (c) => { const k = await caseOf(c.refs.att); const a = k?.result?.attendance; return a ? `Saudi Coffee's devices exported last month's punches: ${(k.payload.rows as number).toLocaleString('en-US')} rows in the device's own columns. Nasser confirmed the column map Hudoor proposed. Hudoor read them against each person's schedule and approved leave: ${a.lates} late arrivals and ${a.noPunch} scheduled days with no punch, ${a.leaveCovered} of them approved leave, so ${a.absences} absences. Nothing is deducted yet: each employee may explain first.` : 'The export was read.'; }, 'case:att',
+        { chat: async () => [person('Saudi Coffee IT', 'Last month\'s export from the attendance devices is in the shared folder.', 'Shared folder'), agent('Hudoor', 'Read and matched to 123 people. Late arrivals and absences are waiting for explanations before HR operations confirms anything.')] }),
+      S('a2', 'An employee explains a late morning', 'موظفة تشرح تأخراً صباحياً', 'Employee, through Rafeeq', 'employee', 'my-home', { kind: 'justify_late', text: D3_TEXT },
+        async (c) => { const m = await attMeta(); return `${await nameOf(m.justifier)} arrived 52 minutes late on ${fmtDate(m.justifierDay)}. Before any fine, the employee is heard (Art. 71): the explanation went to HR operations with the case.`; }, undefined,
+        { chat: async () => { const m = await attMeta(); return [agent('Rafeeq', `Your punches for last month show you arrived at ${(await pool.query(`SELECT to_char(first_in,'HH24:MI') t FROM layer.attendance_days WHERE person_id=$1 AND day=$2 ORDER BY upload_id DESC LIMIT 1`, [m.justifier, m.justifierDay])).rows[0]?.t ?? 'late'} on ${fmtDate(m.justifierDay)}. Would you like to explain it before HR operations decides?`), person(await nameOf(m.justifier), D3_TEXT), agent('Rafeeq', 'Sent to HR operations with the case. Nothing is deducted until they have read it.')]; } }),
+      S('a3', 'HR operations confirms', 'عمليات الموارد البشرية تؤكد', 'Human step: the client\'s HR operations', 'payroll', 'hr-inbox', { kind: 'decide', ref: 'att', decision: 'APPROVED', reason: 'Explanations read; deductions confirmed' },
+        async (c) => { const k = await caseOf(c.refs.att); const a = k?.result?.attendance; return `${await nameOf(c.P.payroll)}, Saudi Coffee's HR operations, read the explanation, excused that morning and confirmed the rest (${by(c, 'att')}). ${a ? `${a.unpaidDays} unpaid days and SAR ${Math.round(a.fines).toLocaleString('en-US')} of fines went into this month's payroll as entries. Nobody typed them.` : ''}`; }, 'case:att'),
+      S('a4', 'A fine that stops at the law', 'غرامة تتوقف عند حد النظام', 'Runs', 'tasama-specialist', 'payroll-attendance/saudicoffee', SHOW,
+        async () => { const b = await baristaMonth(); return b ? `${b.name}, a barista, was late ${b.lates} times. The penalty table adds up to ${sar2(b.before)}, but a month's fines stop at five days' wage: ${sar2(b.cap)} (Art. 70). The one day absent without leave is unpaid on its own line, ${sar2(b.unpaid * b.daily)}: that is not a fine, so it is not counted against the cap.` : ''; }, undefined,
+        { focus: { fact: async () => { const b = await baristaMonth(); return b ? `${b.name}: fines of ${sar2(b.before)} stop at ${sar2(b.cap)}, five days' wage (Art. 70). The day absent without leave is unpaid separately.` : ''; } } }),
+    ] },
   { key: 'sla-rescue', level: 'tasama', client: 'riyadhair', shape: 'Service level at risk', shape_ar: 'مستوى خدمة معرض للتجاوز', title: 'Raqeeb catches a request before it breaches', title_ar: 'رقيب يلتقط طلباً قبل تجاوز مستوى الخدمة',
     summary: 'A leave request at Riyadh Air has been waiting on the manager for almost two days. Raqeeb flags it with hours to spare, reminds the manager, and the Tasama HR Operations Manager decides on the manager\'s behalf with a reason.', summary_ar: 'طلب إجازة في طيران الرياض ينتظر المدير منذ يومين؛ يرصده رقيب ويذكّر المدير ويقرر مدير العمليات نيابة عنه مع ذكر السبب.',
     record: async (c) => workerRecord(c, await subjectOf(c.refs.leave)),
@@ -478,6 +529,11 @@ export const SCRIPTS: Scenario[] = [
 async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
   switch (a.kind) {
     case 'show': return 'Showing';
+    case 'justify_late': {
+      const meta = (await pool.query(`SELECT value FROM layer.meta WHERE key='attendance'`)).rows[0].value;
+      await justifyDay(pool, meta.justifier, meta.justifierDay, a.text);
+      return 'Explanation sent to HR operations';
+    }
     case 'overtime_inputs': {
       await ensureRedSeaRevised();
       const who: Record<string, { id: number; name: string }> = {};
@@ -605,6 +661,8 @@ export async function startScenario(key: string, clientKey: string) {
     await pool.query(`UPDATE layer.policy_versions SET status='ACTIVE' WHERE version='1.0'`);
     for (const p of policiesFor(clientByKey('redsea')!)) for (const k of p.clauses) await pool.query(`UPDATE layer.policy_clauses SET text_en=$2, text_ar=$3 WHERE id=$1`, [`${p.id} §${k.ref}`, k.en, k.ar]);
   });
+  // D3 starts before the export arrives: no upload, no attendance entries.
+  if (key === 'attendance-month') await withClient('saudicoffee', async () => { await pool.query(`DELETE FROM layer.attendance_uploads`); await pool.query(`DELETE FROM hcm.element_entries WHERE reference LIKE 'Attendance %'`); });
   // D2 starts with no overtime entered; its first step enters it.
   if (key === 'overtime-two-clients') for (const k of D2_CLIENTS) await withClient(k, async () => { await pool.query(`DELETE FROM hcm.element_entries WHERE reference=$1`, [D2_REF]); });
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }

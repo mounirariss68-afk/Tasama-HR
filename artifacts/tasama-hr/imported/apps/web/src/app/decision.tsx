@@ -12,7 +12,7 @@
  */
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { aed, aedShort, date, dateShort, month, until } from '../lib/format';
+import { aed, aedShort, date, dateShort, month, num, until } from '../lib/format';
 import type { Lang } from '../lib/format';
 import { CapBar, CoverStrip, RangeBar, SegmentBar, Progress, Slope, Waterfall } from './viz';
 const addDays = (d: string, n: number) => new Date(new Date(`${d}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -260,6 +260,18 @@ export function caseCard(c: any, x: T): Card {
         { k: t('Not in the handbook'), v: missing.length ? missing.map((f: any) => bi(f.label, f.label_ar)).join(', ') : t('Nothing'), note: missing.length ? t('Asked of the client before anything is paid') : undefined },
       ];
       return { kind, headline, facts: facts.slice(0, 4), rec: recOf(c) };
+    }
+    case 'WF-29': {
+      const at = r.attendance;
+      if (!at) return base;
+      const month = new Date(`${at.from}T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' });
+      const facts: Fact[] = [
+        { k: t('Late arrivals'), v: num(at.lates), note: `${at.fined} ${t(at.fined === 1 ? 'person fined under the penalty table' : 'people fined under the penalty table')}` },
+        { k: t('Absent'), v: `${at.absences} ${t(at.absences === 1 ? 'day' : 'days')}`, note: `${t('Of')} ${at.noPunch} ${t('days with no punch')}, ${at.leaveCovered} ${t('were approved leave')}` },
+        { k: t('Fines'), v: aed(at.fines, lang), tone: at.capped?.length ? 'warn' : undefined, note: at.capped?.length ? `${at.capped.length} ${t(at.capped.length === 1 ? 'person stopped at five days\' wage' : 'people stopped at five days\' wage')} (${t('Art. 70')})` : undefined },
+        { k: t('Explained by employees'), v: num(at.explained ?? 0), wide: Boolean(at.explanations?.length), note: at.explanations?.length ? `${at.explanations[0].name}, ${date(at.explanations[0].day, lang)}${at.explanations[0].minutes_late ? ` (${at.explanations[0].minutes_late} ${t('minutes late')})` : ''}: “${at.explanations[0].text}” ${t('An explained day is excused unless you decide otherwise.')}` : t('An explained day is excused unless you decide otherwise.') },
+      ];
+      return { kind, headline: `${month}${t('’s punches')}: ${at.fined} ${t(at.fined === 1 ? 'fine' : 'fines')} ${t('and')} ${at.unpaidDays} ${c.status === 'COMPLETED' ? t(at.unpaidDays === 1 ? 'unpaid day, confirmed' : 'unpaid days, confirmed') : t(at.unpaidDays === 1 ? 'unpaid day to confirm' : 'unpaid days to confirm')}`, facts, rec: recOf(c) };
     }
     case 'WF-06': return { kind, headline: `${who}${t('’s pre-boarding is blocked; start date')} ${date(p.start_date, lang)}`, facts: [], rec: recOf(c) };
     default: return base;
