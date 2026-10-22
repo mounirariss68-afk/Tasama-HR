@@ -2,8 +2,9 @@
  * Persona "sign-in". The prototype has no login: the presenter switches
  * client and persona from the title bar. Every request carries `x-client` and
  * `x-persona`, and the server — not the browser — decides what that persona
- * may see and approve. Seven personas exist inside each client; the eighth,
- * the Tasama HR Operations Manager, works across all clients.
+ * may see and approve. Eight personas exist inside each client; three Tasama
+ * people (the HR Operations Manager and the payroll lead and specialist) work
+ * across all clients.
  */
 import type { Request } from 'express';
 import { pool, currentClient } from '../db.js';
@@ -29,6 +30,37 @@ export const TASAMA_PERSONA: Persona = {
   display_name: 'Faisal Al Harbi', display_name_ar: 'فيصل الحربي', person_number: 'TASAMA-0007', photo_seed: 77,
 };
 
+/**
+ * Tasama's payroll team (design/payroll-addendum.md §2). Real names of the Tasama payroll managers who met
+ * Cognirise on 22 October 2026, used at the prototype owner's request; everything they do in the demo is synthetic.
+ * Not employees of any client: a case waiting on them carries waiting_on_role TASAMA_PAYROLL or TASAMA_PAYROLL_LEAD.
+ */
+export const PAYROLL_SPECIALIST_KEY = 'tasama-specialist';
+export const PAYROLL_LEAD_KEY = 'tasama-lead';
+export const PAYROLL_SPECIALIST: Persona = {
+  key: PAYROLL_SPECIALIST_KEY, person_id: 0, label: 'Payroll specialist, Tasama', label_ar: 'أخصائي الرواتب، تسامى',
+  role_title: 'Payroll Specialist, Tasama HR Services', role_title_ar: 'أخصائي الرواتب، خدمات الموارد البشرية في تسامى',
+  lenses: ['payroll'], roles: ['TASAMA_STAFF', 'TASAMA_PAYROLL'], scope: { data: 'all' },
+  approval_limits: [
+    { what: 'Prepares payroll runs, back pay and off-cycle runs', what_ar: 'يُعد مسيرات الرواتب والفروقات والمسيرات الاستثنائية' },
+    { what: 'GOSI registrations and exclusions', what_ar: 'التسجيل والاستبعاد في التأمينات الاجتماعية' },
+    { what: 'Never validates a run', what_ar: 'لا يعتمد أي مسير' },
+  ],
+  display_name: 'Nasser AlFarraj', display_name_ar: 'ناصر الفراج', person_number: 'TASAMA-0021', photo_seed: 121,
+};
+export const PAYROLL_LEAD: Persona = {
+  key: PAYROLL_LEAD_KEY, person_id: 0, label: 'Payroll lead, Tasama', label_ar: 'قائدة الرواتب، تسامى',
+  role_title: 'Payroll Lead, Tasama HR Services', role_title_ar: 'قائدة الرواتب، خدمات الموارد البشرية في تسامى',
+  lenses: ['payroll'], roles: ['TASAMA_STAFF', 'TASAMA_PAYROLL', 'TASAMA_PAYROLL_LEAD'], scope: { data: 'all' },
+  approval_limits: [
+    { what: 'Validates runs she did not prepare', what_ar: 'تعتمد المسيرات التي لم تُعدّها' },
+    { what: 'Initiates the bank file; approves journals for posting', what_ar: 'تبدأ ملف البنك وتعتمد القيود للترحيل' },
+    { what: 'Recommends how a client\'s policy is read', what_ar: 'توصي بقراءة سياسة العميل' },
+  ],
+  display_name: 'Sharifa AlMousa', display_name_ar: 'شريفة الموسى', person_number: 'TASAMA-0014', photo_seed: 114,
+};
+export const TASAMA_STAFF: Persona[] = [TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST];
+
 const cache = new Map<string, Persona[]>();
 export const resetPersonas = () => { cache.clear(); };
 export async function personas(): Promise<Persona[]> {
@@ -40,11 +72,15 @@ export async function personas(): Promise<Persona[]> {
 }
 export async function personaOf(req: Request): Promise<Persona> {
   const key = String(req.header('x-persona') ?? 'employee');
-  if (key === TASAMA_KEY) return TASAMA_PERSONA;
+  const staff = TASAMA_STAFF.find((x) => x.key === key);
+  if (staff) return staff;
   const all = await personas();
   return all.find((p) => p.key === key) ?? all[0];
 }
 export const isTasama = (p: Persona) => p.key === TASAMA_KEY;
+/** Faisal, Sharifa or Nasser: Tasama people who act across every client. */
+export const isTasamaStaff = (p: Persona) => TASAMA_STAFF.some((x) => x.key === p.key);
+export const isPayrollTeam = (p: Persona) => p.roles.includes('TASAMA_PAYROLL');
 export const has = (p: Persona, role: string) => p.roles.includes(role);
 export const isHR = (p: Persona) => p.roles.some((r) => ['HRBP', 'TA', 'PAYROLL', 'HR_OPS', 'CHRO'].includes(r));
 
@@ -63,7 +99,7 @@ export function personScope(p: Persona, idx: number, personCol = 'p.id', divisio
 
 /** Which cases a persona may see. */
 export function caseScope(p: Persona, idx: number): [string, unknown[]] {
-  if (p.roles.includes('CHRO') || p.roles.includes('PAYROLL')) return ['true', []];
+  if (p.roles.includes('CHRO') || p.roles.includes('PAYROLL') || p.roles.includes('TASAMA_PAYROLL')) return ['true', []];
   if (p.roles.includes('TA')) return [`(r.workflow_id IN ('WF-01','WF-02','WF-03','WF-04','WF-05','WF-06') OR r.requester_person_id = $${idx} OR r.subject_person_id = $${idx} OR r.waiting_on_person_id = $${idx})`, [p.person_id]];
   if (p.roles.includes('HRBP')) return [`(r.waiting_on_person_id = $${idx} OR r.requester_person_id = $${idx} OR r.subject_person_id = $${idx} OR EXISTS (SELECT 1 FROM hcm.assignments a JOIN hcm.departments d ON d.id=a.department_id WHERE a.person_id = r.subject_person_id AND a.effective_end='4712-12-31' AND d.division = ANY($${idx + 1})))`, [p.person_id, p.scope.divisions ?? []]];
   if (p.roles.includes('LINE_MANAGER')) return [`(r.requester_person_id = $${idx} OR r.subject_person_id = $${idx} OR r.waiting_on_person_id = $${idx} OR r.subject_person_id IN (SELECT person_id FROM hcm.assignments WHERE manager_person_id = $${idx} AND effective_end='4712-12-31'))`, [p.person_id]];

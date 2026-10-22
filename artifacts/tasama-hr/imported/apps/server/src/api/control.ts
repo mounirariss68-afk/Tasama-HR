@@ -11,7 +11,7 @@ import { resetPeople } from '../engine/handlers.js';
 export const control = Router();
 
 control.get('/agents', async (_req, res) => {
-  const agents = (await pool.query(`SELECT a.*, p.display_name AS owner_name, p.display_name_ar AS owner_name_ar FROM layer.agents a JOIN hcm.persons p ON p.id=a.owner_person_id ORDER BY a.sort`)).rows;
+  const agents = (await pool.query(`SELECT a.*, COALESCE(p.display_name, CASE a.id WHEN 'nizam' THEN 'Sharifa AlMousa, Tasama' ELSE 'Tasama payroll team' END) AS owner_name, COALESCE(p.display_name_ar, CASE a.id WHEN 'nizam' THEN 'شريفة الموسى، تسامى' ELSE 'فريق الرواتب في تسامى' END) AS owner_name_ar FROM layer.agents a LEFT JOIN hcm.persons p ON p.id=a.owner_person_id ORDER BY a.sort`)).rows;
   const stats = (await pool.query(`SELECT actor_id, act, COUNT(*)::int n FROM layer.trail WHERE actor_type='AGENT' GROUP BY 1,2`)).rows;
   const steps = (await pool.query(`SELECT actor_id, COUNT(*)::int n, COUNT(DISTINCT request_id)::int cases FROM layer.run_steps WHERE actor_type='AGENT' AND status IN ('DONE','REFUSED') GROUP BY 1`)).rows;
   const overrides = (await pool.query(`SELECT s.actor_id, COUNT(*)::int n FROM layer.trail t JOIN layer.run_steps s ON s.request_id=t.request_id AND s.actor_type='AGENT' WHERE t.act='OVERRIDE' GROUP BY 1`)).rows;
@@ -49,7 +49,7 @@ control.get('/connector', async (req, res) => {
   if (writes) where.push(`(l.method <> 'GET' AND l.resource NOT LIKE '%/search_read')`);
   const logs = (await pool.query(`SELECT l.*, r.ref FROM layer.integration_log l LEFT JOIN layer.requests r ON r.id=l.request_id ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY l.at DESC, l.id DESC LIMIT 150`, params)).rows;
   const stats = (await pool.query(`SELECT system, COUNT(*)::int calls, COUNT(*) FILTER (WHERE (method <> 'GET' AND resource NOT LIKE '%/search_read'))::int writes, ROUND(AVG(latency_ms))::int avg_ms, COUNT(*) FILTER (WHERE status_code >= 400)::int errors, MAX(at) AS last FROM layer.integration_log GROUP BY 1 ORDER BY 2 DESC`)).rows;
-  const resources = (await pool.query(`SELECT split_part(regexp_replace(regexp_replace(resource, '^/hcmRestApi/resources/11\\.13\\.18\\.05/', ''), '^/json/2/', ''), '?', 1) AS resource, method, COUNT(*)::int n FROM layer.integration_log WHERE system IN ('ORACLE_HCM','ODOO') GROUP BY 1,2 ORDER BY 3 DESC LIMIT 20`)).rows;
+  const resources = (await pool.query(`SELECT split_part(regexp_replace(regexp_replace(regexp_replace(resource, '^/hcmRestApi/resources/11\\.13\\.18\\.05/', ''), '^/json/2/', ''), '^/api/v1/', ''), '?', 1) AS resource, method, COUNT(*)::int n FROM layer.integration_log WHERE system IN ('ORACLE_HCM','ODOO','TASAMA_HR') GROUP BY 1,2 ORDER BY 3 DESC LIMIT 20`)).rows;
   const events = (await pool.query(`SELECT * FROM hcm.atom_events ORDER BY published_at DESC LIMIT 30`)).rows;
   res.json({ logs, stats, resources, events });
 });
@@ -82,7 +82,7 @@ control.get('/value', async (_req, res) => {
        COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM layer.approvals a WHERE a.request_id=r.id))::int no_touch FROM layer.requests r GROUP BY 1 ORDER BY 1`)).rows;
   const acts = (await pool.query(`SELECT act, COUNT(*)::int n FROM layer.trail GROUP BY 1`)).rows;
   const answers = (await pool.query(`SELECT COUNT(*)::int n FROM layer.messages WHERE role='assistant'`)).rows[0].n;
-  const writes = (await pool.query(`SELECT COUNT(*)::int n FROM layer.integration_log WHERE system IN ('ORACLE_HCM','ODOO') AND (method <> 'GET' AND resource NOT LIKE '%/search_read')`)).rows[0].n;
+  const writes = (await pool.query(`SELECT COUNT(*)::int n FROM layer.integration_log WHERE system IN ('ORACLE_HCM','ODOO','TASAMA_HR') AND (method <> 'GET' AND resource NOT LIKE '%/search_read')`)).rows[0].n;
   // Minutes of HR effort per case type without the layer: ILLUSTRATIVE assumptions, shown on screen.
   const minutes: Record<string, number> = { 'WF-14': 20, 'WF-15': 10, 'WF-16': 45, 'WF-08': 60, 'WF-03': 240, 'WF-10': 480, 'WF-13': 360, 'WF-19': 180, 'WF-05': 90, 'WF-12': 120, 'WF-01': 120, 'WF-02': 90, 'WF-06': 240, 'WF-20': 240 };
   const hours = Math.round(byWf.reduce((s: number, w: any) => s + w.completed * (minutes[w.workflow_id] ?? 30) * 0.6, 0) / 60);

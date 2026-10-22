@@ -9,9 +9,17 @@
  * One object per client drives the whole build: its own simulated HRMS
  * (schema hcm_<key>), its own agentic-layer store (layer_<key>), its handbook
  * terms, its org naming and its Tasama contract.
+ *
+ * Two modes (design/payroll-addendum.md §1): ROSHN and Riyadh Air keep their
+ * employee master in Oracle HCM; Red Sea Global, SEVEN and Saudi Coffee hold
+ * it in Tasama HR (hrms PLATFORM). The hcm_<key> schema is the master either
+ * way; only the connector's dialect differs.
  */
 
-export type Hrms = 'ORACLE' | 'ODOO';
+/** Where the employee master lives: the client's Oracle or Odoo, or Tasama HR itself (platform of record). */
+export type Hrms = 'ORACLE' | 'ODOO' | 'PLATFORM';
+/** The ledger the payroll journals go to. */
+export type Finance = 'ORACLE_FIN' | 'ODOO_ACC';
 
 export type PolicyParams = {
   annualLeave: number;            // working days a year, first five years (statutory minimum 21)
@@ -48,6 +56,7 @@ export type ClientConfig = {
   sector: string; sector_ar: string;
   city: string; city_ar: string;
   hrms: Hrms; hrmsLabel: string;
+  finance: Finance;               // ledger for the payroll journals (design/payroll-addendum.md §1)
   size: number;                   // active employees in the demo workforce (a sample, not the real company)
   saudiShare: number;             // share of Saudi nationals
   nitaqat: { activity: string; band: string; requiredPct: number };
@@ -110,7 +119,7 @@ export const CLIENTS: ClientConfig[] = [
   {
     key: 'roshn', code: 'RSN', name: 'ROSHN Group', name_ar: 'مجموعة روشن', short: 'ROSHN',
     sector: 'Real estate development', sector_ar: 'التطوير العقاري', city: 'Riyadh', city_ar: 'الرياض',
-    hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', size: 236, saudiShare: 0.72,
+    hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', finance: 'ORACLE_FIN', size: 236, saudiShare: 0.72,
     nitaqat: { activity: 'Real estate development', band: 'High Green', requiredPct: 0.38 }, slowness: 1.0,
     policy: { annualLeave: 25, annualLeaveAfter5: 30, carryForwardMax: 10, probationDays: 90, housingPct: 25, transportPct: 10, weeklyHours: 40, remoteDays: 2,
       advanceMultiple: 2, advanceBasis: 'basic', advanceMinServiceMonths: 6, advanceMaxTerm: 18, letterHours: 8, ticket: 'annual', educationAllowance: 20000, educationChildren: 2,
@@ -135,7 +144,7 @@ export const CLIENTS: ClientConfig[] = [
   {
     key: 'riyadhair', code: 'RXI', name: 'Riyadh Air', name_ar: 'طيران الرياض', short: 'Riyadh Air',
     sector: 'Aviation', sector_ar: 'الطيران', city: 'Riyadh', city_ar: 'الرياض',
-    hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', size: 224, saudiShare: 0.58,
+    hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', finance: 'ORACLE_FIN', size: 224, saudiShare: 0.58,
     nitaqat: { activity: 'Air transport', band: 'Medium Green', requiredPct: 0.30 }, slowness: 1.9,
     policy: { annualLeave: 30, annualLeaveAfter5: 35, carryForwardMax: 15, probationDays: 180, housingPct: 25, transportPct: 10, weeklyHours: 40, remoteDays: 1,
       advanceMultiple: 1, advanceBasis: 'gross', advanceMinServiceMonths: 6, advanceMaxTerm: 12, letterHours: 8, ticket: 'staff-travel', educationAllowance: 25000, educationChildren: 3,
@@ -161,7 +170,7 @@ export const CLIENTS: ClientConfig[] = [
   {
     key: 'redsea', code: 'RSG', name: 'Red Sea Global', name_ar: 'البحر الأحمر الدولية', short: 'Red Sea Global',
     sector: 'Tourism and hospitality', sector_ar: 'السياحة والضيافة', city: 'Riyadh and the Red Sea destination', city_ar: 'الرياض ووجهة البحر الأحمر',
-    hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', size: 204, saudiShare: 0.55,
+    hrms: 'PLATFORM', hrmsLabel: 'Tasama HR employee master', finance: 'ORACLE_FIN', size: 204, saudiShare: 0.55,
     nitaqat: { activity: 'Hotels and tourism', band: 'Medium Green', requiredPct: 0.32 }, slowness: 1.2,
     policy: { annualLeave: 26, annualLeaveAfter5: 30, carryForwardMax: 10, probationDays: 90, housingPct: 30, transportPct: 10, weeklyHours: 48, remoteDays: 0,
       advanceMultiple: 1, advanceBasis: 'basic', advanceMinServiceMonths: 6, advanceMaxTerm: 12, letterHours: 16, ticket: 'annual', educationAllowance: 30000, educationChildren: 3,
@@ -186,7 +195,7 @@ export const CLIENTS: ClientConfig[] = [
   {
     key: 'seven', code: 'SVN', name: 'Saudi Entertainment Ventures (SEVEN)', name_ar: 'شركة الترفيه السعودية (سفن)', short: 'SEVEN',
     sector: 'Entertainment', sector_ar: 'الترفيه', city: 'Riyadh', city_ar: 'الرياض',
-    hrms: 'ODOO', hrmsLabel: 'Odoo 19 Employees, Time Off and Payroll', size: 148, saudiShare: 0.66,
+    hrms: 'PLATFORM', hrmsLabel: 'Tasama HR employee master', finance: 'ODOO_ACC', size: 148, saudiShare: 0.66,
     nitaqat: { activity: 'Entertainment', band: 'High Green', requiredPct: 0.35 }, slowness: 1.0,
     policy: { annualLeave: 22, annualLeaveAfter5: 30, carryForwardMax: 5, probationDays: 90, housingPct: 25, transportPct: 10, weeklyHours: 40, remoteDays: 2,
       advanceMultiple: 1, advanceBasis: 'gross', advanceMinServiceMonths: 6, advanceMaxTerm: 12, letterHours: 8, ticket: 'biennial', educationAllowance: 0, educationChildren: 0,
@@ -211,7 +220,7 @@ export const CLIENTS: ClientConfig[] = [
   {
     key: 'saudicoffee', code: 'SCC', name: 'Saudi Coffee Company', name_ar: 'الشركة السعودية للقهوة', short: 'Saudi Coffee',
     sector: 'Food and agriculture', sector_ar: 'الأغذية والزراعة', city: 'Jazan and Riyadh', city_ar: 'جازان والرياض',
-    hrms: 'ODOO', hrmsLabel: 'Odoo 19 Employees and Payroll', size: 104, saudiShare: 0.62,
+    hrms: 'PLATFORM', hrmsLabel: 'Tasama HR employee master', finance: 'ODOO_ACC', size: 104, saudiShare: 0.62,
     nitaqat: { activity: 'Food manufacturing', band: 'Low Green', requiredPct: 0.28 }, slowness: 1.4,
     policy: { annualLeave: 21, annualLeaveAfter5: 30, carryForwardMax: 0, probationDays: 90, housingPct: 20, transportPct: 10, weeklyHours: 48, remoteDays: 0,
       advanceMultiple: 0.5, advanceBasis: 'gross', advanceMinServiceMonths: 12, advanceMaxTerm: 6, letterHours: 16, ticket: 'none', educationAllowance: 0, educationChildren: 0,

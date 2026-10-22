@@ -116,12 +116,13 @@ export function ConnectorScreen() {
   const [writes, setWrites] = useState(false);
   const { data } = useApi<any>(`/connector?${system ? `system=${system}&` : ''}${writes ? 'writes=1' : ''}`, { poll: 3000 });
   if (!data) return null;
-  const hrmsKey = session?.client.hrms === 'ODOO' ? 'ODOO' : 'ORACLE_HCM';
+  const mode = session?.client.hrms ?? 'ORACLE';
+  const hrmsKey = mode === 'ODOO' ? 'ODOO' : mode === 'PLATFORM' ? 'TASAMA_HR' : 'ORACLE_HCM';
   const oracle = data.stats.find((s: any) => s.system === hrmsKey);
-  const NAMES: Record<string, string> = { ORACLE_HCM: 'Oracle Fusion HCM (simulated)', ODOO: 'Odoo 19 (simulated)', ATOM: 'Oracle Atom feeds', ODOO_WEBHOOK: 'Odoo webhooks', QIWA: 'Qiwa', GOSI: 'GOSI', MUQEEM: 'Muqeem', MUDAD: 'Mudad', JADARAT: 'Jadarat', ABSHER: 'Absher', CCHI: 'CCHI insurance', M365: 'Microsoft 365', ANTHROPIC: 'Claude (Replit AI Integrations)', BGCHECK: 'Background check vendor', ASSESSMENT: 'Assessment vendor' };
+  const NAMES: Record<string, string> = { TASAMA_HR: 'Tasama HR employee master', TASAMA_HR_EVENTS: 'Tasama HR change events', ORACLE_HCM: 'Oracle Fusion HCM (simulated)', ODOO: 'Odoo 19 (simulated)', ATOM: 'Oracle Atom feeds', ODOO_WEBHOOK: 'Odoo webhooks', QIWA: 'Qiwa', GOSI: 'GOSI', MUQEEM: 'Muqeem', MUDAD: 'Mudad', JADARAT: 'Jadarat', ABSHER: 'Absher', CCHI: 'CCHI insurance', M365: 'Microsoft 365', ANTHROPIC: 'Claude (Replit AI Integrations)', BGCHECK: 'Background check vendor', ASSESSMENT: 'Assessment vendor' };
   const odoo = hrmsKey === 'ODOO';
   return (
-    <Screen hero={<Hero eyebrow="How it works" title={`${t('Every call to')} ${odoo ? 'Odoo' : 'Oracle HCM'} ${t('goes through one logged connector')}: ${num(oracle?.calls ?? 0)} ${t('calls')}, ${num(oracle?.writes ?? 0)} ${t('writes')}`} lede={odoo ? `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Calls use Odoo\'s external JSON-2 API (POST /json/2/<model>/<method>); changes arrive as webhooks from Odoo automation rules. The same agents run on Oracle clients through Oracle\'s REST resources: only this connector differs.')}` : `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Reads and writes use Oracle\'s REST resource names; HRMS changes arrive as Atom feed events. The same agents run on Odoo clients through Odoo\'s JSON-2 API: only this connector differs.')}`}
+    <Screen hero={<Hero eyebrow="How it works" title={`${t('Every call to')} ${mode === 'PLATFORM' ? t('the Tasama HR employee master') : odoo ? 'Odoo' : 'Oracle HCM'} ${t('goes through one logged connector')}: ${num(oracle?.calls ?? 0)} ${t('calls')}, ${num(oracle?.writes ?? 0)} ${t('writes')}`} lede={mode === 'PLATFORM' ? `${t('This client has no HR system of its own, so Tasama HR holds its employee master. Every read and write still goes through the one connector and is logged here. The same agents run on Oracle clients through Oracle\'s REST resources; Odoo\'s JSON-2 API stays in the connector as the fallback.')}` : odoo ? `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Calls use Odoo\'s external JSON-2 API (POST /json/2/<model>/<method>); changes arrive as webhooks from Odoo automation rules. The same agents run on Oracle clients through Oracle\'s REST resources: only this connector differs.')}` : `${t('The only path from the agentic layer to this client\'s system of record,')} ${session?.client.hrmsLabel}. ${t('Reads and writes use Oracle\'s REST resource names; HRMS changes arrive as Atom feed events. The same agents run on Odoo clients through Odoo\'s JSON-2 API: only this connector differs.')}`}
       />}>
       <AuditTabs />
       <StatRow>
@@ -129,9 +130,9 @@ export function ConnectorScreen() {
       </StatRow>
       <PageColumns aside={<>
         <Panel icon={<Server size={16} />} title="Systems">
-          {data.stats.map((s: any) => <StatusRow key={s.system} name={t(NAMES[s.system] ?? s.system)} detail={`${num(s.calls)} ${t('calls')} · ${num(s.writes)} ${t('writes')} · ${s.avg_ms} ms`} status={<button type="button" onClick={() => setSystem(system === s.system ? '' : s.system)} className={`mono-chip ${system === s.system ? 'is-primary' : s.system === 'ORACLE_HCM' || s.system === 'ATOM' ? 'is-success' : 'is-warn'}`}>{s.system === 'ORACLE_HCM' || s.system === 'ATOM' ? t('simulated') : t('stub')}</button>} />)}
+          {data.stats.map((s: any) => <StatusRow key={s.system} name={t(NAMES[s.system] ?? s.system)} detail={`${num(s.calls)} ${t('calls')} · ${num(s.writes)} ${t('writes')} · ${s.avg_ms} ms`} status={<button type="button" onClick={() => setSystem(system === s.system ? '' : s.system)} className={`mono-chip ${system === s.system ? 'is-primary' : ['ORACLE_HCM', 'ATOM', 'TASAMA_HR', 'TASAMA_HR_EVENTS'].includes(s.system) ? 'is-success' : 'is-warn'}`}>{['ORACLE_HCM', 'ATOM', 'TASAMA_HR', 'TASAMA_HR_EVENTS'].includes(s.system) ? t('simulated') : t('stub')}</button>} />)}
         </Panel>
-        <Panel icon={<Database size={16} />} title={odoo ? 'Odoo models used' : 'Oracle REST resources used'}>
+        <Panel icon={<Database size={16} />} title={mode === 'PLATFORM' ? 'Tasama HR resources used' : odoo ? 'Odoo models used' : 'Oracle REST resources used'}>
           {data.resources.map((r: any, i: number) => <div key={i} className="flex items-center gap-2 py-1 font-mono text-[11px]"><span className={r.method === 'GET' ? 'text-muted-foreground' : 'text-warn'}>{r.method}</span><span className="min-w-0 flex-1 truncate">{r.resource}</span><span>{r.n}</span></div>)}
         </Panel>
         <Panel icon={<Zap size={16} />} title="Atom feed events">

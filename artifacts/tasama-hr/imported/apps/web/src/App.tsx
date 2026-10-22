@@ -12,7 +12,7 @@
  * account, demo data, theme) is in the Demo control, not the menu.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AppShell, ContextNav, LensPicker, MainPanel, TitleBar, TitleBarSearch, UserBadge, Wordmark, useAppChrome, useChatRail, type ContextNavItem } from '@cognirise/atelier/layout';
+import { AppShell, ContextNav, LensPicker, MainPanel, TitleBar, TitleBarSearch, UserBadge, useAppChrome, useChatRail, type ContextNavItem } from '@cognirise/atelier/layout';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@cognirise/atelier/components/ui/dropdown-menu';
 import { Bell, Bot, Briefcase, CalendarDays, ClipboardCheck, Coins, DoorOpen, FileText, GitBranch, Home, Inbox, LayoutGrid, LineChart, Scale, ShieldCheck, Sprout, TrendingUp, UserPlus, Users, Wallet } from 'lucide-react';
 import { useApi } from './lib/api';
@@ -20,9 +20,12 @@ import { LanguageToggle, useLang } from './lib/i18n';
 import { initials, ago } from './lib/format';
 import { useApp, type LensId, lensHome } from './app/state';
 import { DemoControl } from './app/demo-control';
-import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPolicies, TasamaPatterns } from './screens/tasama';
+import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPatterns } from './screens/tasama';
+import { ClientPolicies, PayrollInbox, PayrollMonths } from './screens/payroll';
 import { DirectorBar } from './app/director';
 import { PresentBar, PresentOverlay, usePresent } from './app/present';
+import { ClientTile, TitleBrand } from './app/brand';
+import { applySkin, skinFor, SKINS } from './lib/brand';
 import { Stage } from './app/stage';
 import { Receipt, AlertTriangle, BookOpen } from 'lucide-react';
 import { AssistantRail } from './app/assistant';
@@ -43,13 +46,19 @@ type Item = ContextNavItem & { show?: (roles: string[], key: string) => boolean 
 const I = (n: ReactNode) => n;
 
 const MENUS: Record<LensId, Item[]> = {
+  // Tasama's payroll team (design/payroll-addendum.md §3). Inputs, Attendance, Runs, Payments and Journals join as their phases are built.
+  payroll: [
+    { id: 'payroll-months', label: 'Months', icon: I(<CalendarDays size={14} />) },
+    { id: 'payroll-inbox', label: 'Inbox', icon: I(<Inbox size={14} />) },
+    { id: 'payroll-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
+  ],
   tasama: [
     { id: 'tasama-portfolio', label: 'Overview', icon: I(<LayoutGrid size={14} />) },
     { id: 'tasama-escalations', label: 'Escalations', icon: I(<AlertTriangle size={14} />) },
     { id: 'tasama-patterns', label: 'Patterns', icon: I(<TrendingUp size={14} />) },
     { id: 'tasama-finance', label: 'Finance', icon: I(<Receipt size={14} />) },
     { id: 'tasama-delivery', label: 'Delivery team', icon: I(<Users size={14} />) },
-    { id: 'tasama-policies', label: 'Client handbooks', icon: I(<BookOpen size={14} />) },
+    { id: 'tasama-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
   ],
   my: [
     { id: 'my-onboarding', label: 'Onboarding', icon: I(<UserPlus size={14} />), show: (r) => r.includes('JOINER') },
@@ -85,13 +94,14 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'value', label: 'Value', icon: I(<LineChart size={14} />) },
   ],
 };
-const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'control', label: 'How it works' }];
+const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'payroll', label: 'Payroll' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'control', label: 'How it works' }];
 /** Which menu item a screen that is not in the menu lights up. */
 const NAV_OF: Record<string, string> = { 'tasama-account': 'tasama-portfolio', 'tasama-sla': 'tasama-portfolio', person: 'hr-workforce', connector: 'evidence' };
 
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
-  'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <TasamaPolicies />,
+  'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <ClientPolicies />,
+  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-policies': () => <ClientPolicies />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
   'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-overview': () => <ChroOverview />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,
@@ -189,6 +199,10 @@ export default function App() {
   const screen = SCREENS[route.screen];
   // While presenting: no menu, no assistant rail, a slim bar. On the Stage the three panes replace the screen.
   const { present, onStage } = usePresent();
+  // The skin follows the person's employer; the Stage and Present cards stay in Tasama's (design/payroll-addendum.md §14).
+  const skin = skinFor(persona?.key, session?.client.key);
+  const frameSkin = present && present.view !== 'app' ? SKINS.tasama : skin;
+  useEffect(() => { applySkin(frameSkin); }, [frameSkin]);
   const directorBar = !!director && !onStage;
   return (
     <>
@@ -196,9 +210,9 @@ export default function App() {
         rail={rail}
         chrome={chrome}
         chatRail={present ? undefined : <AssistantRail rail={rail} />}
-        titleBar={present ? <PresentBar user={<PersonaMenu />} /> : (
+        titleBar={present ? <PresentBar user={<span className="flex items-center gap-2">{skin.key !== 'tasama' ? <ClientTile skin={skin} alt={session?.client.short ?? ''} small /> : null}<PersonaMenu /></span>} /> : (
           <TitleBar
-            brand={<button type="button" onClick={() => go(lensHome(lens, persona))} className="flex items-center gap-2"><img src="/brand/mark.png" alt="" className="h-7 w-7 dark:hidden" /><img src="/brand/mark-on-dark.png" alt="" className="hidden h-7 w-7 dark:block" /><Wordmark className="text-lg">{t('Tasama HR')}</Wordmark><span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('demo')}</span></button>}
+            brand={<button type="button" onClick={() => go(lensHome(lens, persona))} className="flex items-center"><TitleBrand skin={skin} clientName={session?.client.short ?? ''} /></button>}
             theme={false}
             lens={lenses.length > 1 ? <LensPicker lenses={lenses} value={lensValue} onChange={pickLens} /> : undefined}
             utilities={<div className="flex items-center gap-3"><Notifications /><LanguageToggle /></div>}

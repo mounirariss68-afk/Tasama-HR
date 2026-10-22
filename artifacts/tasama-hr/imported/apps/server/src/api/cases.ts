@@ -7,6 +7,7 @@ import { REJECT_REASONS } from '../domain/reasons.js';
 import { letterName } from '../engine/handlers.js';
 import { caseScope, personaOf, has, type Persona } from './session.js';
 import { TASAMA_KEY } from './session.js';
+import { client } from '../domain/rules.js';
 import { WORKFLOWS } from '../domain/workflows.js';
 import { iso, addDays, daysBetween } from '../domain/rules.js';
 
@@ -68,7 +69,9 @@ cases.post('/requests', async (req, res) => {
 const LIST_SQL = `
   SELECT r.*, wd.name AS workflow_name, wd.name_ar AS workflow_name_ar, wd.stage,
          s.display_name AS subject_name, s.display_name_ar AS subject_name_ar, s.person_number AS subject_number,
-         q.display_name AS requester_name, w.display_name AS waiting_on_name, w.display_name_ar AS waiting_on_name_ar,
+         q.display_name AS requester_name,
+         COALESCE(w.display_name, CASE r.waiting_on_role WHEN 'TASAMA_PAYROLL_LEAD' THEN 'Sharifa AlMousa' WHEN 'TASAMA_PAYROLL' THEN 'Nasser AlFarraj' END) AS waiting_on_name,
+         COALESCE(w.display_name_ar, CASE r.waiting_on_role WHEN 'TASAMA_PAYROLL_LEAD' THEN 'شريفة الموسى' WHEN 'TASAMA_PAYROLL' THEN 'ناصر الفراج' END) AS waiting_on_name_ar,
          (SELECT agent_step.actor_id FROM layer.run_steps agent_step WHERE agent_step.request_id=r.id AND agent_step.actor_type='AGENT' ORDER BY agent_step.seq DESC LIMIT 1) AS last_agent
     FROM layer.requests r
     JOIN layer.workflow_defs wd ON wd.id = r.workflow_id
@@ -107,7 +110,7 @@ cases.get('/requests/:ref', async (req, res) => {
     pool.query(`SELECT * FROM layer.integration_log WHERE request_id=$1 ORDER BY at, id`, [r.id]),
   ]);
   const def = WORKFLOWS.find((w) => w.id === r.workflow_id)!;
-  res.json({ ...r, steps: steps.rows.map((s: any) => ({ ...s, def: def.steps.find((d) => d.key === s.step_key) })), approvals: approvals.rows, trail: trail.rows, logs: logs.rows, canDecide: ['WAITING', 'ESCALATED'].includes(r.status) && r.waiting_on_person_id === p.person_id });
+  res.json({ ...r, client_short: client().short, client_ar: client().name_ar, steps: steps.rows.map((s: any) => ({ ...s, def: def.steps.find((d) => d.key === s.step_key) })), approvals: approvals.rows, trail: trail.rows, logs: logs.rows, canDecide: ['WAITING', 'ESCALATED'].includes(r.status) && (r.waiting_on_person_id === p.person_id || (r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role))) });
 });
 
 cases.post('/requests/:ref/decide', async (req, res) => {
@@ -116,11 +119,13 @@ cases.post('/requests/:ref/decide', async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   // Tasama HR Operations may act on any case of a client it serves, on behalf of the approver, with a reason on the record.
   const onBehalf = p.key === TASAMA_KEY;
-  if (!onBehalf && r.waiting_on_person_id !== p.person_id) return res.status(403).json({ error: `This decision belongs to ${r.waiting_on_role}, not to ${p.label}.` });
+  // Tasama's payroll team decides the cases that wait on its role (design/payroll-addendum.md §2).
+  const tasamaRole = r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role);
+  if (!onBehalf && !tasamaRole && r.waiting_on_person_id !== p.person_id) return res.status(403).json({ error: `This decision belongs to ${r.waiting_on_role}, not to ${p.label}.` });
   if (onBehalf && !String(req.body.reason ?? '').trim()) return res.status(400).json({ error: 'Tasama HR Operations decides on behalf of the client approver only with a reason on the record.' });
   const behalfName = onBehalf ? (await pool.query('SELECT display_name FROM hcm.persons WHERE id=$1', [r.waiting_on_person_id])).rows[0]?.display_name ?? r.waiting_on_role : '';
   try {
-    await tx((c) => decide(c, { requestId: r.id, personId: onBehalf ? (r.waiting_on_person_id ?? 0) : p.person_id, decision: req.body.decision, reason: req.body.reason, edits: req.body.edits, actorName: onBehalf ? `${p.display_name} (Tasama HR Operations, on behalf of ${behalfName})` : undefined }));
+    await tx((c) => decide(c, { requestId: r.id, personId: onBehalf ? (r.waiting_on_person_id ?? 0) : p.person_id, decision: req.body.decision, reason: req.body.reason, edits: req.body.edits, actorName: onBehalf ? `${p.display_name} (Tasama HR Operations, on behalf of ${behalfName})` : tasamaRole ? `${p.display_name}, Tasama` : undefined }));
     // A rejection is an issue for Basira's pattern watch, with the reason the decider picked.
     if (req.body.decision === 'REJECTED') {
       const code = REJECT_REASONS.includes(req.body.reason_code) ? req.body.reason_code : 'NOT_RECORDED';

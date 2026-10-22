@@ -38,7 +38,7 @@ export function plain(s: string | null | undefined): string {
     .replace(/\bWF-\d+\b\s*(?:·\s*)?/g, '')
     .replace(/\s*\b[a-z]+(?:[A-Z][a-z]+)+(?:\/[a-zA-Z]+)*\b/g, '')
     .replace(/\s*·\s*(?=·|$)/g, '')
-    .replace(/\bORACLE_HCM\b/g, 'Oracle HCM').replace(/\bHR_OPS\b/g, 'HR operations').replace(/\bLINE_MANAGER\b/g, 'line manager').replace(/\bODOO_WEBHOOK\b/g, 'Odoo webhooks')
+    .replace(/\bORACLE_HCM\b/g, 'Oracle HCM').replace(/\bTASAMA_HR_EVENTS\b/g, 'Tasama HR events').replace(/\bTASAMA_HR\b/g, 'Tasama HR').replace(/\bHR_OPS\b/g, 'HR operations').replace(/\bLINE_MANAGER\b/g, 'line manager').replace(/\bODOO_WEBHOOK\b/g, 'Odoo webhooks')
     .replace(/\b[A-Z]{2,}(?:_[A-Z]{2,})+\b/g, (m) => m.toLowerCase().replace(/_/g, ' '))
     .replace(/\(([A-Z]{4,})\)/g, (_m, w) => `(${w.toLowerCase()})`)
     .replace(/\bthe (BASIC|HOUSING|TRANSPORT) entry\b/g, (_m, w) => `the ${w.toLowerCase()} entry`)
@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -240,6 +240,26 @@ export function caseCard(c: any, x: T): Card {
       return { kind, headline: `${t(p.division)} ${p.period}: ${cal.flags.length} ${t('flags to resolve before ratings are shared')}`,
         facts: [{ k: t('Rated'), v: cal.n }, { k: t('Average'), v: cal.average?.toFixed?.(2) ?? '—' }, { k: t('Rated 5'), v: cal.n ? `${Math.round((five / cal.n) * 100)}%` : '—', tone: cal.n && five / cal.n > 0.15 ? 'warn' : undefined, viz: cal.n ? <CapBar value={Math.round((five / cal.n) * 100)} cap={15} max={30} tone={five / cal.n > 0.15 ? 'warn' : 'success'} capLabel={t('guide 15%')} /> : undefined }],
         rec: recOf(c) };
+    }
+    case 'WF-26': {
+      const rd = r.reading;
+      if (!rd) return base;
+      const unclear = rd.flagged.filter((f: any) => f.flag === 'UNCLEAR');
+      const below = rd.flagged.filter((f: any) => f.flag === 'BELOW_LAW');
+      const missing = rd.flagged.filter((f: any) => f.flag === 'MISSING');
+      const client = bi(c.client_short, c.client_ar) || '';
+      const atClient = c.current_step === 'activate';
+      const headline = atClient
+        ? `${t('Activate version')} ${rd.version} ${t('of the payroll policy')}${(p.readings_applied ?? []).length ? `: ${lower(p.readings_applied[0])}` : ''}`
+        : unclear.length ? `${client ? `${client}: ` : ''}${t('the revised handbook reads into')} ${rd.rules} ${t('rules')}; ${unclear.length} ${t(unclear.length === 1 ? 'needs a reading' : 'need a reading')}`
+        : `${client ? `${client}: ` : ''}${t('the revised handbook reads into')} ${rd.rules} ${t('rules, all clear')}`;
+      const facts: Fact[] = [
+        { k: t('Read'), v: `${rd.rules} ${t('rules on all')} ${rd.dims} ${t('dimensions')}`, note: `${rd.clauses} ${t('clauses')}` },
+        { k: t('Below the law'), v: below.length ? below.map((f: any) => bi(f.label, f.label_ar)).join(', ') : t('None'), tone: below.length ? 'danger' : undefined },
+        ...unclear.slice(0, 1).map((f: any) => ({ k: `${t('Unclear')}: ${bi(f.label, f.label_ar)}`, v: f.quote ? `“${(f.quote.match(/[^.]*time and a half[^.]*\./i) ?? [f.quote])[0].trim()}”` : '—', tone: 'warn' as const, wide: true, note: plain(f.note) })),
+        { k: t('Not in the handbook'), v: missing.length ? missing.map((f: any) => bi(f.label, f.label_ar)).join(', ') : t('Nothing'), note: missing.length ? t('Asked of the client before anything is paid') : undefined },
+      ];
+      return { kind, headline, facts: facts.slice(0, 4), rec: recOf(c) };
     }
     case 'WF-06': return { kind, headline: `${who}${t('’s pre-boarding is blocked; start date')} ${date(p.start_date, lang)}`, facts: [], rec: recOf(c) };
     default: return base;

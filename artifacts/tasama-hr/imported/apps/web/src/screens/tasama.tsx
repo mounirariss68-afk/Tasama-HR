@@ -26,7 +26,7 @@ function ClientStrip({ clients }: { clients: any[] }) {
           const ok = c.sla.lastMet === c.sla.lastScored;
           return (
             <div key={c.key} className="rounded-xl border border-white/15 bg-white/10 px-3 py-2.5 text-white backdrop-blur-sm">
-              <div className="flex items-center justify-between gap-2"><span className="truncate text-[13px] font-semibold">{bi(c.short, c.name_ar)}</span><span className="text-[10px] uppercase tracking-wider text-white/70">{c.hrms === 'ODOO' ? 'Odoo' : 'Oracle'}</span></div>
+              <div className="flex items-center justify-between gap-2"><span className="truncate text-[13px] font-semibold">{bi(c.short, c.name_ar)}</span><span className="text-[10px] uppercase tracking-wider text-white/70">{c.hrms === 'PLATFORM' ? 'Tasama HR' : c.hrms === 'ODOO' ? 'Odoo' : 'Oracle'}</span></div>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/20"><div className={`h-full rounded-full ${ok ? 'bg-success' : 'bg-warn'}`} style={{ width: `${(c.sla.lastMet / Math.max(1, c.sla.lastScored)) * 100}%` }} /></div>
               <div className="mt-1 flex justify-between text-[11px] text-white/75"><span>{c.sla.lastMet}/{c.sla.lastScored} {t('SLAs')}</span><span>{c.headcount} {t('staff')}</span></div>
             </div>
@@ -43,7 +43,7 @@ const EYEBROW = 'Tasama HR Services';
 const pctTone = (att: number | null, target: number) => (att === null ? undefined : att >= target ? 'success' : att >= target - 2 ? 'warn' : 'danger');
 
 function HrmsChip({ hrms }: { hrms: string }) {
-  return <span className={`mono-chip ${hrms === 'ODOO' ? 'is-warn' : 'is-primary'}`}>{hrms === 'ODOO' ? 'Odoo' : 'Oracle HCM'}</span>;
+  return <span className={`mono-chip ${hrms === 'PLATFORM' ? 'is-success' : hrms === 'ODOO' ? 'is-warn' : 'is-primary'}`}>{hrms === 'PLATFORM' ? 'Tasama HR' : hrms === 'ODOO' ? 'Odoo' : 'Oracle HCM'}</span>;
 }
 
 function SlaCell({ s }: { s: any }) {
@@ -74,7 +74,7 @@ export function TasamaPortfolio() {
   if (!data) return null;
   const T = data.totals;
   return (
-    <Screen hero={<Hero landing eyebrow={EYEBROW} title={`${T.slaMet} ${t('of')} ${T.slaScored} ${t('service levels met last month')}`} lede={`${num(T.clients)} ${t('client accounts')} · ${num(T.employees)} ${t('employees served')}, ${t('each on its own HRMS: Oracle HCM or Odoo.')}`}
+    <Screen hero={<Hero landing eyebrow={EYEBROW} title={`${T.slaMet} ${t('of')} ${T.slaScored} ${t('service levels met last month')}`} lede={`${num(T.clients)} ${t('client accounts')} · ${num(T.employees)} ${t('employees served')}, ${t('two on their own Oracle HCM, three held in Tasama HR.')}`}
       media={<ClientStrip clients={data.clients} />} />}>
       <RouteTabs items={[{ id: 'tasama-portfolio', label: 'Portfolio' }, { id: 'tasama-sla', label: 'Service levels' }]} />
       <StatRow>
@@ -340,49 +340,6 @@ export function TasamaDelivery() {
             <td className="text-end tabular-nums">{s.load_hours}</td><td className="text-end tabular-nums">{s.capacity}</td>
             <td><div className="flex items-center gap-2"><Bar value={Math.min(150, s.utilization)} max={150} tone={s.utilization > 100 ? 'danger' : s.utilization > 85 ? 'warn' : 'primary'} /><span className="w-12 text-end font-mono text-xs">{s.utilization}%</span></div></td>
           </tr>)}</tbody></Table>
-      </Panel>
-    </Screen>
-  );
-}
-
-// ------------------------------------------------------------------ HR policies of every client
-
-const COMPARE: [string, string][] = [['4.1', 'Annual leave'], ['4.4', 'Air tickets'], ['5.6', 'Remote work'], ['6.5', 'Education allowance'], ['6.6', 'Medical insurance'], ['7.2', 'Salary advances'], ['3.4', 'Probation'], ['12.1', 'Notice periods'], ['5.1', 'Working hours'], ['4.2', 'Carry-forward']];
-
-export function TasamaPolicies() {
-  const { t, bi, lang } = useLang();
-  const { session } = useApp();
-  const [client, setClient] = useState<string>(session?.clients[0]?.key ?? 'roshn');
-  const [ref, setRef] = useState('4.1');
-  const [q, setQ] = useState('');
-  const { data } = useApi<any>(`/tasama/policies?client=${client}`);
-  const { data: cmp } = useApi<any>(`/tasama/policies/compare?ref=${ref}`);
-  const ql = q.trim().toLowerCase();
-  return (
-    <Screen hero={<Hero tone="surface" eyebrow={EYEBROW} title={`${session?.clients.length ?? 0} ${t('clients, each with its own HR handbook')}`} lede={t('Compare one rule across clients, or read one client\'s handbook. Employees are answered only from their own company\'s handbook.')} />}>
-      <Panel icon={<Scale size={16} />} title="Compare one rule across clients">
-        <div className="mb-3 flex flex-wrap gap-1.5">{COMPARE.map(([r, l]) => <button key={r} type="button" onClick={() => setRef(r)} className={`mono-chip ${ref === r ? 'is-primary' : ''}`}>{t(l)}</button>)}</div>
-        {cmp ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{cmp.rows.map((r: any) => (
-          <div key={r.key} className="rounded-xl glass-l3 p-3">
-            <p className="text-sm font-semibold">{bi(r.short, r.name_ar)}</p>
-            {r.clause ? <><p className="mt-1 text-xs font-medium text-muted-foreground">{r.clause.id} · {bi(r.clause.heading, r.clause.heading_ar)}</p><p className="mt-1 text-sm">{lang === 'ar' ? r.clause.text_ar : r.clause.text_en}</p>{r.clause.legal_ref ? <p className="mt-1 font-mono text-[10px] text-muted-foreground">{r.clause.legal_ref}</p> : null}</> : <p className="text-xs text-muted-foreground">{t('No such clause.')}</p>}
-          </div>))}</div> : null}
-      </Panel>
-      <Panel icon={<BookOpen size={16} />} title="Handbook" action={<input className="input h-8 w-56 text-sm" placeholder={t('Filter clauses')} value={q} onChange={(e) => setQ(e.target.value)} />}>
-        <ClientPicker value={client} onChange={setClient} />
-        {data ? <div className="mt-4 space-y-5">{data.policies.map((p: any) => {
-          const cls = data.clauses.filter((c: any) => c.policy_id === p.id && (!ql || `${c.heading} ${c.text_en} ${c.tags?.join(' ')}`.toLowerCase().includes(ql)));
-          if (!cls.length) return null;
-          return (
-            <section key={p.id}>
-              <h3 className="text-sm font-semibold">{p.id} · {bi(p.title, p.title_ar)} <span className="font-normal text-muted-foreground">· v{p.version} · {date(p.effective_date, lang)}</span></h3>
-              <div className="mt-2 space-y-2">{cls.map((c: any) => (
-                <div key={c.id} className="rounded-lg border border-border/60 p-3">
-                  <p className="text-xs font-semibold">§{c.clause_ref} {bi(c.heading, c.heading_ar)} {c.legal_ref ? <span className="ms-2 font-mono text-[10px] font-normal text-muted-foreground">{c.legal_ref}</span> : null}</p>
-                  <p className="mt-1 text-sm">{lang === 'ar' ? c.text_ar : c.text_en}</p>
-                </div>))}</div>
-            </section>);
-        })}</div> : null}
       </Panel>
     </Screen>
   );

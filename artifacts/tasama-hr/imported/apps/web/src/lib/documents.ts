@@ -16,11 +16,11 @@ export type DocumentBrand = {
   logo: string; website: string; color: string; logoBackground: string;
 };
 export const DOCUMENT_BRANDS: Record<string, DocumentBrand> = {
-  roshn: { logo: 'roshn.svg', website: 'https://www.roshn.sa', color: '#02231F', logoBackground: '#02231F' },
-  riyadhair: { logo: 'riyadhair.svg', website: 'https://www.riyadhair.com', color: '#250854', logoBackground: '#250854' },
-  redsea: { logo: 'redsea.svg', website: 'https://www.redseaglobal.com', color: '#0A1D2D', logoBackground: '#0A1D2D' },
-  seven: { logo: 'seven.png', website: 'https://seven.sa', color: '#502C80', logoBackground: '#FFFFFF' },
-  saudicoffee: { logo: 'saudicoffee.svg', website: 'https://www.saudicoffee.com', color: '#203B31', logoBackground: '#203B31' },
+  roshn: { logo: 'roshn-wordmark.png', website: 'https://www.roshn.sa', color: '#02231F', logoBackground: '#FFFFFF' },
+  riyadhair: { logo: 'riyadhair-wordmark.png', website: 'https://www.riyadhair.com', color: '#250854', logoBackground: '#FFFFFF' },
+  redsea: { logo: 'redsea-wordmark.png', website: 'https://www.redseaglobal.com', color: '#0A1D2D', logoBackground: '#FFFFFF' },
+  seven: { logo: 'seven-wordmark.png', website: 'https://seven.sa', color: '#502C80', logoBackground: '#FFFFFF' },
+  saudicoffee: { logo: 'saudicoffee-wordmark.png', website: 'https://www.saudicoffee.com', color: '#203B31', logoBackground: '#FFFFFF' },
   tasama: { logo: 'tasama.png', website: '', color: '#10069E', logoBackground: '#FFFFFF' },
 };
 export const TASAMA_ISSUER = { key: 'tasama', name: 'Tasama', name_ar: 'تساما', code: 'TAS' } as ClientInfo;

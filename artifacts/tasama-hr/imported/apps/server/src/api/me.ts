@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { aiStatus } from '../ai.js';
 import { CLIENTS } from '../domain/clients.js';
 import { pool } from '../db.js';
-import { personaOf, personas, has , TASAMA_PERSONA } from './session.js';
+import { personaOf, personas, has , TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST } from './session.js';
 import { worker, team, balances } from '../hcm/queries.js';
 import { read, type Ctx } from '../hcm/connector.js';
 import { client, gratuity, yearsBetween, iso, daysBetween, round2, gosi, advanceMax, advanceMaxTerm } from '../domain/rules.js';
@@ -20,7 +20,7 @@ me.get('/session', async (req, res) => {
   const cl = client();
   res.json({
     persona: p,
-    personas: [{ ...TASAMA_PERSONA, inbox: openEsc }, ...(await personas()).map((x) => ({ ...x, inbox: counts.find((c: any) => c.pid === x.person_id)?.n ?? 0 }))],
+    personas: [{ ...TASAMA_PERSONA, inbox: openEsc }, { ...PAYROLL_LEAD, inbox: 0 }, { ...PAYROLL_SPECIALIST, inbox: 0 }, ...(await personas()).map((x) => ({ ...x, inbox: counts.find((c: any) => c.pid === x.person_id)?.n ?? 0 }))],
     client: { key: cl.key, code: cl.code, name: cl.name, name_ar: cl.name_ar, short: cl.short, sector: cl.sector, sector_ar: cl.sector_ar, hrms: cl.hrms, hrmsLabel: cl.hrmsLabel, bank: cl.bank, services: cl.contract.services },
     clients: CLIENTS.map((c) => ({ key: c.key, code: c.code, name: c.name, name_ar: c.name_ar, short: c.short, sector: c.sector, sector_ar: c.sector_ar, hrms: c.hrms, hrmsLabel: c.hrmsLabel })),
     ai: aiStatus(),

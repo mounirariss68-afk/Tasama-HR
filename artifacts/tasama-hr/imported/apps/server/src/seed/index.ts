@@ -3,6 +3,7 @@
  * HRMS (hcm_<key>) and agentic-layer store (layer_<key>) with a replayed case
  * history; then Tasama's own schema, derived from the client accounts.
  */
+import { applyCalendar } from '../domain/calendar.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -15,7 +16,7 @@ import { seedIssues } from './issues.js';
 import { basiraScan } from '../tasama/basira.js';
 
 /** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
-export const SEED_VERSION = 2;
+export const SEED_VERSION = 3;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
@@ -38,6 +39,7 @@ export async function reseed(log: (s: string) => void = console.log) {
     try {
       resetPeople();
       const anchor = new Date(`${iso(new Date())}T00:00:00Z`);
+      applyCalendar(anchor);
       for (const cl of CLIENTS) {
         await withClient(cl.key, async () => {
           const c = await pool.connect();
@@ -85,4 +87,11 @@ export async function isSeeded() {
   } catch {
     return false;
   }
+}
+
+/** After a restart on an existing database: put the payroll calendar back around the anchor the data was seeded on. */
+export async function restoreCalendar() {
+  const r = await pool.query(`SELECT value FROM layer_roshn.meta WHERE key='anchor'`).catch(() => ({ rows: [] as any[] }));
+  const a = r.rows[0]?.value;
+  if (a) applyCalendar(new Date(typeof a === 'string' ? a : String(a)));
 }

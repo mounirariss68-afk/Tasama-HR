@@ -9,6 +9,7 @@
  */
 import { currentClient } from '../db.js';
 import { clientByKey, CLIENTS, type ClientConfig, type PolicyParams } from './clients.js';
+import { gosiContribution } from './payroll/gosi.js';
 
 export const client = (): ClientConfig => clientByKey(currentClient() ?? '') ?? CLIENTS[0];
 export const pol = (): PolicyParams => client().policy;
@@ -46,7 +47,8 @@ export const eosWage = (basic: number) => round2(basic * (1 + (pol().housingPct 
  * Art. 85: on resignation, none under 2 years, one third for 2-5, two thirds for 5-10, full at 10+.
  */
 export function gratuity(basic: number, hireDate: string | Date, lastDay: string | Date, unpaidDays = 0, kind: 'TERMINATION' | 'RESIGNATION' = 'TERMINATION') {
-  const years = Math.max(0, (daysBetween(hireDate, lastDay) - unpaidDays) / 365);
+  // Art. 116: unpaid leave counts as service up to 20 days; only the days beyond are excluded.
+  const years = Math.max(0, (daysBetween(hireDate, lastDay) - Math.max(0, unpaidDays - 20)) / 365);
   const wage = eosWage(basic);
   const full = Math.min(years, 5) * 0.5 * wage + Math.max(0, years - 5) * wage;
   let factor = 1, why = '';
@@ -62,20 +64,14 @@ export function gratuity(basic: number, hireDate: string | Date, lastDay: string
 }
 
 /**
- * GOSI 2026. Saudis registered before 3 Jul 2024: employer 11.75%, employee 9.75% (annuities + SANED).
- * Registered from 3 Jul 2024 (new system): 12.25 / 10.25 Jan-Jun 2026, 12.75 / 10.75 from Jul 2026.
- * Non-Saudis: employer 2% (occupational hazards) only. Contribution wage = basic + housing, capped at SAR 45,000.
+ * GOSI from the dated rate table (domain/payroll/gosi.ts): legacy Saudis 9.75% / 11.75%; Saudis first
+ * registered from 3 Jul 2024 step up each July from 2025; non-Saudis 2% employer only. Contribution wage =
+ * basic + housing, capped at SAR 45,000. `registeredFrom` is the first GOSI registration; callers without
+ * one pass the hire date.
  */
 export function gosi(basicPlusHousing: number, registeredFrom: string | Date, isSaudi = true, asOf: string | Date = new Date()) {
-  const contributionSalary = Math.min(basicPlusHousing, 45_000);
-  let ee = 0, er = 0.02;
-  if (isSaudi) {
-    const isNew = parse(registeredFrom) >= parse('2024-07-03');
-    const h2 = parse(asOf) >= parse('2026-07-01');
-    ee = isNew ? (h2 ? 0.1075 : 0.1025) : 0.0975;
-    er = isNew ? (h2 ? 0.1275 : 0.1225) : 0.1175;
-  }
-  return { contributionSalary, employee: round2(contributionSalary * ee), employer: round2(contributionSalary * er), eeRate: ee, erRate: er };
+  const g = gosiContribution(basicPlusHousing, isSaudi, registeredFrom, asOf);
+  return { contributionSalary: g.wage, employee: g.employee, employer: g.employer, eeRate: g.eeRate, erRate: g.erRate };
 }
 
 /** HR-12 §12.1: notice the EMPLOYEE gives (30 days, Art. 75) or the contractual period for G11+. */

@@ -191,26 +191,6 @@ tasama.post('/tasama/escalations/:id/:action', async (req, res) => {
   res.json((await pool.query(`SELECT * FROM tasama.escalations WHERE id=$1`, [id])).rows[0]);
 });
 
-/** Every client's HR handbook, as loaded in that client's account. */
-tasama.get('/tasama/policies', async (req, res) => {
-  const cl = clientByKey(String(req.query.client ?? CLIENTS[0].key))!;
-  const data = await inClient(cl, async () => ({
-    policies: (await pool.query(`SELECT * FROM layer.policies ORDER BY id`)).rows,
-    clauses: (await pool.query(`SELECT id, policy_id, clause_ref, heading, heading_ar, text_en, text_ar, legal_ref, tags FROM layer.policy_clauses ORDER BY policy_id, string_to_array(clause_ref, '.')::int[]`)).rows,
-  }));
-  res.json({ client: { key: cl.key, short: cl.short, name: cl.name, name_ar: cl.name_ar }, ...data, clients: CLIENTS.map((c) => ({ key: c.key, short: c.short, name_ar: c.name_ar })) });
-});
-/** One clause across every client, side by side (e.g. 4.1 annual leave, 7.2 advances). */
-tasama.get('/tasama/policies/compare', async (req, res) => {
-  const ref = String(req.query.ref ?? '4.1');
-  const rows: any[] = [];
-  for (const cl of CLIENTS) {
-    const c = await inClient(cl, async () => (await pool.query(`SELECT * FROM layer.policy_clauses WHERE clause_ref=$1`, [ref])).rows[0]);
-    rows.push({ key: cl.key, short: cl.short, name_ar: cl.name_ar, clause: c ?? null });
-  }
-  res.json({ ref, rows });
-});
-
 // Basira's pattern watch.
 tasama.get('/tasama/patterns', async (_req, res) => res.json(await patterns()));
 tasama.get('/tasama/patterns/:id/issues', async (req, res) => res.json(await patternIssues(Number(req.params.id))));

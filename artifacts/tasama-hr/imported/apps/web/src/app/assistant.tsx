@@ -87,7 +87,7 @@ export function AssistantRail({ rail }: { rail: ChatRailState }) {
     <ChatRail
       rail={rail}
       label={name}
-      brand={<RailBrandCard className="dark:border-white/10 dark:bg-card/80" onCollapse={() => rail.setOpen(false)}><img src="/brand/logo-on-light.png" alt={client.short} className="h-8 w-auto dark:hidden" /><img src="/brand/logo-on-dark.png" alt={client.short} className="hidden h-8 w-auto dark:block" /></RailBrandCard>}
+      brand={<RailBrandCard className="dark:border-white/10 dark:bg-card/80" onCollapse={() => rail.setOpen(false)}><img src="/brand/logo-on-light.png" alt="Tasama" className="h-8 w-auto dark:hidden" /><img src="/brand/logo-on-dark.png" alt="Tasama" className="hidden h-8 w-auto dark:block" /></RailBrandCard>}
       collapsedBrand={<><img src="/brand/mark.png" alt="" className="h-6 w-6 dark:hidden" /><img src="/brand/mark-on-dark.png" alt="" className="hidden h-6 w-6 dark:block" /></>}
       header={
         <div className="flex items-center gap-2">

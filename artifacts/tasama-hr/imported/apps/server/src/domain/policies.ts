@@ -11,6 +11,7 @@
  * Saudi Coffee Company, and it must not be used as such.
  */
 import type { ClientConfig } from './clients.js';
+import { payrollClauses } from './payroll-policy.js';
 
 export type Clause = { ref: string; heading: string; heading_ar: string; en: string; ar: string; legal?: string; tags: string[] };
 export type Policy = { id: string; title: string; title_ar: string; version: string; effective: string; owner: string; summary: string; clauses: Clause[] };
@@ -44,7 +45,24 @@ const ISSUE: Record<string, { y1: string; y2: string; bump: number }> = {
   saudicoffee: { y1: '2025-09-01', y2: '2026-06-01', bump: 0 },
 };
 
-export function policiesFor(c: ClientConfig): Policy[] {
+/** The client's handbook. `revised`: the version uploaded in scenario D1 (see payroll-policy.ts). */
+export function policiesFor(c: ClientConfig, revised = false): Policy[] {
+  return withPayrollTerms(c, baseHandbook(c), revised);
+}
+
+/** The payroll terms (payroll-policy.ts) replace or join the clauses with the same reference. */
+function withPayrollTerms(c: ClientConfig, policies: Policy[], revised: boolean): Policy[] {
+  const pay = payrollClauses(c, revised);
+  const home: Record<string, string> = { '5.5': 'HR-05', '6.2': 'HR-06', '6.8': 'HR-06' };
+  const order = (a: Clause, b: Clause) => { const [x1, y1] = a.ref.split('.').map(Number), [x2, y2] = b.ref.split('.').map(Number); return x1 - x2 || y1 - y2; };
+  return policies.map((p) => {
+    const clauses = p.clauses.map((k) => pay[k.ref] ?? k);
+    for (const [ref, id] of Object.entries(home)) if (id === p.id && !clauses.some((k) => k.ref === ref)) clauses.push(pay[ref]);
+    return { ...p, clauses: clauses.sort(order) };
+  });
+}
+
+function baseHandbook(c: ClientConfig): Policy[] {
   const p = c.policy;
   const S = c.short;
   const A = c.name_ar;

@@ -1,13 +1,14 @@
 /**
  * The agent registry: fourteen named colleagues working inside each client,
- * and five at Tasama level.
+ * five at Tasama level, and the payroll team's agents (Nizam so far;
+ * design/payroll-addendum.md §6).
  *
  * `autonomy` is the rung the PROTOTYPE runs at (A0 observe, A1 recommend,
  * A2 acts on approval, A3 acts and reports, A4 autonomous). None is A4.
  * `owner` is the persona key of the human in HR accountable for the agent.
  * The same agents serve every Tasama client; each reads and writes that
- * client's HRMS (Oracle HCM or Odoo) and applies that client's handbook and
- * Saudi Labor Law. The last four agents work at Tasama level, across clients.
+ * client's employee master (Oracle HCM or Tasama HR) and applies that client's handbook and
+ * Saudi Labor Law. The Tasama-level and payroll agents work across clients.
  */
 export type AgentDef = {
   id: string; name: string; name_ar: string; title: string; title_ar: string; stage: string;
@@ -20,13 +21,13 @@ export const AGENTS: AgentDef[] = [
     purpose: 'Answers policy, pay and leave questions from the client company\'s cited handbook and live HRMS data, and raises requests on the employee\'s behalf.',
     purpose_ar: 'يجيب عن أسئلة السياسات والرواتب والإجازات من دليل سياسات الشركة العميلة الموثق وبيانات النظام، ويرفع الطلبات نيابة عن الموظف.',
     autonomy: 'A2', owner: 'hrbp',
-    functions: ['Answer HR questions, citing the policy clause and version', 'Read the employee\'s own balances, payslips and requests from the client\'s HRMS (Oracle HCM or Odoo)', 'Raise letters, leave and advance requests, confirmed by the employee', 'Route to a person in HR when no policy covers the question'],
+    functions: ['Answer HR questions, citing the policy clause and version', 'Read the employee\'s own balances, payslips and requests from the client\'s employee master (Oracle HCM or Tasama HR)', 'Raise letters, leave and advance requests, confirmed by the employee', 'Route to a person in HR when no policy covers the question'],
     superpower: 'Answers in English or Arabic, any hour, from the same handbook text the client\'s HR uses, and says when it does not know.',
     impact: 'Routine questions and standard letters stop reaching the Tasama service desk; employees get an answer in seconds rather than a day.',
     tools: ['search_policy', 'my_profile', 'my_leave', 'my_pay', 'my_requests', 'raise_request', 'open_screen'],
     reads: ['workers', 'absences', 'salaries', 'payrollResults', 'documentRecords'], writes: [], decides: 'The employee confirms every request it raises' },
   { id: 'murshid', name: 'Murshid', name_ar: 'مرشد', title: 'HR Co-pilot', title_ar: 'المساعد الذكي لفريق الموارد البشرية', stage: 'All',
-    purpose: 'Answers the HR team\'s questions over the client\'s HRMS data (Oracle HCM or Odoo), drafts communications and starts workflows on request.',
+    purpose: 'Answers the HR team\'s questions over the client\'s employee data (Oracle HCM or Tasama HR), drafts communications and starts workflows on request.',
     purpose_ar: 'يجيب عن أسئلة فريق الموارد البشرية من بيانات النظام، ويصوغ المراسلات ويبدأ سير العمل عند الطلب.',
     autonomy: 'A2', owner: 'chro',
     functions: ['Query workforce data inside the user\'s scope', 'Summarise a case, a person or a queue', 'Draft letters and messages for review', 'Start a workflow, confirmed by the user'],
@@ -70,7 +71,7 @@ export const AGENTS: AgentDef[] = [
     purpose: 'Validates leave against balance, law and team cover, prepares it for the manager and posts approved absence. Also checks salary-advance eligibility.',
     purpose_ar: 'يتحقق من الإجازة مقابل الرصيد والقانون وتغطية الفريق، ويعدها للمدير، ويسجل الغياب المعتمد. كما يتحقق من أهلية سلفة الراتب.',
     autonomy: 'A2', owner: 'payroll',
-    functions: ['Check balance, notice and Saudi Labor Law rules', 'Check team cover for the dates', 'Prepare the request for the line manager', 'Post the approved absence to the client\'s HRMS (Oracle HCM or Odoo)'],
+    functions: ['Check balance, notice and Saudi Labor Law rules', 'Check team cover for the dates', 'Prepare the request for the line manager', 'Post the approved absence to the client\'s employee master (Oracle HCM or Tasama HR)'],
     superpower: 'Shows a manager the balance, the rule and who else is away before they approve.',
     impact: 'Fewer rejected and corrected leave records; payroll stops discovering unpaid leave after the run.',
     tools: ['absences', 'absence_balances', 'team_calendar'], reads: ['absences', 'workers'], writes: ['absences'], decides: 'Line manager' },
@@ -130,6 +131,14 @@ export const AGENTS: AgentDef[] = [
     superpower: 'Never forgets a date.',
     impact: 'No expired iqama, missed probation date or Nitaqat shortfall discovered by a regulator first.',
     tools: ['workers', 'assignments', 'payrollPeriods'], reads: ['workers', 'assignments'], writes: [], decides: 'Raises alerts only' },
+  { id: 'nizam', name: 'Nizam', name_ar: 'نظام', title: 'Policy Reader', title_ar: 'قارئ السياسات', stage: 'Pay',
+    purpose: 'Reads a client\'s HR handbook and itemises it on the 27 dimensions payroll needs, with the clause and words behind every rule. Flags any rule the law refuses or the words leave unclear, and lists what the handbook does not cover. Never activates a policy.',
+    purpose_ar: 'يقرأ دليل الموارد البشرية للعميل ويفصّله على الأبعاد السبعة والعشرين التي تحتاجها الرواتب، مع البند والنص وراء كل قاعدة. وينبه إلى أي قاعدة يرفضها النظام أو يتركها النص غير واضحة، ويحدد ما لا يغطيه الدليل. ولا يفعّل أي سياسة.',
+    autonomy: 'A1', owner: 'tasama-lead',
+    functions: ['Split a handbook into clauses and map each to one of the 27 dimensions', 'Extract each value with the clause and words it came from', 'Check every rule against the legal floor and flag what the law refuses', 'Mark wording that allows two readings, and what the handbook leaves out'],
+    superpower: 'Turns a 40-page handbook into rules the payroll engine can run, with nothing taken on trust.',
+    impact: 'A new client\'s policy is ready in minutes, and a rule below the law is caught before anyone is paid by it.',
+    tools: ['handbook', 'policy_rules', 'labor_law'], reads: ['handbooks'], writes: ['policy draft'], decides: 'The payroll lead recommends; the client\'s CHRO activates' },
   { id: 'raqeeb', name: 'Raqeeb', name_ar: 'رقيب', title: 'SLA Sentinel', title_ar: 'مراقب مستوى الخدمة', stage: 'Tasama',
     purpose: 'Watches every open case in every client against the contract SLA, flags cases at risk before they breach, nudges the approver and escalates to Tasama HR Operations. Never decides a case.',
     purpose_ar: 'يراقب كل حالة مفتوحة لدى كل عميل مقابل مستوى الخدمة في العقد، وينبه إلى الحالات المعرضة للتأخر قبل تجاوز المهلة، ويذكّر صاحب الاعتماد ويصعّد إلى عمليات الموارد البشرية في تسامى. لا يقرر في أي حالة.',
@@ -158,7 +167,7 @@ export const AGENTS: AgentDef[] = [
     purpose: 'Maps a new client\'s HRMS data to the standard model and validates payroll master data before the first payroll cycle, as part of Tasama\'s build, operate, transfer model.',
     purpose_ar: 'يطابق بيانات نظام الموارد البشرية لدى العميل الجديد مع النموذج الموحد، ويتحقق من البيانات الأساسية للرواتب قبل أول دورة رواتب، ضمن نموذج تسامى للبناء والتشغيل والنقل.',
     autonomy: 'A1', owner: 'chro',
-    functions: ['Map the client\'s HRMS (Oracle HCM or Odoo) fields to the standard model', 'Validate payroll master data: IBANs, GOSI registration, allowances, iqama and national ID', 'Compare a parallel payroll run with the client\'s last payroll', 'Prepare the go-live checklist for approval'],
+    functions: ['Map the client\'s system or spreadsheet fields to the standard model', 'Validate payroll master data: IBANs, GOSI registration, allowances, iqama and national ID', 'Compare a parallel payroll run with the client\'s last payroll', 'Prepare the go-live checklist for approval'],
     superpower: 'Finds master-data gaps before the first payroll, not in it.',
     impact: 'New clients go live on their first cycle without payroll corrections.',
     tools: ['workers', 'salaries', 'elementEntries', 'payrollResults'], reads: ['workers', 'salaries', 'elementEntries', 'payrollResults'], writes: [], decides: 'Tasama HR Operations approves go-live' },

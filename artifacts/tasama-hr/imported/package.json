@@ -15,6 +15,7 @@
     "contrast": "npm run contrast --workspace @cognirise/atelier",
     "check": "tsx tools/check-world.ts",
     "check:screens": "node tools/check-screens.mjs",
+    "check:golden": "tsx tools/golden/check.ts",
     "replit": "bash tools/replit-run.sh"
   },
   "engines": { "node": ">=20" }

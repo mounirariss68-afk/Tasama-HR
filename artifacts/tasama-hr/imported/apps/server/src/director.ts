@@ -20,13 +20,14 @@ import { raqeebScan, nudge, prepareInvoice, slaFor, tasamaTrail, monthLabel } fr
 import { basiraScan } from './tasama/basira.js';
 import { precheck } from './agents/hisab.js';
 import { reasonLabel } from './domain/reasons.js';
+import { policiesFor } from './domain/policies.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
 type Text = string | ((c: Ctx) => Promise<string> | string);
 type Action =
   | { kind: 'show' }
   | { kind: 'start'; starter: keyof typeof STARTERS; as: string }
-  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string }
+  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; edits?: Record<string, any> }
   | { kind: 'raqeeb_scan' }
   | { kind: 'nudge'; ref: string }
   | { kind: 'basira_scan' }
@@ -145,6 +146,21 @@ async function patternRecord(which: 'riyadhair' | 'cross'): Promise<Rec | null> 
   ] };
 }
 
+/** The client's payroll policy as Tasama HR holds it (pane 03 of scenario D1). */
+async function policyRecord(c: Ctx): Promise<Rec | null> {
+  const cl = clientByKey(c.client)!;
+  const v = (await pool.query(`SELECT * FROM layer.policy_versions ORDER BY id DESC LIMIT 1`)).rows[0];
+  if (!v) return null;
+  const rules = (await pool.query(`SELECT * FROM layer.policy_rules WHERE version_id=$1`, [v.id])).rows;
+  const r = (k: string) => rules.find((x: any) => x.key === k);
+  const ot = r('overtime.rate');
+  return { system: 'Tasama HR · Client policies', title: `${cl.short} payroll policy`, fields: [
+    ['Version', `${v.version} · ${String(v.status).toLowerCase()}`], ['Read by', v.read_by], ['Rules', `${rules.length} on ${new Set(rules.map((x: any) => x.dim)).size} dimensions`],
+    ['Overtime rate', ot ? `${ot.value}${ot.flag === 'UNCLEAR' && !ot.resolution ? ' (unclear)' : ''}` : '—'], ['Business trips', r('trips')?.resolution ?? r('trips')?.value ?? '—'],
+    ['Activated by', v.activated_by ?? 'Waiting for the client'],
+  ] };
+}
+
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
 
 const STARTERS = {
@@ -189,6 +205,12 @@ const STARTERS = {
     const who = await nameOf(c.T.terminee);
     c.out.who = who;
     const r = await tx((x) => startCase(x, { workflowId: 'WF-20', type: 'INVOLUNTARY', title: `Termination request: ${who}`, title_ar: `طلب إنهاء خدمة: ${who}`, requester: mgr, subject: c.T.terminee, channel: 'SCENARIO', scenario: c.key, priority: 'HIGH', doneAtStart: ['intake'], payload: { person_id: c.T.terminee, grounds: 'PERFORMANCE', details: 'Targets missed for two years.' } }));
+    return r.ref as string;
+  },
+  handbook: async (c: Ctx) => {
+    const cl = clientByKey(c.client)!;
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-26', type: 'CLIENT_POLICY', title: `${cl.short} handbook, revised`, title_ar: `دليل ${cl.name_ar} المعدل`, requester: c.P.chro, subject: c.P.chro, channel: 'SCENARIO', scenario: c.key,
+      payload: { revised: true, source: `${cl.short} HR handbook, revised`, effective: iso(now()) } }));
     return r.ref as string;
   },
   slaLeave: async (c: Ctx) => {
@@ -285,6 +307,22 @@ export const SCRIPTS: Scenario[] = [
       S('t2', 'What happens next', 'ما الخطوة التالية', 'Exits and relations', 'hrbp', 'hr-exits', SHOW,
         () => 'The next step is an improvement plan with the manager, not an exit. Agents stop work that should not proceed, not only work that is slow.', 'case:term'),
     ] },
+  { key: 'policy-reading', level: 'tasama', client: 'redsea', shape: 'Governance, with a refusal', shape_ar: 'حوكمة مع رفض', title: 'A handbook becomes rules', title_ar: 'دليل يتحول إلى قواعد',
+    summary: 'Red Sea Global sends a revised handbook. Nizam reads it into rules on the 27 dimensions payroll needs and marks the one clause that can be read two ways. Tasama\'s payroll lead recommends a reading, Red Sea Global\'s CHRO activates the version, and the rule SEVEN\'s handbook got wrong is shown refused.', summary_ar: 'ترسل البحر الأحمر الدولية دليلاً معدلاً، فيقرؤه نظام إلى قواعد على الأبعاد السبعة والعشرين ويحدد البند الذي يحتمل قراءتين؛ توصي قائدة الرواتب بقراءة، ويفعّل الرئيس التنفيذي للموارد البشرية النسخة.',
+    record: async (c) => policyRecord(c),
+    steps: [
+      S('d1', 'Nizam reads the revised handbook', 'نظام يقرأ الدليل المعدل', 'Handbook received from the client (WF-26)', 'tasama-lead', 'payroll-policies', { kind: 'start', starter: 'handbook', as: 'pol' },
+        async (c) => { const k = await caseOf(c.refs.pol); const rd = k.result?.reading; const u = rd?.flagged.find((f: any) => f.flag === 'UNCLEAR'); return `Red Sea Global's HR sent a revised handbook. Nizam read ${rd?.clauses ?? 'its'} clauses into ${rd?.rules ?? ''} rules on all ${rd?.dims ?? 27} dimensions payroll needs, each with the clause it came from. One rule can be read two ways: ${u ? `the ${String(u.label).toLowerCase()}, "time and a half" with no wage named` : 'see the case'}. The handbook sets no per diem for business trips. Nothing is used until Red Sea Global's CHRO activates it.`; }, 'case:pol',
+        { chat: async (c) => [person(await nameOf(c.P.chro), 'Attached is our revised HR handbook, effective this month. Please update payroll.', 'Email to Tasama payroll'), agent('Nizam', 'Read into 40 rules on all 27 dimensions. One needs a decision: overtime is "time and a half" with no wage named. Business trips have no per diem in the handbook.')] }),
+      S('d2', 'The lead recommends a reading', 'قائدة الرواتب توصي بقراءة', 'Human step: Tasama payroll lead', 'tasama-lead', 'payroll-inbox', { kind: 'decide', ref: 'pol', decision: 'APPROVED', reason: 'The words favour the employee; a more generous term binds the company', edits: { readings: { 'overtime.rate': 'GROSS_1_5' } } },
+        (c) => `Sharifa read the clause and recommended reading it as 1.5 × the full hourly wage: the words favour the employee, and a term more generous than the law binds the company (Art. 8). (${by(c, 'pol')})`, 'case:pol',
+        { chat: async (c) => [agent('Nizam', `Version ${(await caseOf(c.refs.pol))?.payload?.version ?? '2.0'} is ready for Red Sea Global with overtime read as 1.5 × the full hourly wage, as Sharifa recommends.`, 'To the client\'s CHRO')] }),
+      S('d3', 'The client activates it', 'العميل يفعّلها', 'Human step: the client\'s CHRO', 'chro', 'hr-inbox', { kind: 'decide', ref: 'pol', decision: 'APPROVED', reason: 'Agreed with the reading' },
+        async (c) => `${await nameOf(c.P.chro)}, Red Sea Global's CHRO, activated version ${(await caseOf(c.refs.pol))?.payload?.version ?? '2.0'} (${by(c, 'pol')}). From today payroll prices overtime by it, and Rafeeq answers employees from the revised handbook. Version 1.0 is kept for the record.`, 'case:pol'),
+      S('d4', 'A rule the law refuses never reaches a payslip', 'قاعدة يرفضها النظام لا تصل إلى قسيمة الراتب', 'Client policies', 'tasama-lead', 'payroll-policies', SHOW,
+        async () => { const rule = await withClient('seven', async () => (await pool.query(`SELECT r.* FROM layer.policy_rules r JOIN layer.policy_versions v ON v.id=r.version_id WHERE v.status='ACTIVE' AND r.key='eoswage'`)).rows[0]); return `SEVEN's handbook pays end of service on basic salary only. The law counts the last actual wage, basic plus the regular allowances (Art. 2, 84). Nizam refused the rule when SEVEN's policy was read, so the payroll engine will pay on the full wage${rule?.resolution ? `: "${rule.resolution}"` : ''}.`; }, undefined,
+        { focus: { fact: 'Refused at SEVEN: end of service on basic salary only. Payroll will pay on basic plus the fixed allowances (Art. 2, 84).' } }),
+    ] },
   { key: 'sla-rescue', level: 'tasama', client: 'riyadhair', shape: 'Service level at risk', shape_ar: 'مستوى خدمة معرض للتجاوز', title: 'Raqeeb catches a request before it breaches', title_ar: 'رقيب يلتقط طلباً قبل تجاوز مستوى الخدمة',
     summary: 'A leave request at Riyadh Air has been waiting on the manager for almost two days. Raqeeb flags it with hours to spare, reminds the manager, and the Tasama HR Operations Manager decides on the manager\'s behalf with a reason.', summary_ar: 'طلب إجازة في طيران الرياض ينتظر المدير منذ يومين؛ يرصده رقيب ويذكّر المدير ويقرر مدير العمليات نيابة عنه مع ذكر السبب.',
     record: async (c) => workerRecord(c, await subjectOf(c.refs.leave)),
@@ -362,8 +400,9 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
       // Decided on screen before → was pressed: the room's decision stands and the story moves on.
       if (k && (hand || !['WAITING', 'ESCALATED'].includes(k.status))) { c.out[`hand_${a.ref}`] = true; if (a.followon) { const f = (await pool.query(`SELECT result->>'followon' AS f FROM layer.requests WHERE id=$1`, [k.id])).rows[0]?.f; if (f) c.refs[a.followon] = f; } return 'Decided in the room'; }
       if (!k || k.status !== 'WAITING') return `${c.refs[a.ref]} is not waiting on anyone`;
-      const who = k.waiting_name ?? k.waiting_on_role;
-      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, actorName: a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : undefined }));
+      const who = k.waiting_name ?? (k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa' : k.waiting_on_role);
+      const tasamaName = k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa, Tasama' : k.waiting_on_role === 'TASAMA_PAYROLL' ? 'Nasser AlFarraj, Tasama' : null;
+      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, edits: a.edits, actorName: a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : tasamaName ?? undefined }));
       if (a.followon) { const f = (await pool.query(`SELECT result->>'followon' AS f FROM layer.requests WHERE id=$1`, [k.id])).rows[0]?.f; if (f) c.refs[a.followon] = f; }
       return `${a.decision === 'APPROVED' ? 'Approved' : 'Declined'} for ${who}`;
     }
@@ -456,6 +495,12 @@ export async function startScenario(key: string, clientKey: string) {
   const client = s.client ?? (clientByKey(clientKey) ? clientKey : DEFAULT_CLIENT);
   await pool.query(`UPDATE tasama.director_runs SET status='ABANDONED', finished_at=now() WHERE status='RUNNING'`);
   // The pattern scenario starts from no open patterns, so the audience sees Basira find them.
+  // D1 starts from the handbook as it was seeded: version 1.0 active, no revised version read yet.
+  if (key === 'policy-reading') await withClient('redsea', async () => {
+    await pool.query(`DELETE FROM layer.policy_versions WHERE version <> '1.0'`);
+    await pool.query(`UPDATE layer.policy_versions SET status='ACTIVE' WHERE version='1.0'`);
+    for (const p of policiesFor(clientByKey('redsea')!)) for (const k of p.clauses) await pool.query(`UPDATE layer.policy_clauses SET text_en=$2, text_ar=$3 WHERE id=$1`, [`${p.id} §${k.ref}`, k.en, k.ar]);
+  });
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }
   const run = (await pool.query(`INSERT INTO tasama.director_runs (key, client_key) VALUES ($1,$2) RETURNING *`, [key, client])).rows[0];
   return { run: run.id, client, scenario: outline(s) };

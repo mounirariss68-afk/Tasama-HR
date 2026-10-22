@@ -5,6 +5,8 @@ import { AGENTS } from '../domain/agents.js';
 import { policiesFor } from '../domain/policies.js';
 import type { ClientConfig } from '../domain/clients.js';
 import { WORKFLOWS } from '../domain/workflows.js';
+import { readHandbook } from '../agents/nizam.js';
+import { saveVersion } from '../payroll/policy.js';
 import type { BaseResult } from './base.js';
 
 /** The seven client personas. Titles follow the client's own role names. */
@@ -19,10 +21,13 @@ export const personasFor = (c: ClientConfig) => [
     approval_limits: [{ what: 'Offers up to the grade midpoint', what_ar: 'العروض حتى منتصف الدرجة' }, { what: 'One-grade promotions within band', what_ar: 'الترقيات بدرجة واحدة ضمن النطاق' }, { what: 'Positions below G11 (with Finance)', what_ar: 'الوظائف دون G11 (مع المالية)' }, { what: 'Calibration panel chair', what_ar: 'رئاسة لجنة المعايرة' }], sort: 4 },
   { key: 'ta', label: 'Talent acquisition', label_ar: 'استقطاب المواهب', role_title: 'Talent Acquisition Lead', role_title_ar: 'قائد استقطاب المواهب', lenses: ['my', 'hr'], roles: ['EMPLOYEE', 'TA'], scope: { data: 'recruiting' },
     approval_limits: [{ what: 'Requisition posting', what_ar: 'نشر طلبات التوظيف' }, { what: 'Shortlists, with the hiring manager', what_ar: 'القوائم المختصرة مع المدير المعني' }], sort: 5 },
-  { key: 'payroll', label: 'Payroll and HR operations', label_ar: 'الرواتب وعمليات الموارد البشرية', role_title: 'Payroll and HR Operations Lead', role_title_ar: 'قائد الرواتب وعمليات الموارد البشرية', lenses: ['my', 'hr'], roles: ['EMPLOYEE', 'PAYROLL', 'HR_OPS'], scope: { data: 'all' },
-    approval_limits: [{ what: 'Payroll release', what_ar: 'اعتماد الرواتب' }, { what: 'Salary transfer letters', what_ar: 'خطابات تحويل الراتب' }, { what: 'Settlements up to SAR 200,000', what_ar: 'التسويات حتى 200,000 ريال' }, { what: 'Salary advances within policy', what_ar: 'السلف ضمن السياسة' }], sort: 6 },
+  // Tasama runs every client's payroll (design/payroll-addendum.md §2): this persona confirms the month's inputs and attendance; it no longer releases payroll.
+  { key: 'payroll', label: 'HR operations', label_ar: 'عمليات الموارد البشرية', role_title: 'HR Operations Lead', role_title_ar: 'قائد عمليات الموارد البشرية', lenses: ['my', 'hr'], roles: ['EMPLOYEE', 'PAYROLL', 'HR_OPS'], scope: { data: 'all' },
+    approval_limits: [{ what: 'The month\'s payroll inputs and attendance deductions', what_ar: 'مدخلات الرواتب الشهرية وخصومات الحضور' }, { what: 'Contracts sent for signature', what_ar: 'العقود المرسلة للتوقيع' }, { what: 'Salary transfer letters', what_ar: 'خطابات تحويل الراتب' }, { what: 'Settlements up to SAR 200,000', what_ar: 'التسويات حتى 200,000 ريال' }, { what: 'Salary advances within policy', what_ar: 'السلف ضمن السياسة' }], sort: 6 },
   { key: 'chro', label: 'CHRO', label_ar: 'الرئيس التنفيذي للموارد البشرية', role_title: 'Chief Human Resources Officer', role_title_ar: 'الرئيس التنفيذي للموارد البشرية', lenses: ['my', 'team', 'hr', 'control'], roles: ['EMPLOYEE', 'LINE_MANAGER', 'HRBP', 'CHRO'], scope: { data: 'all' },
-    approval_limits: [{ what: 'Exceptions to policy', what_ar: 'الاستثناءات من السياسة' }, { what: 'Offers above midpoint; two-grade promotions', what_ar: 'العروض فوق منتصف الدرجة والترقيات بدرجتين' }, { what: 'Positions at G11 and above; unbudgeted positions', what_ar: 'الوظائف G11 فما فوق وغير المدرجة في الميزانية' }, { what: 'Involuntary exits, with Legal', what_ar: 'إنهاء الخدمة من قبل الشركة مع القانونية' }], sort: 7 },
+    approval_limits: [{ what: 'The monthly payroll run', what_ar: 'مسير الرواتب الشهري' }, { what: 'Activating a policy version', what_ar: 'تفعيل نسخة السياسة' }, { what: 'Exceptions to policy', what_ar: 'الاستثناءات من السياسة' }, { what: 'Offers above midpoint; two-grade promotions', what_ar: 'العروض فوق منتصف الدرجة والترقيات بدرجتين' }, { what: 'Positions at G11 and above; unbudgeted positions', what_ar: 'الوظائف G11 فما فوق وغير المدرجة في الميزانية' }, { what: 'Involuntary exits, with Legal', what_ar: 'إنهاء الخدمة من قبل الشركة مع القانونية' }], sort: 7 },
+  { key: 'finance', label: 'Finance controller', label_ar: 'المراقب المالي', role_title: 'Financial Controller', role_title_ar: 'المراقب المالي', lenses: ['my', 'fin'], roles: ['EMPLOYEE', 'FINANCE_VIEW'], scope: { data: 'self' },
+    approval_limits: [{ what: 'View only: payroll reports, provisions and journals', what_ar: 'اطلاع فقط: تقارير الرواتب والمخصصات والقيود' }], sort: 8 },
 ];
 
 export async function seedLayer(c: PoolClient, base: BaseResult, client: ClientConfig) {
@@ -30,7 +35,7 @@ export async function seedLayer(c: PoolClient, base: BaseResult, client: ClientC
   await insertMany(c, 'layer.personas', personasFor(client).map((p) => ({ ...p, person_id: base.persona[p.key], scope: p.scope, approval_limits: p.approval_limits })));
   await insertMany(c, 'layer.agents', AGENTS.map((a, i) => ({
     id: a.id, name: a.name, name_ar: a.name_ar, title: a.title, title_ar: a.title_ar, stage: a.stage, purpose: a.purpose, purpose_ar: a.purpose_ar,
-    autonomy: a.autonomy, owner_person_id: base.persona[a.owner], functions: JSON.stringify(a.functions), superpower: a.superpower, impact: a.impact,
+    autonomy: a.autonomy, owner_person_id: base.persona[a.owner] ?? null, functions: JSON.stringify(a.functions), superpower: a.superpower, impact: a.impact,
     tools: a.tools, hcm_reads: a.reads, hcm_writes: a.writes, decides: a.decides, sort: i,
   })));
   await insertMany(c, 'layer.policies', POLICIES.map((p) => ({ id: p.id, title: p.title, title_ar: p.title_ar, version: p.version, effective_date: p.effective, owner: p.owner, summary: p.summary })));
@@ -39,6 +44,12 @@ export async function seedLayer(c: PoolClient, base: BaseResult, client: ClientC
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, setweight(to_tsvector('english', $4 || ' ' || array_to_string($9::text[], ' ')), 'A') || setweight(to_tsvector('english', $6), 'B'))`,
       [`${p.id} §${cl.ref}`, p.id, cl.ref, cl.heading, cl.heading_ar, cl.en, cl.ar, cl.legal ?? null, cl.tags]);
   }
+  // The client's policy as payroll reads it: version 1, read by Nizam from the handbook above and activated by the client's CHRO.
+  const reading = await readHandbook(client, { policies: POLICIES, source: `${client.short} HR handbook` });
+  const chroName = (await c.query('SELECT display_name FROM hcm.persons WHERE id=$1', [base.persona.chro])).rows[0]?.display_name ?? 'CHRO';
+  const v1 = new Date(base.anchor.getTime() - 200 * 86_400_000);
+  await saveVersion(c, reading, { version: '1.0', status: 'ACTIVE', effective: v1.toISOString().slice(0, 10), activatedBy: chroName, at: v1,
+    resolutions: { eoswage: 'Refused: paid on basic plus the fixed allowances, as the law requires (Art. 2, 84)', trips: 'No per diem is paid until the client sets one' } });
   await insertMany(c, 'layer.workflow_defs', WORKFLOWS.map((w) => ({ id: w.id, num: w.num, name: w.name, name_ar: w.name_ar, stage: w.stage, coverage: w.coverage, trigger_en: w.trigger, agents: w.agents, decision_by: w.decision_by, steps: w.steps })));
   const hrbp: Record<string, number> = {};
   for (const [k, v] of base.hrbpForDivision) hrbp[k] = v;

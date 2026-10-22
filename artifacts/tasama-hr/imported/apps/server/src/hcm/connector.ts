@@ -12,7 +12,12 @@
  *            create, write) with a bearer API key, and webhooks from Odoo
  *            automation rules for change events.
  *
- * In the demo both are simulated by the client's hcm_<key> schema. Replace the
+ *   Tasama HR  For clients with no HR system of their own, the employee master
+ *            lives in the platform (design/payroll-addendum.md §1). The same
+ *            calls are logged as Tasama HR API calls, /api/v1/<resource>, so
+ *            the audit trail and the integration log stay complete.
+ *
+ * In the demo all three are simulated by the client's hcm_<key> schema. Replace the
  * bodies of read/write/atom with real HTTP calls per vendor and nothing above
  * this file changes. Every call is written to the client's integration log,
  * which the HRMS Connector screen shows live.
@@ -54,10 +59,17 @@ const ODOO_MODEL: [RegExp, string][] = [
   [/^(advances|loans)/i, 'hr.salary.attachment'],
 ];
 const odooModel = (resource: string) => ODOO_MODEL.find(([re]) => re.test(resource))?.[1] ?? 'hr.employee';
+/** Oracle resource name -> the Tasama HR master's own resource (kebab-case, plural). */
+const platformResource = (resource: string) => {
+  const [head, ...rest] = resource.split('/');
+  const name = head.replace(/^(emps|publicWorkers|persons)$/i, 'workers').replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+  return [name, ...rest].join('/');
+};
 const odooMethod = (method: string) => (method === 'GET' ? 'search_read' : method === 'POST' ? 'create' : method === 'DELETE' ? 'unlink' : 'write');
 
 /** The HRMS label and the call as this client's system would receive it. */
 export function hrmsCall(method: string, resource: string, query = '') {
+  if (client().hrms === 'PLATFORM') return { system: 'TASAMA_HR', method, path: `/api/v1/${platformResource(resource)}${query ? `?${query}` : ''}` };
   if (client().hrms === 'ODOO') return { system: 'ODOO', method: 'POST', path: `/json/2/${odooModel(resource)}/${odooMethod(method)}` };
   return { system: 'ORACLE_HCM', method, path: `${BASE}/${resource}${query ? `?${query}` : ''}` };
 }
@@ -81,7 +93,8 @@ export async function write<T>(ctx: Ctx, method: 'POST' | 'PATCH' | 'DELETE', re
 export async function atom(ctx: Ctx, collection: string, entityKey: string, summary: string, payload: Record<string, unknown>) {
   await ctx.c.query(`INSERT INTO hcm.atom_events (collection, entity_key, summary, payload, published_at) VALUES ($1,$2,$3,$4,$5)`,
     [collection, entityKey, summary, JSON.stringify(payload), now()]);
-  if (client().hrms === 'ODOO') await log(ctx, 'ODOO_WEBHOOK', 'IN', 'POST', `/hooks/odoo/${odooModel(collection)}`, 200, summary, jitter(20, 80));
+  if (client().hrms === 'PLATFORM') await log(ctx, 'TASAMA_HR_EVENTS', 'IN', 'EVENT', `/api/v1/events/${platformResource(collection)}`, 200, summary, jitter(5, 30));
+  else if (client().hrms === 'ODOO') await log(ctx, 'ODOO_WEBHOOK', 'IN', 'POST', `/hooks/odoo/${odooModel(collection)}`, 200, summary, jitter(20, 80));
   else await log(ctx, 'ATOM', 'IN', 'FEED', `/hcmRestApi/atomservlet/employee/${collection}`, 200, summary, jitter(20, 80));
 }
 

@@ -1,0 +1,55 @@
+{
+  "about": "Tasama's July 2025 payroll template run for one client (design/payroll-addendum.md §5, acceptance). Inputs and outputs are taken from the template's Payroll calculation, Bank File and EOS-Leave July25 sheets and the four July 2025 PDFs Tasama shared on 22 October 2026. Names, ID numbers, IBANs, banks and positions are removed; the employees are EMP-A and EMP-B. The source files are not in this repository.",
+  "source": {
+    "files": ["07-Payroll_Templates.xlsx (Payroll calculation, Bank File, EOS-Leave July25)", "08 Payroll calculation July 2025 Detail.pdf", "09 Summary.pdf", "10 EOSB Annual leave Provision July 2025 Details.pdf", "11 Summary.pdf"],
+    "notes": [
+      "The template's Master Data sheet gives EMP-A a hire date of 26 Jan 2025, but the Payroll calculation and EOS-Leave sheets use 26 Jan 2024, and the provisions only reconcile with 2024. The fixture uses 26 Jan 2024; the master-data date is an error in the template.",
+      "The template rounds the year-to-date leave entitlement to three decimals (14.583 days for EMP-B, not 14.5833); the fixture's terms do the same.",
+      "The 2024 leave carry-over (12.984 and 6.983 days) and the days taken in 2025 (5 each) are inputs from the template; the template does not show how the carry-over was derived.",
+      "The template values a day of leave at the monthly salary divided by the person's annual entitlement (30 for EMP-A, 25 for EMP-B), so the leave provision grows by one month's salary a year whatever the entitlement. The fixture's terms reproduce that method. The platform's default divides by 30; for EMP-B that gives 5,867.24 instead of 7,040.55. Which method Tasama intends is a question for its payroll team.",
+      "Both employees were first registered with GOSI before 3 July 2024 (hired in January and February 2024), so the legacy Saudi rates apply."
+    ],
+    "exceptions": []
+  },
+  "period": { "start": "2025-07-01", "end": "2025-07-31" },
+  "terms": {
+    "name": "Tasama template",
+    "dayRate": "CALENDAR",
+    "gosiElements": ["basic", "housing"],
+    "eosElements": ["basic", "housing", "transport", "mobile"],
+    "eosYearDays": 365,
+    "leaveElements": ["basic", "housing", "transport", "mobile"],
+    "leaveDayDivisor": "ENTITLEMENT",
+    "leaveDaysPlaces": 3,
+    "overtime": "LAW",
+    "hoursPerDay": 8
+  },
+  "employees": [
+    {
+      "ref": "EMP-A", "isSaudi": true, "hire": "2024-01-26", "gosiFirstRegistered": "2024-01-26",
+      "elements": { "basic": 10000, "housing": 2500, "transport": 1000, "mobile": 500 },
+      "leave": { "entitlementDays": 30, "carryoverDays": 12.984, "usedDaysYtd": 5 }
+    },
+    {
+      "ref": "EMP-B", "isSaudi": false, "hire": "2024-02-14", "gosiFirstRegistered": "2024-02-14",
+      "elements": { "basic": 7500, "housing": 1875, "transport": 750, "mobile": 500 },
+      "leave": { "entitlementDays": 25, "carryoverDays": 6.983, "usedDaysYtd": 5 }
+    }
+  ],
+  "expected": {
+    "EMP-A": {
+      "payDays": 31, "basic": 10000, "housing": 2500, "transport": 1000, "mobile": 500, "gross": 14000,
+      "gosiWage": 12500, "gosiEmployee": 1218.75, "gosiEmployer": 1468.75, "deductions": 1218.75, "net": 12781.25,
+      "eosMonth": 594.52, "eosAccrued": 10605.48, "leaveBalanceDays": 25.484, "leaveMonthCost": 1166.67, "leaveAccrued": 11892.53
+    },
+    "EMP-B": {
+      "payDays": 31, "basic": 7500, "housing": 1875, "transport": 750, "mobile": 500, "gross": 10625,
+      "gosiWage": 9375, "gosiEmployee": 0, "gosiEmployer": 187.5, "deductions": 0, "net": 10625,
+      "eosMonth": 451.2, "eosAccrued": 7772.26, "leaveBalanceDays": 16.566, "leaveMonthCost": 885.42, "leaveAccrued": 7040.55
+    },
+    "totals": {
+      "gross": 24625, "gosiWage": 21875, "gosiEmployee": 1218.75, "gosiEmployer": 1656.25, "deductions": 1218.75, "net": 23406.25,
+      "eosMonth": 1045.72, "eosAccrued": 18377.74, "leaveMonthCost": 2052.08, "leaveAccrued": 18933.08, "bankOtherEarnings": 2750
+    }
+  }
+}

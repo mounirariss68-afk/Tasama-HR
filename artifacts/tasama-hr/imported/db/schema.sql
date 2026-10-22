@@ -561,7 +561,7 @@ CREATE TABLE layer.agents (
   purpose        text NOT NULL,
   purpose_ar     text NOT NULL,
   autonomy       text NOT NULL,            -- A0 .. A4, the rung the prototype runs at
-  owner_person_id int NOT NULL,
+  owner_person_id int,                    -- null when the owner is a Tasama person (see owner_name in the API)
   functions      jsonb NOT NULL,
   superpower     text NOT NULL,
   impact         text NOT NULL,
@@ -778,4 +778,40 @@ CREATE TABLE layer.weekly_volume (
   workflow_id  text NOT NULL,
   cases        int NOT NULL,
   PRIMARY KEY (week, workflow_id)
+);
+
+-- ---------------------------------------------------------------- the client's policy as payroll reads it
+-- design/payroll-addendum.md §4. A handbook becomes a version of itemised
+-- rules on 27 dimensions (domain/payroll-policy.ts). Nizam drafts a version;
+-- the client's CHRO activates it. Each rule keeps the clause and the words it
+-- came from, and a flag where the law refuses it or the words are unclear.
+CREATE TABLE layer.policy_versions (
+  id             serial PRIMARY KEY,
+  version        text NOT NULL,
+  status         text NOT NULL,             -- DRAFT | ACTIVE | SUPERSEDED
+  source         text NOT NULL,             -- the handbook it was read from
+  read_by        text NOT NULL,             -- Nizam (Claude) | Nizam (offline)
+  effective_from date NOT NULL,
+  created_at     timestamptz NOT NULL,
+  activated_by   text,
+  activated_at   timestamptz,
+  request_id     int
+);
+CREATE TABLE layer.policy_rules (
+  id           serial PRIMARY KEY,
+  version_id   int NOT NULL REFERENCES layer.policy_versions(id) ON DELETE CASCADE,
+  dim          int NOT NULL,
+  key          text NOT NULL,
+  label        text NOT NULL,
+  label_ar     text NOT NULL,
+  value        text NOT NULL,
+  value_ar     text,
+  num          numeric,
+  basis        text NOT NULL,               -- HANDBOOK | LAW | DEFAULT
+  clause       text,
+  quote        text,
+  flag         text,                        -- BELOW_LAW | UNCLEAR | MISSING
+  flag_note    text,
+  resolution   text,                        -- what the person decided for a flagged rule
+  UNIQUE (version_id, key)
 );

@@ -1,7 +1,7 @@
 /**
  * The 21 agentic workflows, hire to retire, under Saudi Labor Law and each
- * client's handbook, plus three Tasama-level workflows (WF-22 to WF-24) that
- * run across clients.
+ * client's handbook, Tasama-level workflows (WF-22 to WF-25) that run across
+ * clients, and the payroll workflows from WF-26 (design/payroll-addendum.md §7).
  *
  * Every step states its actor, inputs, outputs and the decision it makes (the
  * Atelier workflow contract). `actor_type` is AGENT, HUMAN or SYSTEM; a HUMAN
@@ -203,6 +203,14 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('explain', 'AGENT', 'basira', 'Contrast recent cases with earlier ones and state likely causes', 'مقارنة الحالات الأخيرة بالسابقة وبيان الأسباب المرجحة', 'The issues behind the pattern, absences, cut-off dates', 'Likely causes with evidence', 'None: causes are hypotheses'),
       S('assign', 'HUMAN', 'TASAMA_OPS', 'Assign an owner and an action', 'إسناد مالك وإجراء', 'Pattern, causes, issues', 'Owner, action, date to measure again', 'What to do about the cause'),
       S('recheck', 'AGENT', 'basira', 'Measure again after the fix', 'إعادة القياس بعد المعالجة', 'Rate since the action', 'Closed, or kept open', 'None'),
+    ] },
+  { id: 'WF-26', num: 26, name: 'Client policy', name_ar: 'سياسة العميل', stage: 'Pay', coverage: 'implemented', trigger: 'A client handbook is uploaded or changed', agents: ['nizam'], decision_by: 'Tasama payroll lead recommends; the client\'s CHRO activates',
+    steps: [
+      S('read', 'AGENT', 'nizam', 'Read the handbook into rules on the 27 dimensions', 'قراءة الدليل إلى قواعد على الأبعاد السبعة والعشرين', 'The handbook, the legal floor for each dimension', 'A draft version: every rule with its clause and words; flags', 'Which rules the law refuses, which are unclear, what is missing'),
+      S('review', 'HUMAN', 'TASAMA_PAYROLL_LEAD', 'Tasama\'s payroll lead reviews the flagged rules and recommends a reading', 'قائدة الرواتب في تسامى تراجع القواعد وتوصي بالقراءة', 'Draft version and flags', 'The reading recommended for each unclear rule', 'Recommend the reading'),
+      S('propose', 'AGENT', 'nizam', 'Prepare the version for the client\'s decision', 'إعداد النسخة لقرار العميل', 'Draft, the lead\'s readings', 'The version as it would apply, and what changes', 'None'),
+      S('activate', 'HUMAN', 'CHRO', 'The client\'s CHRO activates the version', 'الرئيس التنفيذي للموارد البشرية لدى العميل يفعّل النسخة', 'The version and what changes', 'Activated, or returned', 'Activate the version'),
+      S('apply', 'SYSTEM', 'platform', 'Activate the version for payroll and the assistants', 'تفعيل النسخة للرواتب والمساعدين', 'Activated version', 'The active policy; the previous version kept for the record', 'None'),
     ] },
 ];
 

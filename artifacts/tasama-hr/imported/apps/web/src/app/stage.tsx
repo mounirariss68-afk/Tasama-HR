@@ -29,7 +29,7 @@ import { Bullet, Columns as BarColumns, Slope, Waterfall } from './viz';
 
 const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 const sar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
-const PERSONA: Record<string, string> = { tasama: 'Tasama HR Operations Manager', employee: 'Employee', manager: 'Line manager', hrbp: 'HR business partner', ta: 'Talent acquisition', payroll: 'Payroll and HR operations', chro: 'CHRO', joiner: 'New joiner' };
+const PERSONA: Record<string, string> = { tasama: 'Tasama HR Operations Manager', employee: 'Employee', manager: 'Line manager', hrbp: 'HR business partner', ta: 'Talent acquisition', payroll: 'HR operations', chro: 'CHRO', joiner: 'New joiner', finance: 'Finance controller', 'tasama-lead': 'Payroll lead, Tasama', 'tasama-specialist': 'Payroll specialist, Tasama' };
 
 export function Stage() {
   const { director, stepScenario } = useApp();
@@ -186,7 +186,7 @@ function Log({ results }: { results: DirectorResult[] }) {
     for (const r of results) {
       for (const x of [...r.changes.trail, ...r.changes.tasama] as any[]) {
         if (x.actor_type === 'HUMAN' && x.act === 'SUBMIT') continue; // the request itself is in pane 01
-        const who = x.actor_type === 'AGENT' ? bi(...(AGENT_NAMES[x.actor_id] ?? [x.actor_name, x.actor_name])) : x.actor_type === 'SYSTEM' ? t('HRMS') : String(x.actor_name ?? '').replace(/\s*\((?:decided|simulated) by the scenario\)/, '');
+        const who = x.actor_type === 'AGENT' ? bi(...(AGENT_NAMES[x.actor_id] ?? [x.actor_name, x.actor_name])) : x.actor_type === 'SYSTEM' ? (x.actor_name === 'Tasama HR' ? x.actor_name : t('HRMS')) : String(x.actor_name ?? '').replace(/\s*\((?:decided|simulated) by the scenario\)/, '');
         const text = plain(x.summary);
         const prev = out[out.length - 1];
         if (prev && prev.who === who && prev.text === text) continue;

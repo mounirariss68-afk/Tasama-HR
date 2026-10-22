@@ -53,7 +53,7 @@ function StepIcon({ s }: { s: string }) {
   return <CircleDashed className="h-4 w-4 text-muted-foreground" />;
 }
 
-const ROLE: Record<string, [string, string]> = { LINE_MANAGER: ['Line manager', 'المدير المباشر'], HRBP: ['HR business partner', 'شريك أعمال الموارد البشرية'], TA: ['Talent acquisition', 'استقطاب المواهب'], PAYROLL: ['Payroll and HR operations', 'الرواتب وعمليات الموارد البشرية'], CHRO: ['CHRO', 'الرئيس التنفيذي لرأس المال البشري'], EMPLOYEE: ['Employee', 'الموظف'] };
+const ROLE: Record<string, [string, string]> = { LINE_MANAGER: ['Line manager', 'المدير المباشر'], HRBP: ['HR business partner', 'شريك أعمال الموارد البشرية'], TA: ['Talent acquisition', 'استقطاب المواهب'], PAYROLL: ['HR operations', 'عمليات الموارد البشرية'], TASAMA_PAYROLL: ['Tasama payroll', 'رواتب تسامى'], TASAMA_PAYROLL_LEAD: ['Tasama payroll lead', 'قائدة الرواتب في تسامى'], CHRO: ['CHRO', 'الرئيس التنفيذي لرأس المال البشري'], EMPLOYEE: ['Employee', 'الموظف'] };
 export const roleName = (r: string | null, bi: (a: string, b: string) => string) => (r && ROLE[r] ? bi(ROLE[r][0], ROLE[r][1]) : r ?? '');
 
 function Steps({ steps }: { steps: any[] }) {
@@ -200,6 +200,7 @@ function useEditor(c: any) {
     if (c?.workflow_id === 'WF-13' && c.result?.precheck) setEdits({ apply_fixes: c.result.precheck.findings.filter((f: any) => ['BLOCKER', 'HIGH', 'MEDIUM'].includes(f.severity)).map((f: any) => f.id), accepted: {} });
     else if (c?.workflow_id === 'WF-16' && c.payload?.exception) setEdits({ approved_amount: Math.min(c.payload.amount, c.payload.max_amount ?? c.payload.amount), approved_months: c.payload.recovery_months ?? c.payload.months });
     else if (c?.workflow_id === 'WF-12' && c.result?.case) setEdits({ approved_basic: c.result.case.equity?.suggest ?? c.result.case.proposed });
+    else if (c?.workflow_id === 'WF-26' && c.current_step === 'review' && c.result?.reading) setEdits({ readings: Object.fromEntries(c.result.reading.flagged.filter((f: any) => f.flag === 'UNCLEAR' && f.recommended).map((f: any) => [f.key, f.recommended.code])) });
     else setEdits({});
   }, [c?.ref, c?.status]);
   return [edits, setEdits] as const;
@@ -235,6 +236,25 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
             );
           })}
         </div>
+      </ReaderSection>
+    );
+  }
+  if (c.workflow_id === 'WF-26' && c.current_step === 'review' && c.result?.reading) {
+    const unclear = c.result.reading.flagged.filter((f: any) => f.flag === 'UNCLEAR' && f.readings);
+    if (!unclear.length) return null;
+    return (
+      <ReaderSection label={t('How to read it')}>
+        {unclear.map((f: any) => (
+          <div key={f.key} className="space-y-2">
+            <p className="text-sm font-medium">{bi(f.label, f.label_ar)}</p>
+            {f.readings.map((o: any) => (
+              <label key={o.code} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm ${edits.readings?.[f.key] === o.code ? 'border-primary bg-primary/5' : 'border-border/60'}`}>
+                <input type="radio" className="mt-0.5" name={f.key} checked={edits.readings?.[f.key] === o.code} onChange={() => setEdits({ ...edits, readings: { ...(edits.readings ?? {}), [f.key]: o.code } })} />
+                <span>{bi(o.label, o.label_ar)}{f.recommended?.code === o.code ? <span className="ms-2 text-xs text-muted-foreground">{t('recommended')}</span> : null}</span>
+              </label>
+            ))}
+          </div>
+        ))}
       </ReaderSection>
     );
   }

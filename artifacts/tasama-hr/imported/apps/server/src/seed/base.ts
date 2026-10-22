@@ -12,6 +12,7 @@
  *  - expiring iqamas and national IDs, probation dates, contract renewals.
  */
 import type { PoolClient } from 'pg';
+import { periodDates } from '../domain/calendar.js';
 import { insertMany } from '../db.js';
 import { rng, type Rng } from '../domain/rng.js';
 import { GRADES, ELEMENT_TYPES, ABSENCE_TYPES, orgFor, type DeptSpec } from '../domain/org.js';
@@ -220,6 +221,8 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   const personIds = await insertMany(c, 'hcm.persons', personRows, 'id');
   persons.forEach((sp, i) => { sp.id = personIds[i].id; });
   for (const k of Object.keys(persona)) persona[k] = persons[-persona[k] - 1].id;
+  // The finance controller persona (view only, design/payroll-addendum.md §2): whoever holds the Financial Controller role.
+  persona.finance = (persons.find((x) => x.role === 'FIN-FC') ?? persons.find((x) => x.role === 'FIN-MGR'))!.id;
   for (const k of Object.keys(planted)) planted[k] = persons[-planted[k] - 1].id;
 
   // ------------------------------------------------------------ reporting lines
@@ -433,7 +436,8 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   const periods: any[] = [];
   for (let k = -9; k <= 0; k++) {
     const st = monthStart(A, k), en2 = monthEnd(A, k);
-    periods.push({ period_name: iso(st).slice(0, 7), start_date: iso(st), end_date: iso(en2), cutoff_date: iso(addDays(st, P.cutoffDay - 1)), pay_date: iso(addDays(st, P.payDay - 1)), status: k < 0 ? 'CLOSED' : 'OPEN' });
+    const dt = periodDates(client.key, A, st, k === 0);
+    periods.push({ period_name: iso(st).slice(0, 7), start_date: iso(st), end_date: iso(en2), cutoff_date: iso(dt.cutoff), pay_date: iso(dt.pay), status: k < 0 ? 'CLOSED' : 'OPEN' });
   }
   const periodIds = await insertMany(c, 'hcm.payroll_periods', periods, 'id, period_name, start_date, end_date');
   const allEntries = (await c.query(`SELECT e.*, t.classification, t.name FROM hcm.element_entries e JOIN hcm.element_types t ON t.code = e.element_code`)).rows;

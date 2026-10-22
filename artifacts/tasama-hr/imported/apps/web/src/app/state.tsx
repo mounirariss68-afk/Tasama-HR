@@ -10,24 +10,25 @@ export type PersonaInfo = {
   key: string; person_id: number; label: string; label_ar: string; role_title: string; role_title_ar: string;
   lenses: string[]; roles: string[]; approval_limits: { what: string; what_ar: string }[]; display_name: string; display_name_ar: string; person_number: string; inbox?: number;
 };
-export type ClientInfo = { key: string; code: string; name: string; name_ar: string; short: string; sector: string; sector_ar: string; hrms: 'ORACLE' | 'ODOO'; hrmsLabel: string; bank?: [string, string]; services?: string[] };
+export type ClientInfo = { key: string; code: string; name: string; name_ar: string; short: string; sector: string; sector_ar: string; hrms: 'ORACLE' | 'ODOO' | 'PLATFORM'; hrmsLabel: string; bank?: [string, string]; services?: string[] };
 export type Session = { persona: PersonaInfo; personas: PersonaInfo[]; client: ClientInfo; clients: ClientInfo[]; ai: { mode: 'claude' | 'offline'; model: string; via?: string }; today: string };
 
-export type LensId = 'tasama' | 'my' | 'team' | 'hr' | 'control';
+export type LensId = 'tasama' | 'my' | 'team' | 'hr' | 'control' | 'payroll';
 export const LENS_OF: Record<string, LensId> = {
   'my-home': 'my', 'my-requests': 'my', 'my-leave': 'my', 'my-pay': 'my', 'my-growth': 'my', 'my-onboarding': 'my',
   team: 'team', 'team-approvals': 'team', 'team-hiring': 'team', 'team-performance': 'team',
   'hr-inbox': 'hr', 'hr-lifecycle': 'hr', 'hr-overview': 'hr', 'hr-workforce': 'hr', 'hr-hiring': 'hr', 'hr-onboarding': 'hr', 'hr-performance': 'hr', 'hr-payroll': 'hr', 'hr-exits': 'hr', 'hr-compliance': 'hr', person: 'hr',
   'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama', 'tasama-patterns': 'tasama',
   agents: 'control', workflows: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control',
+  'payroll-months': 'payroll', 'payroll-inbox': 'payroll', 'payroll-policies': 'payroll',
 };
 /** The rig: reached from the Demo control by every persona, in no lens. */
 export const RIG = new Set(['scenarios', 'settings', 'present']);
-export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents' };
+export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents', payroll: 'payroll-months' };
 /** A lens's landing for this persona: the joiner starts on Onboarding, the CHRO on the Overview. */
-export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-overview' : LENS_HOME[l]);
+export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-overview' : l === 'payroll' && p?.key === 'tasama-specialist' ? 'payroll-inbox' : LENS_HOME[l]);
 /** Where a persona lands. */
-export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : 'my');
+export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('payroll') ? 'payroll' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : 'my');
 /** Where a persona lands. */
 export const homeScreen = (p: { key: string; lenses: string[] }): string => lensHome(homeLens(p), p);
 
@@ -67,7 +68,7 @@ type Ctx = {
   go: (screen: string, param?: string | null) => void;
   lens: LensId;
   caseRef: string | null;
-  openCase: (ref: string | null) => void;
+  openCase: (ref: string | null, client?: string) => void;
   has: (role: string) => boolean;
   reloadSession: () => void;
   booting: string | null;
@@ -189,7 +190,7 @@ export function AppState({ children }: { children: ReactNode }) {
   const lens: LensId = LENS_OF[route.screen] ?? (persona ? homeLens(persona) : 'my');
   const client = session?.client ?? null;
   const value = useMemo<Ctx>(() => ({
-    session, persona, switchPersona, client, switchClient, route, go, lens, caseRef, openCase: setCaseRef,
+    session, persona, switchPersona, client, switchClient, route, go, lens, caseRef, openCase: (ref: string | null, cl?: string) => { if (cl && getClient() !== cl) setClientKey(cl); setCaseRef(ref); },
     has: (r: string) => !!persona?.roles.includes(r), reloadSession: loadSession, booting,
     director, startScenario, stepScenario, stopScenario, setAuto,
   }), [session, persona, switchPersona, client, switchClient, route, go, lens, caseRef, loadSession, booting, director, startScenario, stepScenario, stopScenario, setAuto]);
