@@ -22,6 +22,8 @@ import { useApp, type LensId, lensHome } from './app/state';
 import { DemoControl } from './app/demo-control';
 import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPolicies, TasamaPatterns } from './screens/tasama';
 import { DirectorBar } from './app/director';
+import { PresentBar, PresentOverlay, usePresent } from './app/present';
+import { Stage } from './app/stage';
 import { Receipt, AlertTriangle, BookOpen } from 'lucide-react';
 import { AssistantRail } from './app/assistant';
 import { CaseDrawer } from './app/case';
@@ -97,6 +99,8 @@ const SCREENS: Record<string, () => ReactNode> = {
   'hr-payroll': () => <HrPayroll />, 'hr-exits': () => <HrExits />, 'hr-compliance': () => <HrCompliance />,
   agents: () => <AgentsScreen />, workflows: () => <WorkflowsScreen />, scenarios: () => <ScenariosScreen />, connector: () => <ConnectorScreen />,
   evidence: () => <EvidenceScreen />, policies: () => <PoliciesScreen />, value: () => <ValueScreen />, settings: () => <SettingsScreen />,
+  // Present mode draws its cards in an overlay; while a scenario runs the Stage or the step's screen shows here.
+  present: () => null,
 };
 
 /** The person: who is looking. Click to view the platform as someone else, with what they may approve. */
@@ -183,13 +187,16 @@ export default function App() {
   const items = useMemo(() => (MENUS[lens] ?? []).filter((i) => !i.show || i.show(persona?.roles ?? [], persona?.key ?? '')).map((i) => ({ ...i, onSelect: () => go(i.id) })), [lens, persona, go]);
   const navValue = route.screen === 'hr-compliance' && persona?.key === 'chro' ? 'hr-overview' : NAV_OF[route.screen] ?? route.screen;
   const screen = SCREENS[route.screen];
+  // While presenting: no menu, no assistant rail, a slim bar. On the Stage the three panes replace the screen.
+  const { present, onStage } = usePresent();
+  const directorBar = !!director && !onStage;
   return (
     <>
       <AppShell
         rail={rail}
         chrome={chrome}
-        chatRail={<AssistantRail rail={rail} />}
-        titleBar={
+        chatRail={present ? undefined : <AssistantRail rail={rail} />}
+        titleBar={present ? <PresentBar user={<PersonaMenu />} /> : (
           <TitleBar
             brand={<button type="button" onClick={() => go(lensHome(lens, persona))} className="flex items-center gap-2"><img src="/brand/mark.png" alt="" className="h-7 w-7 dark:hidden" /><img src="/brand/mark-on-dark.png" alt="" className="hidden h-7 w-7 dark:block" /><Wordmark className="text-lg">{t('Tasama HR')}</Wordmark><span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('demo')}</span></button>}
             theme={false}
@@ -197,13 +204,14 @@ export default function App() {
             utilities={<div className="flex items-center gap-3"><Notifications /><LanguageToggle /></div>}
             user={<div className="flex items-center gap-3"><PersonaMenu /><DemoControl /></div>}
           />
-        }
-        contextNav={<ContextNav items={items} value={navValue} chrome={chrome} />}
+        )}
+        contextNav={present ? undefined : <ContextNav items={items} value={navValue} chrome={chrome} />}
       >
-        <MainPanel>{persona && screen ? screen() : <div className="p-10 text-center text-sm text-muted-foreground">{booting ? t('Preparing the demo data: the five client accounts and Tasama\'s records are being built. This takes about a minute; the page opens by itself.') : t('Loading…')}</div>}{director ? <div aria-hidden className="h-56" /> : null}</MainPanel>
+        {onStage ? <Stage /> : <MainPanel>{persona && screen ? screen() : <div className="p-10 text-center text-sm text-muted-foreground">{booting ? t('Preparing the demo data: the five client accounts and Tasama\'s records are being built. This takes about a minute; the page opens by itself.') : t('Loading…')}</div>}{directorBar ? <div aria-hidden className="h-56" /> : null}</MainPanel>}
       </AppShell>
-      <CaseDrawer />
-      <DirectorBar />
+      {onStage ? null : <CaseDrawer />}
+      {directorBar ? <DirectorBar /> : null}
+      <PresentOverlay />
     </>
   );
 }

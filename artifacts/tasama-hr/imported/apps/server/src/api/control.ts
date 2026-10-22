@@ -93,7 +93,13 @@ control.get('/scenarios', (_req, res) => res.json([...SCENARIOS.map((s) => ({ ..
 control.post('/scenarios/:key/run', (req, res) => res.json({ id: TASAMA_SCENARIOS.some((s) => s.key === req.params.key) ? runTasamaScenario(req.params.key) : runScenario(req.params.key) }));
 control.get('/scenarios/runs/:id', (req, res) => res.json(getRun(req.params.id) ?? getTasamaRun(req.params.id) ?? { status: 'unknown', beats: [], cases: [] }));
 control.post('/reset', async (_req, res) => {
-  try { clearRuns(); clearTasamaRuns(); await reseed(() => {}); resetPersonas(); resetPeople(); res.json({ ok: true }); }
+  try {
+    // The presenter's storylines are not demo data: they survive a reset.
+    const kept = (await pool.query(`SELECT value FROM tasama.meta WHERE key='storylines'`).catch(() => ({ rows: [] as any[] }))).rows[0]?.value;
+    clearRuns(); clearTasamaRuns(); await reseed(() => {}); resetPersonas(); resetPeople();
+    if (kept) await pool.query(`INSERT INTO tasama.meta (key, value) VALUES ('storylines', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(kept)]);
+    res.json({ ok: true });
+  }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 void personaOf;

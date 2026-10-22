@@ -6,6 +6,7 @@ import { Activity, ArrowRightLeft, BookOpen, Bot, Database, FileText, GitBranch,
 import { api, bump, post, useApi } from '../lib/api';
 import { LanguageToggle, useLang } from '../lib/i18n';
 import { ago, date, dateTime, month, num, time } from '../lib/format';
+import { usePresent, StorylineEditor } from '../app/present';
 import { useApp } from '../app/state';
 import { AgentTag, AUTONOMY, Bar, Btn, Chip, Empty, Hero, Ref, RouteTabs, Screen, StatusChip, Table, StatRow } from '../app/ui';
 import { TrailList, roleName } from '../app/case';
@@ -81,14 +82,15 @@ export function WorkflowsScreen() {
 
 export function ScenariosScreen() {
   const { t, bi } = useLang();
-  const { session, director, startScenario } = useApp();
+  const { session, director } = useApp();
+  const { play: playOnStage } = usePresent();
   const { data } = useApi<any[]>('/director/scenarios');
   const [resetting, setResetting] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const reset = async () => { setResetting(true); try { await post('/reset'); bump(); } finally { setResetting(false); } };
-  const play = async (key: string) => { setStarting(key); try { await startScenario(key); } finally { setStarting(null); } };
+  const play = (key: string) => { setStarting(key); playOnStage(key); };
   return (
-    <Screen hero={<Hero eyebrow="Demo control" title={`${(data ?? []).length} ${t('scenarios, each played step by step')}`} lede="Nine demo scenarios: six inside a client account, three at Tasama level. Press play and the Director bar takes you through each step: it switches the client, the persona and the screen, runs the step through the real engine and shows what happened. Step, pause or go back at any point." actions={<Btn onClick={reset} disabled={resetting}><RotateCcw className="h-4 w-4" />{resetting ? t('Rebuilding…') : t('Reset the demo')}</Btn>} />}>
+    <Screen hero={<Hero eyebrow="Demo control" title={`${(data ?? []).length} ${t('scenarios, each played step by step')}`} lede="Six inside a client account, three at Tasama level. Press play and the scenario runs on the Stage: the person asking on the left, the agents in the middle, the client's system on the right. → steps, ← goes back, Esc leaves." actions={<Btn onClick={reset} disabled={resetting}><RotateCcw className="h-4 w-4" />{resetting ? t('Rebuilding…') : t('Reset the demo')}</Btn>} />}>
       <ScenarioRunner onReset={reset}>
         {(data ?? []).map((s, i, all) => {
           const state = director && director.key === s.key ? (director.status === 'done' && director.index >= director.steps.length - 1 ? 'complete' : 'running') : starting === s.key ? 'running' : 'idle';
@@ -275,6 +277,9 @@ export function SettingsScreen() {
         <SettingsRow label={t('Theme')} hint={t('Demos run in the light theme.')} control={<ThemeModeToggle />} />
         <SettingsRow label={t('Language')} hint={t('Arabic switches the layout to right-to-left. Numbers stay in Western digits.')} control={<LanguageToggle />} />
         <SettingsRow label={t('AI assistant')} hint={session.ai.mode === 'claude' ? `${t('Claude is answering on the server through Replit AI Integrations')} (${session.ai.model}).` : t('Offline: Replit AI Integrations is not connected for this app.')} control={<Chip tone={session.ai.mode === 'claude' ? 'success' : 'warn'}>{session.ai.mode === 'claude' ? 'Claude' : t('Offline')}</Chip>} />
+      </SettingsGroup>
+      <SettingsGroup title={t('Present mode')} description={t('The storylines the presenter plays: cards with live numbers, scenarios on the Stage, and the close. Saved on the server; a reset keeps them.')}>
+        <StorylineEditor />
       </SettingsGroup>
       <SettingsGroup title={t('Demo data')} description={t('All data is synthetic and generated relative to today, so dates stay current whenever the demo is reset.')}>
         <SettingsRow label={t('Reset the demo')} hint={t('Rebuilds the HRMS simulation, the case history and every inbox from the seed.')} control={<Btn onClick={async () => { setBusy(true); try { await post('/reset'); bump(); } finally { setBusy(false); } }} disabled={busy}><RotateCcw className="h-4 w-4" />{busy ? t('Rebuilding…') : t('Reset')}</Btn>} />

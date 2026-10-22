@@ -46,6 +46,8 @@ export function plain(s: string | null | undefined): string {
     .replace(/\s+([.,;:])/g, '$1')
     .replace(/\(\s*\)/g, '')
     .replace(/\s+(?:on|for|in)\.$/, '.')
+    .replace(/\s+about\.$/, ' about the request.')
+    .replace(/\b(20\d{2})-(\d{2})-(\d{2})\b/g, (_m, y, mo, d) => new Date(`${y}-${mo}-${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }))
     .replace(/^[:;·\s]+/, '')
     .replace(/\s+([.,;:])/g, '$1')
     .trim()

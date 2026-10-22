@@ -346,7 +346,8 @@ function Recommendation({ rec, agent }: { rec: { verdict: string; line: string }
 }
 
 /** Loads a case and lays it out as header · body · pinned actions, in the inbox reader or the drawer. */
-export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string; frame?: 'inbox' | 'drawer'; onDone?: () => void }) {
+/** frame 'stage': the decision card on the Stage, without the disclosure and the editor (canon stage 5, rule 3). */
+export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string; frame?: 'inbox' | 'drawer' | 'stage'; onDone?: () => void }) {
   const { t, bi, lang } = useLang();
   const { persona } = useApp();
   const { data: c, error, reload } = useApi<any>(`/requests/${caseRef}`, { poll: 4000 });
@@ -405,8 +406,8 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
       <FactGrid facts={card.facts} />
       {rec && (c.canDecide || (isHR && !mine && open)) ? <Recommendation rec={rec} agent={recommender(c)} /> : null}
       {letter && mine ? <div className="space-y-2"><DocumentPreview document={letter} /><DocumentDownload small document={letter} /></div> : null}
-      {c.canDecide ? <Editor c={c} edits={edits} setEdits={setEdits} /> : null}
-      <Provenance label={t('How this was checked')}>
+      {c.canDecide && frame !== 'stage' ? <Editor c={c} edits={edits} setEdits={setEdits} /> : null}
+      {frame === 'stage' ? null : <Provenance label={t('How this was checked')}>
         {letter && mine ? null : <Details c={c} />}
         <ReaderSection label={t('Steps')}><Steps steps={c.steps} /></ReaderSection>
         <ReaderSection label={t('Decision trail')}><TrailList rows={c.trail} /></ReaderSection>
@@ -416,7 +417,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
             <ul className="space-y-1">{c.logs.map((l: any) => <li key={l.id} className="flex items-start gap-2 font-mono text-[11px]"><Server className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" /><span className="text-muted-foreground">{l.system}</span><span className="font-semibold">{l.method}</span><span className="min-w-0 flex-1 break-all">{l.resource.replace('/hcmRestApi/resources/11.13.18.05', '')}</span><span className="text-muted-foreground">{l.status_code} · {l.latency_ms}ms</span></li>)}</ul>
           </ReaderSection>
         ) : null}
-      </Provenance>
+      </Provenance>}
     </div>
   );
 
@@ -442,6 +443,13 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
     </div>
   ) : null;
 
+  if (frame === 'stage') return (
+    <div className="space-y-4">
+      {header}
+      {body}
+      {actions}
+    </div>
+  );
   if (frame === 'drawer') return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-border/60 pb-4 pe-14 ps-6 pt-6">{header}</header>

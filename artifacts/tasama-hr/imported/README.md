@@ -19,9 +19,13 @@ Agents check, prepare and recommend; people decide. Every read and write to a cl
 
 To return to a clean state, use **Demo → Reset the demo data**. It rebuilds everything in about 20 seconds.
 
-## Demo Director
+## Present mode and the Stage
 
-**Demo → Scenarios** lists the nine scenarios and starts one directly; **All scenarios** opens the page that describes each. Starting one opens the Director bar at the bottom of the screen: each step switches the client account, the persona and the screen, runs through the real engine, and shows the narration, the trigger, the result and what happened (trail entries and cases, each clickable). **Step** runs the next step, **Play** steps every 9 seconds, **Pause** stops auto-play, **Back** shows an earlier step again without re-running it, **Stop** ends the scenario. Where a step takes a person's decision, the trail says "(decided by the scenario)". Narration is in English; step titles are in both languages.
+The demo runs without PowerPoint (`design/stage-addendum.md`, canon stage 5). **Demo › Present** opens a storyline: cards with live numbers from the five client accounts, three scenarios on the Stage, a card after each with what it did, and the close. Two storylines ship: **Tasama leadership** (salary certificate, advance exception, service level rescue) and **Compliance and Legal** (screening refusal, termination stop, payroll pre-run). Edit them in Settings › Present mode; they are saved on the server and survive a reset.
+
+On the **Stage** a scenario runs on one screen: **01 The request** (the employee in Rafeeq, the hiring manager's message, the schedule, Raqeeb's reminder), **02 The agents** (the narration and what the agents did, in plain words), **03 the client's system** (the record as the HRMS holds it, with "agent wrote" on what changed, and the decision card under it). When the next step is a decision the person on screen may take, pane 02 says "Your move": decide in pane 03 and the scenario moves on by itself, or press → and the scenario decides as scripted. Keys: → or space next, ← back, F full screen, Esc leave. The **App** toggle shows the product's own screens for the same step.
+
+**Demo › Scenarios** plays one scenario on the Stage. The Director bar still appears when a scenario is played in the App view. Reset the demo data before a rehearsal or a room: a scenario played twice without a reset finds the first run's records (an advance already outstanding, a leave already booked).
 
 ## Data version
 

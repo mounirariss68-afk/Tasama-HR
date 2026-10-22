@@ -22,7 +22,7 @@ export const LENS_OF: Record<string, LensId> = {
   agents: 'control', workflows: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control',
 };
 /** The rig: reached from the Demo control by every persona, in no lens. */
-export const RIG = new Set(['scenarios', 'settings']);
+export const RIG = new Set(['scenarios', 'settings', 'present']);
 export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents' };
 /** A lens's landing for this persona: the joiner starts on Onboarding, the CHRO on the Overview. */
 export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-overview' : LENS_HOME[l]);
@@ -39,10 +39,16 @@ export type DirectorResult = {
   index: number; total: number; step: { id: string; title: string; title_ar: string; trigger: string; kind: string }; narration: string;
   persona: string; client: string; screen: string; caseRef: string | null; pattern: string | null; result: string; error: string | null;
   changes: { trail: any[]; cases: any[]; tasama: any[] };
+  /** The Stage: what the person asking saw, the record as the system holds it, the one idea under it, and the next step. */
+  chat?: StageLine[]; record?: StageRecord | null; focus?: any; next?: { kind: string; ref: string | null; state?: string } | null;
+  /** Wall-clock time the step ran, for the Stage's log. */
+  at?: string;
 };
+export type StageLine = { by: 'person' | 'agent' | 'system'; who: string; via?: string; text: string };
+export type StageRecord = { system: string; title: string; fields: [string, string][] };
 export type Director = {
   key: string; title: string; title_ar: string; run: number; client: string; steps: DirectorOutline[];
-  index: number; results: Record<number, DirectorResult>; status: 'running' | 'done'; auto: boolean; busy: boolean; error: string | null;
+  index: number; results: Record<number, DirectorResult>; status: 'running' | 'done'; auto: boolean; autoMs: number; busy: boolean; error: string | null;
 };
 export const AUTO_STEP_MS = 9000;
 const parseHash = (): Route => {
@@ -67,9 +73,9 @@ type Ctx = {
   booting: string | null;
   director: Director | null;
   startScenario: (key: string) => Promise<void>;
-  stepScenario: (dir: 1 | -1) => Promise<void>;
+  stepScenario: (dir: 1 | -1, opts?: { hand?: boolean }) => Promise<void>;
   stopScenario: () => void;
-  setAuto: (on: boolean) => void;
+  setAuto: (on: boolean, ms?: number) => void;
 };
 const AppCtx = createContext<Ctx | null>(null);
 
@@ -137,10 +143,11 @@ export function AppState({ children }: { children: ReactNode }) {
     window.location.hash = `#/${r.screen}${r.pattern ? `/${encodeURIComponent(r.pattern)}` : ''}`;
     if (r.caseRef) window.setTimeout(() => setCaseRef(r.caseRef), 350);
   }, [loadSession]);
-  const runIndex = useCallback(async (d: Director, index: number) => {
+  const runIndex = useCallback(async (d: Director, index: number, hand = false) => {
     setDirector((x) => x && { ...x, busy: true, error: null });
     try {
-      const r = await post<DirectorResult>(`/director/runs/${d.run}/step`, { index });
+      const r = await post<DirectorResult>(`/director/runs/${d.run}/step`, { index, hand });
+      r.at = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
       bump();
       setDirector((x) => x && { ...x, busy: false, index, results: { ...x.results, [index]: r }, status: index >= x.steps.length - 1 ? 'done' : 'running', auto: index >= x.steps.length - 1 ? false : x.auto });
       await show(r);
@@ -148,26 +155,26 @@ export function AppState({ children }: { children: ReactNode }) {
   }, [show]);
   const startScenario = useCallback(async (key: string) => {
     const r = await post<any>(`/director/${key}/start`);
-    const d: Director = { key, title: r.scenario.title, title_ar: r.scenario.title_ar, run: r.run, client: r.client, steps: r.scenario.steps, index: -1, results: {}, status: 'running', auto: false, busy: false, error: null };
+    const d: Director = { key, title: r.scenario.title, title_ar: r.scenario.title_ar, run: r.run, client: r.client, steps: r.scenario.steps, index: -1, results: {}, status: 'running', auto: false, autoMs: AUTO_STEP_MS, busy: false, error: null };
     setDirector(d);
     await runIndex(d, 0);
   }, [runIndex]);
-  const stepScenario = useCallback(async (dir: 1 | -1) => {
+  const stepScenario = useCallback(async (dir: 1 | -1, opts: { hand?: boolean } = {}) => {
     if (!director || director.busy) return;
     const next = director.index + dir;
     if (next < 0 || next >= director.steps.length) return;
     // A step already played is shown again, not run again.
     const done = director.results[next];
     if (done) { setDirector((x) => x && { ...x, index: next }); await show(done); return; }
-    await runIndex(director, next);
+    await runIndex(director, next, !!opts.hand);
   }, [director, runIndex, show]);
   const stopScenario = useCallback(() => { post('/director/stop').catch(() => {}); setDirector(null); if (auto.current) window.clearTimeout(auto.current); }, []);
-  const setAuto = useCallback((on: boolean) => setDirector((x) => x && { ...x, auto: on }), []);
+  const setAuto = useCallback((on: boolean, ms?: number) => setDirector((x) => x && { ...x, auto: on, autoMs: ms ?? x.autoMs }), []);
   useEffect(() => {
     if (!director?.auto || director.busy || director.index >= director.steps.length - 1) return;
-    auto.current = window.setTimeout(() => { stepScenario(1); }, AUTO_STEP_MS);
+    auto.current = window.setTimeout(() => { stepScenario(1); }, director.autoMs || AUTO_STEP_MS);
     return () => { if (auto.current) window.clearTimeout(auto.current); };
-  }, [director?.auto, director?.busy, director?.index, director?.steps.length, stepScenario]);
+  }, [director?.auto, director?.autoMs, director?.busy, director?.index, director?.steps.length, stepScenario]);
 
   // Land on the lens home when the screen is empty or not allowed for this persona.
   useEffect(() => {

@@ -7,17 +7,19 @@
 import { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@cognirise/atelier/components/ui/dropdown-menu';
 import { useTheme } from '@cognirise/atelier/layout';
-import { Building2, Check, Monitor, Moon, Play, RotateCcw, SlidersHorizontal, Sun } from 'lucide-react';
+import { Building2, Check, Monitor, Moon, Play, Presentation, RotateCcw, SlidersHorizontal, Sun } from 'lucide-react';
 import { useApi, post, bump } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { initials } from '../lib/format';
 import { useApp } from './state';
+import { usePresent } from './present';
 
 export const clientMode = (): boolean => { try { return new URLSearchParams(window.location.search).get('client') === '1'; } catch { return false; } };
 
 export function DemoControl() {
   const { t, bi } = useLang();
-  const { session, persona, switchPersona, switchClient, startScenario, go, route } = useApp();
+  const { session, persona, switchClient, go, route } = useApp();
+  const { play, storylines } = usePresent();
   const { mode, setMode } = useTheme();
   const { data: scenarios } = useApi<any[]>('/director/scenarios');
   const [busy, setBusy] = useState(false);
@@ -25,7 +27,7 @@ export function DemoControl() {
   const inClient = persona.key !== 'tasama';
   const level = (l: string) => (scenarios ?? []).filter((s) => (l === 'tasama' ? s.level === 'tasama' : s.level !== 'tasama'));
   const scenarioItem = (s: any) => (
-    <DropdownMenuItem key={s.key} onSelect={() => { startScenario(s.key); }} className="items-start gap-2 py-2">
+    <DropdownMenuItem key={s.key} onSelect={() => { play(s.key); }} className="items-start gap-2 py-2">
       <Play className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
       <span className="min-w-0"><span className="block text-sm">{bi(s.title, s.title_ar)}</span><span className="block text-[11px] text-muted-foreground">{bi(s.shape, s.shape_ar)} · {s.steps.length} {t('steps')}</span></span>
     </DropdownMenuItem>
@@ -39,6 +41,15 @@ export function DemoControl() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel>{t('Demo control')}</DropdownMenuLabel>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger><Presentation className="me-2 h-4 w-4" />{t('Present')}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-72">
+            <DropdownMenuLabel>{t('A storyline: cards, three scenarios on the Stage, and the close')}</DropdownMenuLabel>
+            {storylines.map((s) => <DropdownMenuItem key={s.id} onSelect={() => go('present', s.id)}><Presentation className="me-2 h-4 w-4 text-primary" />{t(s.name)}</DropdownMenuItem>)}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => go('settings')}>{t('Edit the storylines')}</DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger><Play className="me-2 h-4 w-4" />{t('Scenarios')}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="max-h-[70vh] w-80 overflow-y-auto">
