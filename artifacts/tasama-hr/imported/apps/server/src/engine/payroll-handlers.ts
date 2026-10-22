@@ -86,8 +86,15 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
   },
 
   'WF-29:apply': async (h) => {
-    const r = await confirmMonth(h.c, h.req.payload.upload_id, 'HR operations', h.req.payload.reject ?? []);
-    await h.trail({ act: 'WRITE', summary: `Entered ${r.summary.unpaidDays} unpaid days and SAR ${Math.round(r.summary.fines).toLocaleString('en-US')} of fines for ${r.entries} people in the ${r.period} payroll month; ${r.summary.excused} explained day${r.summary.excused === 1 ? '' : 's'} excused.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
+    const pl = h.req.payload;
+    const r = await confirmMonth(h.c, pl.upload_id, 'HR operations', { reject: pl.reject ?? [], waive: pl.waive ?? [], excuseAbsence: pl.excuse_absence ?? [] });
+    // Name the person who confirmed, not only the role.
+    const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'HR operations';
+    const names = async (ids: number[]) => (await h.c.query(`SELECT string_agg(display_name, ', ') n FROM hcm.persons WHERE id = ANY($1::int[])`, [ids])).rows[0].n;
+    if (pl.waive?.length) await h.trail({ act: 'DECIDE', summary: `${who} waived the lateness fine for ${await names(pl.waive)}.`, actor_type: 'HUMAN', actor_name: `${who}, HR operations`, autonomy: null });
+    if (pl.excuse_absence?.length) await h.trail({ act: 'DECIDE', summary: `${who} excused the absence of ${await names(pl.excuse_absence)}.`, actor_type: 'HUMAN', actor_name: `${who}, HR operations`, autonomy: null });
+    if (pl.reject?.length) await h.trail({ act: 'DECIDE', summary: `${who} did not accept ${pl.reject.length} explanation${pl.reject.length === 1 ? '' : 's'}; the fine stands for those days.`, actor_type: 'HUMAN', actor_name: `${who}, HR operations`, autonomy: null });
+    await h.trail({ act: 'WRITE', summary: `Entered ${r.summary.unpaidDays} unpaid days and SAR ${Math.round(r.summary.fines).toLocaleString('en-US')} of fines for ${r.entries} people in the ${r.period} payroll month; ${r.summary.excused} day${r.summary.excused === 1 ? '' : 's'} excused.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
     const prior = h.req.result.attendance ?? {};
     await h.setResult({ attendance: { ...prior, ...r.summary, explained: prior.explained ?? r.summary.excused, explanations: prior.explanations ?? [] }, applied: r.period });
     return { status: 'DONE', decision: `Entered in ${r.period}` };

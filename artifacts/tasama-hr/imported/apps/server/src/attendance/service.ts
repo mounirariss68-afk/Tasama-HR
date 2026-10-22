@@ -132,8 +132,11 @@ export async function justify(c: Q, personId: number, day: string, text: string)
  * The client's HR operations confirms: each explained day is excused unless it is named in `reject`;
  * the unpaid days and the fines (capped at five days' wage) are entered in the open payroll month.
  */
-export async function confirmMonth(c: Q, uploadId: number, by: string, reject: string[] = []) {
-  await c.query(`UPDATE layer.attendance_days SET decision = CASE WHEN (person_id::text || ':' || to_char(day,'YYYY-MM-DD')) = ANY($2::text[]) THEN 'DEDUCTED' ELSE 'EXCUSED' END WHERE upload_id=$1 AND justification IS NOT NULL`, [uploadId, reject]);
+export async function confirmMonth(c: Q, uploadId: number, by: string, o: { reject?: string[]; waive?: number[]; excuseAbsence?: number[] } = {}) {
+  await c.query(`UPDATE layer.attendance_days SET decision = CASE WHEN (person_id::text || ':' || to_char(day,'YYYY-MM-DD')) = ANY($2::text[]) THEN 'DEDUCTED' ELSE 'EXCUSED' END WHERE upload_id=$1 AND justification IS NOT NULL`, [uploadId, o.reject ?? []]);
+  // HR operations' own changes: a fine waived, an absence excused. Each day keeps the reason on the record.
+  if (o.waive?.length) await c.query(`UPDATE layer.attendance_days SET decision='EXCUSED', justification=COALESCE(justification, 'Fine waived by HR operations') WHERE upload_id=$1 AND status='LATE' AND person_id = ANY($2::int[])`, [uploadId, o.waive]);
+  if (o.excuseAbsence?.length) await c.query(`UPDATE layer.attendance_days SET decision='EXCUSED', justification=COALESCE(justification, 'Absence excused by HR operations') WHERE upload_id=$1 AND status='ABSENT' AND person_id = ANY($2::int[])`, [uploadId, o.excuseAbsence]);
   const { summary, people } = await readUpload(c, uploadId);
   const per = (await c.query(`SELECT id, period_name, start_date, end_date FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
   const ref = `Attendance ${summary.from.slice(0, 7)}`;

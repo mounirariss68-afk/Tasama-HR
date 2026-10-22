@@ -6,7 +6,9 @@ import { recordIssue } from '../tasama/basira.js';
 import { REJECT_REASONS } from '../domain/reasons.js';
 import { letterName } from '../engine/handlers.js';
 import { caseScope, personaOf, has, type Persona } from './session.js';
-import { TASAMA_KEY } from './session.js';
+import { TASAMA_KEY, isTasamaStaff } from './session.js';
+import { aiConfigured, createMessage } from '../ai.js';
+import { tasamaTrail } from '../tasama/service.js';
 import { client } from '../domain/rules.js';
 import { WORKFLOWS } from '../domain/workflows.js';
 import { iso, addDays, daysBetween } from '../domain/rules.js';
@@ -110,7 +112,9 @@ cases.get('/requests/:ref', async (req, res) => {
     pool.query(`SELECT * FROM layer.integration_log WHERE request_id=$1 ORDER BY at, id`, [r.id]),
   ]);
   const def = WORKFLOWS.find((w) => w.id === r.workflow_id)!;
-  res.json({ ...r, client_short: client().short, client_ar: client().name_ar, steps: steps.rows.map((s: any) => ({ ...s, def: def.steps.find((d) => d.key === s.step_key) })), approvals: approvals.rows, trail: trail.rows, logs: logs.rows, canDecide: ['WAITING', 'ESCALATED'].includes(r.status) && (r.waiting_on_person_id === p.person_id || (r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role))) });
+  const reminders = trail.rows.filter((x: any) => x.act === 'REMIND').map((x: any) => ({ at: x.at, by: x.actor_name }));
+  const canRemind = isTasamaStaff(p) && ['WAITING', 'ESCALATED'].includes(r.status) && r.waiting_on_person_id !== null && r.waiting_on_person_id !== p.person_id;
+  res.json({ ...r, reminders, canRemind, client: client().key, client_short: client().short, client_ar: client().name_ar, steps: steps.rows.map((s: any) => ({ ...s, def: def.steps.find((d) => d.key === s.step_key) })), approvals: approvals.rows, trail: trail.rows, logs: logs.rows, canDecide: ['WAITING', 'ESCALATED'].includes(r.status) && (r.waiting_on_person_id === p.person_id || (r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role))) });
 });
 
 cases.post('/requests/:ref/decide', async (req, res) => {
@@ -133,6 +137,85 @@ cases.post('/requests/:ref/decide', async (req, res) => {
     }
     res.json((await pool.query(`SELECT * FROM layer.requests WHERE id=$1`, [r.id])).rows[0]);
   } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/**
+ * Reminders (design/payroll-addendum.md §15). Tasama staff see who holds a case and can
+ * nudge them. Raqeeb drafts the email; the sender edits it and sends. The email is a mock:
+ * it lands as a notification in the person's Tasama HR inbox and on the case trail, and
+ * nothing leaves the platform.
+ */
+async function reminderContext(ref: string) {
+  const r = (await pool.query(`${LIST_SQL} WHERE r.ref = $1`, [ref])).rows[0];
+  if (!r) return null;
+  const who = r.waiting_on_person_id ? (await pool.query(`SELECT display_name, work_email FROM hcm.persons WHERE id=$1`, [r.waiting_on_person_id])).rows[0] : null;
+  const step = (await pool.query(`SELECT label, started_at FROM layer.run_steps WHERE request_id=$1 AND status='WAITING' ORDER BY seq DESC LIMIT 1`, [r.id])).rows[0];
+  const sent = (await pool.query(`SELECT count(*)::int n FROM layer.trail WHERE request_id=$1 AND act='REMIND'`, [r.id])).rows[0].n;
+  return { r, who, step, sent };
+}
+
+const ROLE_WORDS: Record<string, string> = { LINE_MANAGER: 'line manager', HRBP: 'HR business partner', TA: 'talent acquisition', PAYROLL: 'HR operations', CHRO: 'CHRO' };
+
+function templateDraft(x: NonNullable<Awaited<ReturnType<typeof reminderContext>>>, sender: string) {
+  const { r, who, step, sent } = x;
+  const first = String(who?.display_name ?? '').split(' ')[0] || 'there';
+  const since = step?.started_at ?? r.updated_at;
+  const days = Math.max(0, daysBetween(iso(new Date(since)), iso(new Date())));
+  const due = r.sla_due ? new Date(r.sla_due) : null;
+  const late = due && due.getTime() < Date.now();
+  const extra = r.workflow_id === 'WF-29' ? ' It sets the attendance deductions for this month\'s payroll, so the run cannot close until it is confirmed.' : '';
+  const subject = `${sent ? 'Second reminder' : 'Reminder'}: ${r.title} is waiting for you`;
+  const body = [
+    `Dear ${first},`,
+    '',
+    `${r.title} has been waiting for your decision ${days === 0 ? 'since today' : days === 1 ? 'for one day' : `for ${days} days`}${due ? `, and ${late ? 'was due on' : 'is due by'} ${due.toISOString().slice(0, 10)}` : ''}.${extra}`,
+    '',
+    `It is in your inbox in Tasama HR (${r.ref}). Everything you need to decide is on the case.`,
+    '',
+    'If someone else should take this, reply and we will route it to them.',
+    '',
+    'Kind regards,',
+    `${sender}`,
+    'Tasama HR Services',
+  ].join('\n');
+  return { subject, body };
+}
+
+cases.post('/requests/:ref/reminder/draft', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isTasamaStaff(p)) return res.status(403).json({ error: 'Only Tasama staff send reminders.' });
+  const x = await reminderContext(req.params.ref);
+  if (!x || !x.who) return res.status(404).json({ error: 'This case is not waiting on a person.' });
+  const fallback = templateDraft(x, p.display_name);
+  let draft = fallback, mode: 'claude' | 'template' = 'template';
+  if (aiConfigured()) {
+    try {
+      const { msg } = await createMessage({ max_tokens: 600, messages: [{ role: 'user', content:
+        `You are Raqeeb, the agent at Tasama that watches deadlines. Rewrite this reminder email so it is short, warm and specific. Keep every fact, add none, no bullet points, sign as ${p.display_name}, Tasama HR Services. Answer with JSON only: {"subject": "...", "body": "..."}.\n\nSubject: ${fallback.subject}\n\n${fallback.body}` }] });
+      const text = msg.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('');
+      const j = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      if (j.subject && j.body) { draft = { subject: String(j.subject), body: String(j.body) }; mode = 'claude'; }
+    } catch { /* the template stands */ }
+  }
+  res.json({ to: { name: x.who.display_name, email: x.who.work_email, role: ROLE_WORDS[x.r.waiting_on_role] ?? x.r.waiting_on_role }, ...draft, mode, drafted_by: 'raqeeb', sent_before: x.sent });
+});
+
+cases.post('/requests/:ref/reminder', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isTasamaStaff(p)) return res.status(403).json({ error: 'Only Tasama staff send reminders.' });
+  const x = await reminderContext(req.params.ref);
+  if (!x || !x.who || !['WAITING', 'ESCALATED'].includes(x.r.status)) return res.status(404).json({ error: 'This case is not waiting on a person.' });
+  const subject = String(req.body.subject ?? '').trim(), body = String(req.body.body ?? '').trim();
+  if (!subject || !body) return res.status(400).json({ error: 'The email needs a subject and a message.' });
+  await pool.query(`INSERT INTO layer.notifications (person_id, title, title_ar, body, link) VALUES ($1,$2,$3,$4,$5)`, [x.r.waiting_on_person_id, subject, `تذكير: ${x.r.title_ar ?? x.r.title}`, body, `case:${x.r.ref}`]);
+  await pool.query(`INSERT INTO layer.trail (request_id, actor_type, actor_id, actor_name, act, summary, summary_ar) VALUES ($1,'HUMAN',$2,$3,'REMIND',$4,$5)`,
+    [x.r.id, p.key, `${p.display_name}, Tasama`, `Reminder emailed to ${x.who.display_name} (${x.who.work_email}): "${subject}"`, `أُرسل تذكير بالبريد إلى ${x.who.display_name}`]);
+  // The same reminder counts on Tasama's own board: an open escalation for this case is marked reminded.
+  const cl = client();
+  await pool.query(`UPDATE tasama.escalations SET status='NUDGED', action=$3 WHERE client_key=$1 AND case_ref=$2 AND status='OPEN'`, [cl.key, x.r.ref, `Reminder emailed to ${x.who.display_name}`]);
+  await tasamaTrail(pool, { client_key: cl.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: 'NUDGE', autonomy: null, ref: x.r.ref,
+    summary: `Reminded ${x.who.display_name} at ${cl.short} about ${x.r.ref} by email.`, summary_ar: `تذكير ${x.who.display_name} لدى ${cl.name_ar} بالحالة ${x.r.ref}.` });
+  res.json({ ok: true, to: x.who.work_email });
 });
 
 cases.post('/requests/:ref/withdraw', async (req, res) => {

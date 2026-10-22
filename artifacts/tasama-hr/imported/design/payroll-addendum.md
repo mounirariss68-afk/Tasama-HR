@@ -584,3 +584,34 @@ The Stage is the presenter's frame, and the person on screen changes at almost e
 - Screenshots: one client persona and one Tasama persona per client, in light mode.
 
 **Effort:** one Claude session.
+
+## 15. HR operations can change each deduction, and Tasama can see who holds a case and remind them
+
+*Added 22 October 2026, after the owner's review of the attendance month (D3).*
+
+**Why.** HR operations could only approve or decline the attendance month without seeing who was being deducted. Tasama's payroll team could open a case waiting on the client but could not see where it was stuck or act on it.
+
+**HR operations confirms each line, not only the month.** On the attendance decision, the person deciding sees "Who is deducted": one row per employee with a fine, unpaid days or an explanation. Each row lists the late days with minutes, the fine (and whether it stopped at the five-day cap), the absent days and their unpaid amount, each explanation, and the amount deducted after any change. The person can:
+
+| Change | What it does |
+|---|---|
+| Waive the fine | That person's late days are excused; no fine this month |
+| Excuse the absence | That person's absent days are excused; no unpaid days |
+| Do not accept an explanation | The fine stands for that day (explained days are excused by default) |
+
+The changes go with the confirm; Tasama HR writes only what is left. The trail names the person who confirmed and each change they made.
+
+**Tasama staff see where a case is stuck, and can send a reminder.** When a Tasama person opens a case that waits on someone at the client, the reader names the person, their role and client, the step it is stuck at and since when. "Send a reminder" opens an email Raqeeb drafts from the case (Claude rewords it when connected; otherwise a template). The sender edits the subject and message and sends.
+
+The email is a mock: nothing leaves the platform. On send:
+
+- the message appears in the person's Tasama HR notifications, linked to the case;
+- the case trail records the reminder, who sent it and to whom;
+- an open SLA escalation for the case on Tasama's board is marked reminded, and Tasama's own trail records it;
+- the case shows "Last reminder" with time and sender.
+
+Only Tasama staff can draft or send a reminder.
+
+**No change to the seed, the engine or the HRMS connector.**
+
+**Effort:** within phase 3.

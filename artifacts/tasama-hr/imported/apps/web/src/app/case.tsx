@@ -24,7 +24,7 @@ import { ClockBar } from './viz';
 
 export const KIND: Record<string, TrailKind> = {
   READ: 'observed', CHECK: 'observed', RECOMMEND: 'proposed', PREPARE: 'proposed', WRITE: 'acted', NOTIFY: 'acted', ANSWER: 'acted',
-  APPROVE: 'approved', SUBMIT: 'approved', REJECT: 'rejected', REFUSE: 'rejected', RETURN: 'rejected', OVERRIDE: 'overridden', ESCALATE: 'escalated',
+  APPROVE: 'approved', SUBMIT: 'approved', REJECT: 'rejected', REFUSE: 'rejected', RETURN: 'rejected', REMIND: 'acted', DECIDE: 'approved', OVERRIDE: 'overridden', ESCALATE: 'escalated',
 };
 
 export function TrailList({ rows, compact }: { rows: any[]; compact?: boolean }) {
@@ -209,6 +209,40 @@ function useEditor(c: any) {
 function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any) => void }) {
   const { t, lang, bi } = useLang();
   const shortlist = useApi(c.workflow_id === 'WF-03' && c.current_step === 'shortlist' ? `/hiring/requisitions/${c.payload.requisition_id}` : null);
+  const att = useApi<any>(c.workflow_id === 'WF-29' && c.current_step === 'confirm' && c.client ? `/payroll/attendance/${c.client}` : null);
+  if (c.workflow_id === 'WF-29' && c.current_step === 'confirm' && att.data?.people) {
+    // HR operations sees every person a deduction would reach, with their days and explanation, and can change any of them.
+    const rows = att.data.people.filter((p: any) => p.fine_before > 0 || p.unpaid_days > 0 || p.explained.length);
+    const has = (k: string, v: any) => (edits[k] ?? []).includes(v);
+    const flip = (k: string, v: any) => setEdits({ ...edits, [k]: has(k, v) ? edits[k].filter((x: any) => x !== v) : [...(edits[k] ?? []), v] });
+    const days = (p: any, s2: string) => p.strip.filter((x: any) => x.s === s2).map((x: any) => `${Number(x.day.slice(8))}${s2 === 'LATE' ? ` (${x.m}′)` : ''}`).join(', ');
+    return (
+      <ReaderSection label={`${t('Who is deducted')} · ${rows.length}`}>
+        <p className="mb-3 text-sm text-muted-foreground">{t('Each line goes into this month\'s payroll as shown unless you change it here.')}</p>
+        <div className="space-y-2">{rows.map((p: any) => {
+          const waived = has('waive', p.person_id), excusedAbs = has('excuse_absence', p.person_id);
+          return (
+            <div key={p.person_id} className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p><span className="font-semibold">{bi(p.name, p.name_ar)}</span> <span className="text-muted-foreground">· {p.dept}</span></p>
+                <p className="font-mono text-xs">{t('Deducted')}: {aed((waived ? 0 : p.fine) + (excusedAbs ? 0 : p.unpaid_days * p.daily), lang)}</p>
+              </div>
+              {p.lates ? <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2"><span className={waived ? 'text-muted-foreground line-through' : ''}>{p.lates} {t(p.lates === 1 ? 'late arrival' : 'late arrivals')}: {t('days')} {days(p, 'LATE')} · {p.fine ? `${t('fine')} ${aed(p.fine, lang)}${p.fine_before > p.cap ? ` (${t('capped at five days\' wage')})` : ''}` : t('written warnings only')}</span>
+                {p.fine ? <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={waived} onChange={() => flip('waive', p.person_id)} />{t('Waive the fine')}</label> : null}</div> : null}
+              {p.absences ? <div className="mt-1 flex flex-wrap items-center justify-between gap-2"><span className={excusedAbs ? 'text-muted-foreground line-through' : ''}>{t('Absent without leave')}: {t('day')} {days(p, 'ABSENT')} · {t('unpaid')} {aed(p.unpaid_days * p.daily, lang)}</span>
+                <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={excusedAbs} onChange={() => flip('excuse_absence', p.person_id)} />{t('Excuse the absence')}</label></div> : null}
+              {p.explained.map((x: any) => (
+                <div key={x.day} className="mt-2 rounded-md bg-muted/50 p-2">
+                  <p className="text-xs text-muted-foreground">{t('Explanation for')} {date(x.day, lang)}</p>
+                  <p>“{x.text}”</p>
+                  <label className="mt-1 flex items-center gap-1.5 text-xs"><input type="checkbox" checked={!has('reject', `${p.person_id}:${x.day}`)} onChange={() => flip('reject', `${p.person_id}:${x.day}`)} />{t('Accept the explanation: no fine for this day')}</label>
+                </div>))}
+            </div>
+          );
+        })}</div>
+      </ReaderSection>
+    );
+  }
   if (c.workflow_id === 'WF-13' && c.result?.precheck) {
     const pc = c.result.precheck;
     const toggle = (id: string) => setEdits({ ...edits, apply_fixes: edits.apply_fixes?.includes(id) ? edits.apply_fixes.filter((x: string) => x !== id) : [...(edits.apply_fixes ?? []), id] });
@@ -367,6 +401,53 @@ function Recommendation({ rec, agent }: { rec: { verdict: string; line: string }
 
 /** Loads a case and lays it out as header · body · pinned actions, in the inbox reader or the drawer. */
 /** frame 'stage': the decision card on the Stage, without the disclosure and the editor (canon stage 5, rule 3). */
+/**
+ * Where a case sits, for Tasama staff looking at a case someone else holds, and the
+ * reminder they can send (design/payroll-addendum.md §15). Raqeeb drafts the email;
+ * the sender edits and sends. The email is a mock: it reaches the person's Tasama HR
+ * notifications and the case trail, nothing else.
+ */
+function Remind({ c, reload }: { c: any; reload: () => void }) {
+  const { t, lang, bi } = useLang();
+  const [draft, setDraft] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const step = c.steps?.find((s: any) => s.status === 'WAITING');
+  const last = c.reminders?.[c.reminders.length - 1];
+  const open = async () => {
+    setBusy(true); setErr(null); setSent(null);
+    try { setDraft(await post(`/requests/${c.ref}/reminder/draft`)); } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  };
+  const send = async () => {
+    setBusy(true); setErr(null);
+    try { const r: any = await post(`/requests/${c.ref}/reminder`, { subject: draft.subject, body: draft.body }); setSent(r.to); setDraft(null); bump(); reload(); }
+    catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="space-y-3">
+      {/* Where it is stuck: the step, and since when. The person is named in the header. */}
+      <p className="text-sm"><span className="text-muted-foreground">{t('Stuck at')}</span> <span className="font-medium">{step ? bi(step.label, step.label_ar) : t('a decision')}</span><span className="text-muted-foreground">{step?.started_at ? ` · ${t('since')} ${date(step.started_at, lang)}` : ''}</span></p>
+      {sent ? <p className="text-sm text-success">{t('Reminder sent to')} {sent}.</p> : last ? <p className="text-xs text-muted-foreground">{t('Last reminder')} {ago(last.at, lang)} · {last.by}</p> : null}
+      {draft ? (
+        <div className="space-y-2 rounded-xl border border-border/70 p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><AgentTag id="raqeeb" showChip={false} />{t('drafted this from the case. Edit it before you send.')}</div>
+          <p className="text-sm"><span className="text-muted-foreground">{t('To')}:</span> {draft.to.name}, {t(draft.to.role)} &lt;{draft.to.email}&gt;</p>
+          <input className="input h-10 w-full text-sm" aria-label={t('Subject')} value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />
+          <textarea className="input w-full py-2 text-sm leading-relaxed" style={{ height: "17rem" }} dir="auto" aria-label={t('Message')} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+          <p className="text-[11px] text-muted-foreground">{t('No email leaves the prototype: the reminder appears in their Tasama HR notifications and on the case.')}</p>
+        </div>
+      ) : null}
+      {err ? <p className="text-sm text-danger">{err}</p> : null}
+      <DecisionBar>
+        {draft ? <Btn onClick={() => setDraft(null)} disabled={busy}>{t('Cancel')}</Btn> : null}
+        {draft ? <Btn kind="primary" onClick={send} disabled={busy}>{busy ? t('Sending…') : t('Send the reminder')}</Btn>
+          : <Btn kind="primary" onClick={open} disabled={busy}>{busy ? t('Drafting…') : t('Send a reminder')}</Btn>}
+      </DecisionBar>
+    </div>
+  );
+}
+
 export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string; frame?: 'inbox' | 'drawer' | 'stage'; onDone?: () => void }) {
   const { t, bi, lang } = useLang();
   const { persona } = useApp();
@@ -462,7 +543,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
         {asking !== 'REJECTED' ? <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={busy}>{busy ? t('Working…') : approveLabel}</Btn> : null}
       </DecisionBar>
     </div>
-  ) : null;
+  ) : c.canRemind && frame !== 'stage' ? <Remind c={c} reload={reload} /> : null;
 
   if (frame === 'stage') return (
     <div className="space-y-4">
