@@ -125,7 +125,7 @@ export async function advance(c: PoolClient, requestId: number) {
       await c.query(`UPDATE layer.run_steps SET status='WAITING' WHERE id=$1`, [step.id]);
       await c.query(
         `UPDATE layer.requests SET status='WAITING', waiting_on_role=$2, waiting_on_person_id=$3, sla_due=$4, updated_at=$5 WHERE id=$1`,
-        [requestId, who.role, who.personId, new Date(at.getTime() + (SLA_HOURS[who.role] ?? 48) * 3600_000), at],
+        [requestId, who.role, who.personId, req.payload?.due ? new Date(req.payload.due) : new Date(at.getTime() + (SLA_HOURS[who.role] ?? 48) * 3600_000), at],
       );
       return;
     }

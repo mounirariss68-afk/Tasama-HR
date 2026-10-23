@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-30': 'Payroll question',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -273,7 +273,39 @@ export function caseCard(c: any, x: T): Card {
       ];
       return { kind, headline: `${month}${t('’s attendance')}: ${at.fined} ${t(at.fined === 1 ? 'fine' : 'fines')} ${t('and')} ${at.unpaidDays} ${c.status === 'COMPLETED' ? t(at.unpaidDays === 1 ? 'unpaid day, confirmed' : 'unpaid days, confirmed') : t(at.unpaidDays === 1 ? 'unpaid day to confirm' : 'unpaid days to confirm')}`, facts, rec: recOf(c) };
     }
-    case 'WF-30': {
+    case 'WF-27': {
+      const mon = (pn: string) => pn ? new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+      const done = c.status === 'COMPLETED';
+      if (c.type === 'LATE_CHANGE') {
+        const facts: Fact[] = [
+          { k: t('Entered'), v: date(p.entered_on, lang), tone: 'warn', note: `${t('After the cut-off on')} ${date(p.cutoff, lang)}` },
+          { k: t('Worth'), v: aed(p.backPay ?? 0, lang), note: `${p.days ?? '—'} ${t('days of')} ${mon(p.period)} ${t('at')} ${aed(p.monthly ?? 0, lang)} ${t('a month more')}` },
+          { k: `${mon(p.period)}${t('’s run')}`, v: t('Stays as approved'), note: t('Nothing reopens; the difference is paid as back pay.') },
+        ];
+        return { kind, headline: done ? `${p.person_name}${t('’s back pay of')} ${aed(p.backPay ?? 0, lang)} ${t('is booked for')} ${mon(p.next)}` : `${p.person_name}${t('’s')} ${t(String(p.what ?? 'change').toLowerCase())} ${t('arrived after the cut-off:')} ${aed(p.backPay ?? 0, lang)} ${t('is paid with')} ${mon(p.next)}`, facts, rec: recOf(c) };
+      }
+      const m = r.month ?? {};
+      const facts: Fact[] = [
+        { k: t('Already in'), v: num(m.confirmed ?? 0), note: t('Joiners, leavers, pay changes, leave and advances from approved cases') },
+        { k: done ? t('Sent by HR operations') : t('Expected from HR operations'), v: num(m.expected ?? 0), tone: !done && m.expected ? 'warn' : undefined, note: t('Overtime hours, with last month\'s figures as suggestions') },
+        { k: t('Cut-off'), v: date(p.cutoff, lang), note: (() => { const n = (c.trail ?? []).filter((x: any) => x.actor_id === 'wared' && x.act === 'NOTIFY').length; return n ? `${n} ${t(n === 1 ? 'reminder from Wared' : 'reminders from Wared')}` : undefined; })() },
+      ];
+      if (done && r.applied) facts.push({ k: t('Entered'), v: `${r.applied.confirmed} ${t('lines')}, ${r.applied.hours} ${t('hours')}`, note: r.applied.dropped ? `${r.applied.dropped} ${t('dropped')}` : undefined });
+      return { kind, headline: done ? `${mon(p.period)}${t('’s changes are confirmed')}` : `${m.expected ?? 0} ${t(m.expected === 1 ? 'change for' : 'changes for')} ${mon(p.period)} ${t('are still expected before the cut-off on')} ${date(p.cutoff, lang)}`, facts, rec: recOf(c) };
+    }
+    case 'WF-28': {
+      const k = p.contract ?? {};
+      const fp = r.first_pay;
+      const done = c.status === 'COMPLETED';
+      const facts: Fact[] = [
+        { k: t('Pay'), v: aed(p.wage ?? 0, lang), note: `${t('basic')} ${aed(k.basic ?? 0, lang)}, ${t('housing')} ${aed(k.housing ?? 0, lang)}, ${t('transport')} ${aed(k.transport ?? 0, lang)}${k.other ? `, ${t('other')} ${aed(k.other, lang)}` : ''}` },
+        { k: t('Term'), v: t(k.contract_type === 'FIXED_TERM' ? 'Two years, fixed' : 'Indefinite'), note: k.contract_type === 'FIXED_TERM' ? t('A non-Saudi is employed on a fixed term (Art. 37)') : t('Art. 55') },
+        { k: t('Starts'), v: date(p.start_date, lang), note: `${t('Probation')} ${k.probation_days ?? '—'} ${t('days')} · ${t('leave')} ${k.annual_leave ?? '—'} ${t('days')} · ${t('notice')} ${k.notice_days ?? 30} ${t('days')}` },
+        done && fp ? { k: t('First pay'), v: `${fp.days} ${t('days')}`, note: `${t('gross')} ${aed(fp.gross, lang)} · ${t('net')} ${aed(fp.net, lang)}` } : { k: t('Same as the offer'), v: t('Every pay term'), note: p.offer_number ?? undefined },
+      ];
+      return { kind, headline: done ? `${k.employee ?? who} ${t('is an employee from')} ${date(p.start_date, lang)}${fp ? `: ${fp.days} ${t('days paid in')} ${new Date(`${fp.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' })}` : ''}` : `${k.employee ?? who}${t('’s contract is ready to send:')} ${aed(p.wage ?? 0, lang)} ${t('a month from')} ${date(p.start_date, lang)}`, facts, rec: recOf(c) };
+    }
+    case 'WF-36': {
       // A question from Tasama payroll that stops or holds part of the run (design/payroll-addendum.md §16).
       const month = p.period ? new Date(`${p.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
       const gosi = p.kind === 'GOSI_REGISTRATION';

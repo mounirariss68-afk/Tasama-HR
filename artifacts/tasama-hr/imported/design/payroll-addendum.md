@@ -631,13 +631,13 @@ Only Tasama staff can draft or send a reminder.
 | Check | Stops the run? | Who settles it | Action on Runs | What happens |
 |---|---|---|---|---|
 | Advance instalment above 10% of the wage (Art. 92), usually with deductions above half the wage (Art. 93) | Yes | Tasama payroll. The law sets the answer | "Recover SAR x a month from <month>" | The same balance is recovered at the legal limit over more months. HR operations gets a notification |
-| Not registered with GOSI | Yes | The client's HR operations. Only the employer can register | "Ask <name> to register <first name>" | A question goes to HR operations' inbox (WF-30). They give the registration date or answer "Not registered yet" |
-| Overtime above the policy cap held | No | The client's HR operations | "Ask <name> whether to pay them" | WF-30 question: pay the held hours this month, or not |
+| Not registered with GOSI | Yes | The client's HR operations. Only the employer can register | "Ask <name> to register <first name>" | A question goes to HR operations' inbox (WF-36). They give the registration date or answer "Not registered yet" |
+| Overtime above the policy cap held | No | The client's HR operations | "Ask <name> whether to pay them" | WF-36 question: pay the held hours this month, or not |
 | Deductions above half the wage, alone | Yes | Tasama payroll | None yet | Named on the check. Not in the demo data |
 
 **Follow-up and reminders.** While a question is open, the check reads "Asked on <date>; waiting on <name>". "Open the question and send a reminder" opens the case, where the reminder from §15 is available. A "Not registered yet" answer shows on the check with the client's note, and Tasama can ask again.
 
-**WF-30, Run question to the client.**
+**WF-36, Run question to the client.** It is numbered 36 because WF-30 to WF-35 are the payroll run workflows in section 7.
 
 1. HR operations answers (date, or pay or not).
 2. Tasama HR writes the entries in the open month: GOSI registration and contribution entries, or the held hours settled. The run recalculates.
@@ -651,3 +651,122 @@ A first GOSI registration with an earlier employer stands, because it decides th
 **No change to the seed or the engine.** Fixes are written as element entries in the open month, as the connector does for any confirmed input.
 
 **Effort:** within phase 3, about one Claude session.
+
+## 17. Phase 4 as built: each client's month of changes, and a hire entered once
+
+*Added 23 October 2026, at the start of phase 4. It fills in sections 3, 4, 6, 7 and 9 for intake and contracts.*
+
+### The month's changes are listed for the client before the cut-off, and late ones move to next month
+
+**Wared pre-fills each client's changes when the month opens (WF-27).** From the master it lists:
+
+- joiners and leavers;
+- salary changes;
+- unpaid leave;
+- advances;
+- overtime already approved;
+- for Saudi Coffee, the attendance month.
+
+These came through approved cases or HR events, so they arrive confirmed. Wared also lists what only the client can send, with last month's figure as a suggestion: overtime hours from the shift departments. These stay **expected** until HR operations confirms them.
+
+| State | Meaning |
+|---|---|
+| Expected | Wared is waiting on the client before the cut-off |
+| Confirmed | In this month's payroll |
+| Next month | Arrived after the cut-off; paid with next month as back pay |
+| Dropped | The client said it does not apply this month |
+
+**WF-27 steps:**
+
+1. Wared lists the month's changes against the cut-off.
+2. The client's HR operations confirms. They can change a suggested figure or drop a line.
+3. Tasama HR enters the confirmed lines in the payroll month.
+
+Wared reminds HR operations itself, three days and one day before the cut-off (A3, inside the contact rules), and the reminders are on the case.
+
+**A change entered after the cut-off is a WF-27 case of its own.** Wared:
+
+- works out what it is worth for the days of the closed month;
+- moves it to next month as back pay;
+- shows HR operations the effect.
+
+HR operations agrees, or asks Tasama for an off-cycle payment. The off-cycle run itself is phase 5 (WF-35). Nothing in an approved run reopens.
+
+**Seeded state on the demo day, following the calendar in section 8:**
+
+| Client | Month's inputs |
+|---|---|
+| Riyadh Air, Red Sea Global | Cut-off passed; WF-27 confirmed the day before the cut-off, after Wared's reminders |
+| ROSHN, SEVEN | Cut-off tomorrow; WF-27 waiting on HR operations with three overtime lines expected |
+| Saudi Coffee | Cut-off in three days; WF-27 waiting, with three overtime lines and the attendance month expected |
+
+`SEED_VERSION` goes to 6.
+
+### Screens
+
+**Payroll › Inputs** (Tasama), between Inbox and Attendance:
+
+- Hero: changes still expected before the cut-off, across the five clients.
+- One row per client: a segment bar of confirmed, expected and next month, with the cut-off.
+- Opening a client lists its changes and links to its month case, where a reminder can be sent (section 15).
+
+**HR Workspace › Payroll** (client) gains route tabs:
+
+- **This month** (new, the default): the cut-off clock, the changes waiting on the client, the changes already confirmed, and any late change moved to next month.
+- **Pre-run check**: today's Hisab content, kept as it is until phase 5 moves it to Runs and adds Approval and Reports.
+
+### A hire is entered once: offer, contract, employee, GOSI, first pay (WF-28)
+
+At a client whose payroll Tasama runs, an accepted offer starts WF-28 next to Dalil's pre-boarding.
+
+**WF-28 steps:**
+
+1. Aqd drafts the contract from the offer and the client's policy:
+   - the parties, job, grade and start date;
+   - basic and each allowance;
+   - probation (Art. 53) and working hours;
+   - annual leave and notice;
+   - contract type: fixed term for a non-Saudi (Art. 37), indefinite for a Saudi.
+2. The client's HR operations reads it and sends it for signature. They can correct the start date.
+3. The employee accepts it on Qiwa (simulated).
+4. Tasama HR turns the pending worker into the employee: the same record, with the pay elements from the signed contract.
+5. Tamin registers the person with GOSI and sets the insured group and rate:
+   - a Saudi: the new-system rate for a first registration from July 2024;
+   - a non-Saudi: occupational hazards only.
+
+The new hire then appears in the open month's draft run, paid from the start date. Wared's joiner line moves from expected to confirmed.
+
+At these clients Dalil's pre-boarding no longer creates the Qiwa contract or registers GOSI itself, so neither is done twice. It keeps the work permit for a non-Saudi and the rest of the journey.
+
+`layer.contracts` holds each contract: number, person, offer, contract type, fields, the text, status (drafted, sent, signed) and dates.
+
+### New agents
+
+| Agent | Job | Rung |
+|---|---|---|
+| Wared (وارد) | Lists the month's changes, reminds before the cut-off, moves late changes to next month | A3 |
+| Aqd (عقد) | Drafts the contract from the accepted offer | A2 |
+| Tamin (تأمين) | Registers a new employee with GOSI and sets the insured group and rate | A2 |
+
+This brings the count to 24 agents. Tamin's other jobs (exclusions, checking the GOSI bill) come with phase 5.
+
+### Scenarios
+
+**D4, `hire-to-onboard`, fixed to SEVEN:**
+
+1. The offer is drafted.
+2. It is approved and accepted; Aqd drafts the contract.
+3. HR operations sends it; it is signed; the same record becomes the employee; Tamin registers GOSI.
+4. Nasser sees the new hire in SEVEN's draft run, paid from the start date.
+
+The medical-test block is not played in D4; it stays possible for other runs of WF-06.
+
+**D5, `late-change`, "The 15th without chasing", Riyadh Air:**
+
+1. The month's changes were confirmed a day before the cut-off, after Wared's two reminders; nobody chased.
+2. A promotion is entered in Oracle HCM after the cut-off.
+3. Wared moves it to next month as back pay and shows HR operations what it is worth.
+4. HR operations agrees.
+5. Nasser sees it under Inputs as "next month".
+
+**Effort:** three Claude sessions, as planned.

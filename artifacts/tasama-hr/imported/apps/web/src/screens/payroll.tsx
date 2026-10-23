@@ -6,13 +6,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HeroFeature, Panel, PanelAction, StatTile } from '@cognirise/atelier/layout';
 import { InboxLayout, InboxList, InboxReader } from '@cognirise/atelier/archetypes';
-import { BookOpen, CalendarRange, FileText, Scale } from 'lucide-react';
+import { BookOpen, CalendarRange, FileText, Inbox as InboxIcon, Scale } from 'lucide-react';
 import { bump, getClient, post, setClientKey, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { date, num } from '../lib/format';
 import { useApp } from '../app/state';
 import { Btn, Chip, Empty, Hero, Screen, StatRow, TabStrip, Table } from '../app/ui';
 import { CaseRow, CaseView } from '../app/case';
+import { InputRows, InputsBar, cutoffWords } from '../app/inputs';
 
 const DAY = 86_400_000;
 const d0 = (s: string) => new Date(`${s.slice(0, 10)}T00:00:00Z`).getTime();
@@ -438,6 +439,48 @@ export function PayrollRuns() {
           </Panel>
         </>
       ) : <Empty icon={<FileText size={18} />}>{t('Choose a client whose payroll Tasama runs.')}</Empty>}
+    </Screen>
+  );
+}
+
+/* ------------------------------------------------------------------ Inputs (§17) */
+
+/** Each client's changes for the month against its cut-off: what is in, what is still expected, what moved to next month. */
+export function PayrollInputs() {
+  const { t, bi, lang } = useLang();
+  const { route, openCase } = useApp();
+  const { data } = useApi<any>('/payroll/inputs', { poll: 15000 });
+  const [key, setKey] = useState<string | null>(route.param);
+  if (!data) return null;
+  const rows: any[] = data.clients.filter((c: any) => c.period);
+  const expected = rows.filter((c) => !c.passed).reduce((n, c) => n + c.counts.expected, 0);
+  const waitingClients = rows.filter((c) => !c.passed && c.counts.expected > 0);
+  const next = rows.reduce((n, c) => n + c.counts.next, 0);
+  const sel = rows.find((c) => c.key === (key ?? waitingClients[0]?.key ?? rows[0]?.key));
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="Payroll"
+      title={expected ? `${expected} ${t(expected === 1 ? 'change is still expected' : 'changes are still expected')} ${t('from')} ${waitingClients.length} ${t(waitingClients.length === 1 ? 'client before its cut-off' : 'clients before their cut-off')}` : t('Every client has sent its changes for the month')}
+      lede={t('Wared lists each client\'s changes when the month opens: what came through approved cases is already in; what only the client can send waits for its HR operations, who Wared reminds before the cut-off. A change after the cut-off moves to next month as back pay.')}
+      feature={<HeroFeature label="Moved to next month" value={num(next)} support={<span className="text-xs text-muted-foreground">{t('changes entered after a cut-off')}</span>} />} />}>
+      <Panel icon={<InboxIcon size={16} />} title="Where each client's changes stand">
+        <div className="space-y-2">{rows.map((c) => (
+          <button key={c.key} type="button" onClick={() => setKey(c.key)}
+            className={`grid w-full grid-cols-[10rem_1fr_15rem] items-center gap-4 rounded-xl border px-3 py-2.5 text-start transition-colors ${sel?.key === c.key ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-primary/40'}`}>
+            <span><span className="block text-sm font-semibold">{bi(c.short, c.name_ar)}</span><span className="block text-[11px] text-muted-foreground">{cutoffWords(c.period.cutoff, data.today, t)}</span></span>
+            <InputsBar counts={c.counts} legend={false} />
+            <span className="text-xs text-muted-foreground">{c.month?.status === 'COMPLETED' ? `${t('Confirmed by')} ${c.month.confirmed_by ?? '—'}${c.month.closed_at ? `, ${date(c.month.closed_at, lang)}` : ''}` : c.counts.expected ? `${c.counts.expected} ${t('expected from')} ${c.month?.waiting_on ?? t('HR operations')}` : t('All in')}{c.month?.reminders ? ` · ${c.month.reminders} ${t(c.month.reminders === 1 ? 'reminder' : 'reminders')}` : ''}</span>
+          </button>))}</div>
+        <div className="mt-4 border-t border-border/60 pt-3">
+          <p className="mb-1.5 text-xs text-muted-foreground">{t('All five clients')}</p>
+          <InputsBar counts={rows.reduce((a, c) => ({ confirmed: a.confirmed + c.counts.confirmed, expected: a.expected + c.counts.expected, next: a.next + c.counts.next, dropped: a.dropped + c.counts.dropped }), { confirmed: 0, expected: 0, next: 0, dropped: 0 })} />
+        </div>
+      </Panel>
+      {sel ? (
+        <Panel icon={<FileText size={16} />} title={`${bi(sel.short, sel.name_ar)}: ${sel.counts.confirmed} ${t('confirmed')}, ${sel.counts.expected} ${t('expected')}${sel.counts.next ? `, ${sel.counts.next} ${t('moved to next month')}` : ''}`}
+          action={sel.month ? <PanelAction onClick={() => openCase(sel.month.ref, sel.key)}>{t(sel.month.status === 'COMPLETED' ? 'Open the month\'s case' : 'Open the case and send a reminder')}</PanelAction> : undefined}>
+          <InputRows rows={[...sel.rows, ...sel.late]} />
+        </Panel>
+      ) : null}
     </Screen>
   );
 }

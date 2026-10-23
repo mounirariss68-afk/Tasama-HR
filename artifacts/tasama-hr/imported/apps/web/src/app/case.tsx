@@ -201,7 +201,9 @@ function useEditor(c: any) {
     else if (c?.workflow_id === 'WF-16' && c.payload?.exception) setEdits({ approved_amount: Math.min(c.payload.amount, c.payload.max_amount ?? c.payload.amount), approved_months: c.payload.recovery_months ?? c.payload.months });
     else if (c?.workflow_id === 'WF-12' && c.result?.case) setEdits({ approved_basic: c.result.case.equity?.suggest ?? c.result.case.proposed });
     else if (c?.workflow_id === 'WF-26' && c.current_step === 'review' && c.result?.reading) setEdits({ readings: Object.fromEntries(c.result.reading.flagged.filter((f: any) => f.flag === 'UNCLEAR' && f.recommended).map((f: any) => [f.key, f.recommended.code])) });
-    else if (c?.workflow_id === 'WF-30') setEdits(c.payload?.kind === 'OVERTIME_HELD' ? { pay_held: true } : { registered_on: '' });
+    else if (c?.workflow_id === 'WF-27' && c.type === 'MONTH') setEdits({ values: {}, drop: [] });
+    else if (c?.workflow_id === 'WF-28' && c.current_step === 'send') setEdits({ start_date_new: c.payload?.start_date });
+    else if (c?.workflow_id === 'WF-36') setEdits(c.payload?.kind === 'OVERTIME_HELD' ? { pay_held: true } : { registered_on: '' });
     else setEdits({});
   }, [c?.ref, c?.status]);
   return [edits, setEdits] as const;
@@ -210,8 +212,40 @@ function useEditor(c: any) {
 function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any) => void }) {
   const { t, lang, bi } = useLang();
   const shortlist = useApi(c.workflow_id === 'WF-03' && c.current_step === 'shortlist' ? `/hiring/requisitions/${c.payload.requisition_id}` : null);
+  const month = useApi<any>(c.workflow_id === 'WF-27' && c.type === 'MONTH' && c.current_step === 'confirm' ? '/payroll/this-month' : null);
   const att = useApi<any>(c.workflow_id === 'WF-29' && c.current_step === 'confirm' && c.client ? `/payroll/attendance/${c.client}` : null);
-  if (c.workflow_id === 'WF-30' && c.current_step === 'answer') {
+  if (c.workflow_id === 'WF-27' && c.type === 'MONTH' && c.current_step === 'confirm' && month.data?.rows) {
+    // HR operations sends what only the client knows: each expected line, with Wared's suggestion to keep or change.
+    const exp = month.data.rows.filter((r: any) => r.state === 'EXPECTED' && r.request_id === c.id);
+    const ot = exp.filter((r: any) => r.kind === 'OT_HOURS');
+    const other = exp.filter((r: any) => r.kind !== 'OT_HOURS');
+    const set = (id: number, v: number) => setEdits({ ...edits, values: { ...(edits.values ?? {}), [id]: v } });
+    const drop = (id: number, on: boolean) => setEdits({ ...edits, drop: on ? [...(edits.drop ?? []), id] : (edits.drop ?? []).filter((x: number) => x !== id) });
+    return (
+      <ReaderSection label={`${t('Only you can send these')} · ${exp.length}`}>
+        <div className="space-y-2">{ot.map((r: any) => {
+          const dropped = (edits.drop ?? []).includes(r.id);
+          return (
+            <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 px-3 py-2">
+              <span className="min-w-[12rem] flex-1 text-sm"><span className="font-medium">{bi(r.name, r.name_ar)}</span><span className="block text-xs text-muted-foreground">{t('Overtime hours this month')} · {r.note}</span></span>
+              <label className="flex items-center gap-2 text-sm"><input type="number" min={0} max={100} disabled={dropped} className="input h-9 w-20 text-end text-sm" value={edits.values?.[r.id] ?? r.suggested ?? 0} onChange={(e) => set(r.id, Number(e.target.value))} />{t('hours')}</label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={dropped} onChange={(e) => drop(r.id, e.target.checked)} />{t('None this month')}</label>
+            </div>);
+        })}
+        {other.map((r: any) => <p key={r.id} className="text-sm text-muted-foreground">{r.label}: {t('confirmed in its own case')}</p>)}</div>
+      </ReaderSection>
+    );
+  }
+  if (c.workflow_id === 'WF-28' && c.current_step === 'send' && c.payload?.body) {
+    return (
+      <ReaderSection label={t('The contract')}>
+        <DocumentPreview document={{ title: lang === 'ar' ? 'عقد عمل' : 'Employment contract', reference: c.payload.contract_number, body: c.payload.body, language: 'en', status: 'DRAFT' }} />
+        <label className="mt-3 block text-sm"><span className="text-muted-foreground">{t('Start date')}</span>
+          <input type="date" className="input mt-1 h-10 w-56 text-sm" value={edits.start_date_new ?? c.payload.start_date} onChange={(e) => setEdits({ ...edits, start_date_new: e.target.value })} /></label>
+      </ReaderSection>
+    );
+  }
+  if (c.workflow_id === 'WF-36' && c.current_step === 'answer') {
     return c.payload?.kind === 'GOSI_REGISTRATION' ? (
       <ReaderSection label={t('Your answer')}>
         <label className="block text-sm">
@@ -482,15 +516,17 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
   if (!c) return <div className="p-6 text-sm text-muted-foreground">{t('Loading…')}</div>;
   const escalated = c.status === 'ESCALATED';
   const open = ['WAITING', 'ESCALATED'].includes(c.status);
-  const mine = c.workflow_id !== 'WF-30' && !!persona && (c.requester_person_id === persona.person_id || c.subject_person_id === persona.person_id) && !c.canDecide;
+  const mine = c.workflow_id !== 'WF-36' && !!persona && (c.requester_person_id === persona.person_id || c.subject_person_id === persona.person_id) && !c.canDecide;
   const isHR = !!persona?.roles.some((r) => ['HRBP', 'TA', 'PAYROLL', 'CHRO', 'TASAMA', 'HR_OPS'].includes(r));
   const onBehalf = persona?.key === 'tasama';
   const card = caseCard(c, { t, bi, lang, mine });
   const rec = card.rec;
   const waitingStep = c.steps?.find((s: any) => s.status === 'WAITING');
-  const question = c.workflow_id === 'WF-30';
-  const approveLabel = escalated ? t('Resume the case') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
-  const declineLabel = escalated ? t('Close the case') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : t('Decline');
+  const question = ['WF-36', 'WF-27', 'WF-28'].includes(c.workflow_id);
+  const late = c.workflow_id === 'WF-27' && c.type === 'LATE_CHANGE';
+  const nextMonthName = c.payload?.next ? new Date(`${c.payload.next}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+  const approveLabel = escalated ? t('Resume the case') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t('Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
+  const declineLabel = escalated ? t('Close the case') : late ? t('Ask Tasama for an off-cycle payment') : c.workflow_id === 'WF-28' ? t('Return to Tasama') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : t('Decline');
   const needsReason = (d: 'APPROVED' | 'REJECTED') => onBehalf || (d === 'APPROVED' && rec?.verdict === 'DECLINE') || (d === 'REJECTED' && (rec?.verdict === 'APPROVE' || !escalated));
   const decide = async (decision: 'APPROVED' | 'REJECTED') => {
     if (needsReason(decision) && asking !== decision) { setAsking(decision); setErr(null); return; }
@@ -520,7 +556,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
         <span className="ms-auto">{open && c.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
       <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-30' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : ['WF-27', 'WF-28'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
     </div>
   );
 
@@ -554,13 +590,13 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
               {REJECT_REASONS.map(([k, en, ar]) => <option key={k} value={k}>{bi(en, ar)}</option>)}
             </select>
           ) : null}
-          <input className={`input h-10 text-sm ${asking === 'REJECTED' && !escalated && !question ? '' : 'sm:col-span-2'}`} autoFocus placeholder={asking === 'REJECTED' ? t(question ? 'When it will be done, for Tasama (optional)' : 'A note for the requester (optional)') : t('Your reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <input className={`input h-10 text-sm ${asking === 'REJECTED' && !escalated && !question ? '' : 'sm:col-span-2'}`} autoFocus placeholder={asking === 'REJECTED' ? t(question ? (c.workflow_id === 'WF-36' ? 'When it will be done, for Tasama (optional)' : 'A note for Tasama (optional)') : 'A note for the requester (optional)') : t('Your reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       ) : null}
       {err ? <p className="text-sm text-danger">{err}</p> : null}
-      <DecisionBar prompt={asking ? (asking === 'REJECTED' ? t(question ? 'Tell Tasama when it will be done, then confirm.' : 'Declining: choose a reason, then confirm.') : t('This goes against the recommendation: give your reason.')) : undefined}>
+      <DecisionBar prompt={asking ? (asking === 'REJECTED' ? t(question ? (c.workflow_id === 'WF-36' ? 'Tell Tasama when it will be done, then confirm.' : 'Add a note for Tasama if you want, then confirm.') : 'Declining: choose a reason, then confirm.') : t('This goes against the recommendation: give your reason.')) : undefined}>
         {asking ? <Btn onClick={() => { setAsking(null); setErr(null); }} disabled={busy}>{t('Cancel')}</Btn> : null}
-        {asking !== 'APPROVED' ? <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{asking === 'REJECTED' ? t(question ? 'Confirm' : 'Confirm the decline') : declineLabel}</Btn> : null}
+        {asking !== 'APPROVED' && !(c.workflow_id === 'WF-27' && c.type === 'MONTH') ? <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{asking === 'REJECTED' ? t(question ? 'Confirm' : 'Confirm the decline') : declineLabel}</Btn> : null}
         {asking !== 'REJECTED' ? <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={busy}>{busy ? t('Working…') : approveLabel}</Btn> : null}
       </DecisionBar>
     </div>

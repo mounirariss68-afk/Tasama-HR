@@ -5,7 +5,7 @@
  *  - A check that stops the run is either Tasama's to fix (the law decides the answer: an
  *    advance instalment above 10% of the wage is rescheduled) or the client's (only the
  *    employer can register a person with GOSI or approve overtime above its cap). A client's
- *    check becomes a question in the client's HR operations inbox (WF-30), which Tasama can
+ *    check becomes a question in the client's HR operations inbox (WF-36), which Tasama can
  *    follow and remind.
  *  - Lines the client already confirmed (unpaid days, a fine cut at the five-day cap) are not
  *    checks: they carry who confirmed them, and nobody has to act.
@@ -54,13 +54,13 @@ async function advancePlan(c: Q, personId: number, periodStart: string, wage: nu
   return { entry: e, from, balance, limit, months: full + (last > 0 ? 1 : 0), full, last, instalment: Number(e.amount) };
 }
 
-/** The open WF-30 question for a person and a check this month, or the last answer. */
+/** The open WF-36 question for a person and a check this month, or the last answer. */
 async function question(c: Q, period: string, personId: number, kind: string) {
   return (await c.query(
     `SELECT r.ref, r.status, r.updated_at, r.payload, w.display_name AS waiting_on,
             (SELECT a.reason FROM layer.approvals a WHERE a.request_id=r.id AND a.decision='REJECTED' ORDER BY a.decided_at DESC LIMIT 1) AS reason
        FROM layer.requests r LEFT JOIN hcm.persons w ON w.id=r.waiting_on_person_id
-      WHERE r.workflow_id='WF-30' AND r.payload->>'period'=$1 AND (r.payload->>'person_id')::int=$2 AND r.payload->>'kind'=$3
+      WHERE r.workflow_id='WF-36' AND r.payload->>'period'=$1 AND (r.payload->>'person_id')::int=$2 AND r.payload->>'kind'=$3
       ORDER BY r.id DESC LIMIT 1`, [period, personId, kind])).rows[0] ?? null;
 }
 
@@ -179,13 +179,13 @@ export async function ask(c: PoolClient, draft: { period: { name: string; start:
   }
   const title = kind === 'GOSI_REGISTRATION' ? 'GOSI registration' : 'Held overtime';
   const title_ar = kind === 'GOSI_REGISTRATION' ? 'التسجيل في التأمينات الاجتماعية' : 'ساعات العمل الإضافي المعلّقة';
-  const k = await startCase(c, { workflowId: 'WF-30', type: kind, title, title_ar, requester: pp.persona.payroll, subject: personId, channel: 'FORM', payload });
+  const k = await startCase(c, { workflowId: 'WF-36', type: kind, title, title_ar, requester: pp.persona.payroll, subject: personId, channel: 'FORM', payload });
   await c.query(`INSERT INTO layer.run_check_log (period_name, person_id, code, action, by_name, summary, request_id) VALUES ($1,$2,$3,'ASKED',$4,$5,$6)`,
     [draft.period.name, personId, f.code, by, `${by} asked HR operations ${kind === 'GOSI_REGISTRATION' ? `for ${r.name}'s GOSI registration` : `whether to pay ${r.name}'s held overtime`}.`, k.id]);
   return k;
 }
 
-/** WF-30 apply: the client's answer becomes entries in the open month. */
+/** WF-36 apply: the client's answer becomes entries in the open month. */
 export async function applyAnswer(c: PoolClient, req: { id: number; payload: any }, approverName: string) {
   const p = req.payload;
   const per = (await c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];

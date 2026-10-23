@@ -33,7 +33,7 @@ type Action =
   | { kind: 'overtime_inputs' }
   | { kind: 'justify_late'; text: string }
   | { kind: 'start'; starter: keyof typeof STARTERS; as: string }
-  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; edits?: Record<string, any> }
+  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; also?: Record<string, string>; edits?: Record<string, any> }
   | { kind: 'raqeeb_scan' }
   | { kind: 'nudge'; ref: string }
   | { kind: 'basira_scan' }
@@ -257,6 +257,13 @@ async function attendanceRecord(): Promise<Rec | null> {
   ] };
 }
 
+/** The cases a decision opened (result.followon, result.contract, …), kept under the scenario's names for them. */
+async function capture(c: Ctx, id: number, a: { followon?: string; also?: Record<string, string> }) {
+  const r = (await pool.query(`SELECT result FROM layer.requests WHERE id=$1`, [id])).rows[0]?.result ?? {};
+  if (a.followon && r.followon) c.refs[a.followon] = r.followon;
+  for (const [key, name] of Object.entries(a.also ?? {})) if (r[key]) c.refs[name] = r[key];
+}
+
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
 
 const STARTERS = {
@@ -300,8 +307,46 @@ const STARTERS = {
     const app = (await pool.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 AND a.phase NOT IN ('HIRED','NOT_SELECTED') ORDER BY a.id LIMIT 1`, [rq.id])).rows[0];
     if (!app) throw new Error('No candidate left on this requisition. Reset the demo to play this scenario again.');
     c.out.role = rq.title;
+    // D4 (§17): the new hire starts in two days, inside the open payroll month, so the first pay is this month's.
+    const per = (await pool.query(`SELECT to_char(end_date,'YYYY-MM-DD') e FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const two = iso(addDays(now(), 2));
+    c.out.start = per && two > per.e ? per.e : two;
     const div = (await divisionOf(rq.hiring_manager_id)) ?? 'Technology and Digital';
-    const r = await tx((x) => startCase(x, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: iso(addDays(now(), 30)), expected_basic: 16500, accept: true, block_medical: true, division: div } }));
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: c.out.start, expected_basic: 16500, accept: true, block_medical: false, division: div } }));
+    return r.ref as string;
+  },
+  /** D5: the month's changes case, confirmed before the cut-off (seeded). */
+  month: async (c: Ctx) => {
+    const r = (await pool.query(`SELECT r.ref, r.closed_at, (SELECT count(*)::int FROM layer.trail t WHERE t.request_id=r.id AND t.actor_id='wared' AND t.act='NOTIFY') n,
+        (SELECT count(*)::int FROM layer.pay_inputs i WHERE i.request_id=r.id) lines, (SELECT pp.display_name FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=r.id AND a.decision='APPROVED' LIMIT 1) by
+        FROM layer.requests r WHERE r.workflow_id='WF-27' AND r.type='MONTH' ORDER BY r.id DESC LIMIT 1`)).rows[0];
+    if (!r) throw new Error('No month case for this client');
+    c.out.month = { reminders: r.n, lines: r.lines, by: r.by, at: r.closed_at };
+    return r.ref as string;
+  },
+  /** D5: a promotion entered in the HRMS after the cut-off (edge 5). Restored each time the scenario starts. */
+  lateChange: async (c: Ctx) => {
+    const meta = (await pool.query(`SELECT value FROM layer.meta WHERE key='inputs'`)).rows[0]?.value;
+    const pid = meta?.late as number;
+    if (!pid) throw new Error('No person set aside for the late change');
+    const per = (await pool.query(`SELECT period_name, to_char(start_date,'YYYY-MM-DD') s, to_char(cutoff_date,'YYYY-MM-DD') co FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    await tx(async (x) => {
+      // Restore: the planted promotion and its back pay from an earlier run are removed.
+      const old = (await x.query(`SELECT id FROM layer.requests WHERE workflow_id='WF-27' AND type='LATE_CHANGE' AND subject_person_id=$1`, [pid])).rows.map((r: any) => r.id);
+      if (old.length) await x.query(`DELETE FROM layer.pay_inputs WHERE request_id = ANY($1::int[])`, [old]);
+      await x.query(`DELETE FROM hcm.salaries WHERE person_id=$1 AND reason='DEMO-D5'`, [pid]);
+      await x.query(`UPDATE hcm.salaries SET date_to='4712-12-31' WHERE id=(SELECT id FROM hcm.salaries WHERE person_id=$1 ORDER BY date_from DESC LIMIT 1)`, [pid]);
+    });
+    const cur = (await pool.query(`SELECT * FROM hcm.salaries WHERE person_id=$1 ORDER BY date_from DESC LIMIT 1`, [pid])).rows[0];
+    const basic = Math.round(Number(cur.basic) * 1.12 / 50) * 50, housing = Math.round(basic * Number(cur.housing) / Number(cur.basic) / 50) * 50;
+    const who = await nameOf(pid);
+    c.out.late = { who, from: Number(cur.basic), to: basic, effective: per.s, cutoff: per.co };
+    const r = await tx(async (x) => {
+      await x.query(`UPDATE hcm.salaries SET date_to=$2::date - 1 WHERE id=$1`, [cur.id, per.s]);
+      await x.query(`INSERT INTO hcm.salaries (person_id, assignment_number, date_from, basic, housing, transport, other_allowance, currency, action_code, reason) VALUES ($1,$2,$3,$4,$5,$6,$7,'SAR','PROMOTION','DEMO-D5')`, [pid, cur.assignment_number, per.s, basic, housing, cur.transport, cur.other_allowance]);
+      return startCase(x, { workflowId: 'WF-27', type: 'LATE_CHANGE', title: `Change after the cut-off: ${who}`, title_ar: 'تغيير بعد موعد الإقفال', requester: c.P.payroll, subject: pid, channel: 'EVENT', scenario: c.key,
+        payload: { person_id: pid, person_name: who, what: 'Promotion', effective: per.s, entered_on: iso(now()) } });
+    });
     return r.ref as string;
   },
   termination: async (c: Ctx) => {
@@ -390,16 +435,22 @@ export const SCRIPTS: Scenario[] = [
       S('p2', 'Every finding has a fix', 'لكل ملاحظة تصحيح', 'Payroll and rewards', 'payroll', 'hr-payroll', SHOW,
         () => 'Each finding names the employee, the amount at stake, the rule it breaks (Saudi Labor Law or the handbook) and the fix. Payroll applies the fixes in the HRMS and releases the run; Hisab re-checks before release.', 'case:pc'),
     ] },
-  { key: 'hire-to-onboard', level: 'client', shape: 'End to end', shape_ar: 'من البداية إلى النهاية', title: 'Offer accepted to pre-boarding', title_ar: 'من قبول العرض إلى ما قبل الالتحاق',
-    summary: 'An offer for an open role is approved and accepted; the HRMS creates a pending worker; the new-hire event starts Dalil\'s pre-boarding (Qiwa, GOSI, Muqeem, CCHI), which finds the medical test blocked.', summary_ar: 'يُعتمد عرض العمل ويُقبل، فتبدأ رحلة ما قبل الالتحاق ويتعثر الفحص الطبي.',
-    record: async (c) => (c.refs.pre ? workerRecord(c, await subjectOf(c.refs.pre)) : requisitionRecord(c, 'SEC-AN')),
+  { key: 'hire-to-onboard', level: 'client', client: 'seven', shape: 'End to end', shape_ar: 'من البداية إلى النهاية', title: 'From offer to first payslip', title_ar: 'من العرض إلى أول قسيمة راتب',
+    summary: 'SEVEN accepts a candidate who starts in two days. The record created when the offer is accepted is the one that is paid: Aqd drafts the contract from the offer, HR operations sends it, the employee accepts it on Qiwa, the pending record becomes the employee, Tamin registers GOSI, and the new hire is in this month\'s draft run. Nothing is entered twice.', summary_ar: 'يقبل مرشح عرض سفن ويباشر بعد يومين؛ السجل الذي أُنشئ عند قبول العرض هو الذي يُصرف له الراتب: يصوغ عقد العقد، وترسله عمليات الموارد البشرية، ويقبله الموظف في قوى، ويسجله تأمين في التأمينات، ويظهر في مسودة رواتب الشهر.',
+    record: async (c) => (c.refs.ctr ? workerRecord(c, await subjectOf(c.refs.ctr)) : requisitionRecord(c, 'SEC-AN')),
     steps: [
       S('h1', 'The offer is drafted', 'إعداد العرض', 'Panel selection (WF-05)', 'chro', 'hr-hiring', { kind: 'start', starter: 'offer', as: 'offer' },
-        (c) => `The panel selected a candidate for ${c.out.role}. Tarqiya proposed pay inside the grade and checked it against peers; the offer waits for HRBP approval (the CHRO approves above the grade midpoint).`, 'case:offer',
-        { chat: async (c) => { const hm = (await caseOf(c.refs.offer))?.requester_person_id; return [person(hm ? await nameOf(hm) : 'Hiring manager', `We've chosen our candidate for ${c.out.role}. Please prepare the offer.`), agent('Tarqiya', 'The offer is drafted at SAR 16,500 basic: inside the grade and in line with the team. It is with your HR business partner for approval.')]; } }),
-      S('h2', 'Approved, accepted, pre-boarding starts', 'الاعتماد والقبول وبدء ما قبل الالتحاق', 'HRMS new-hire event (WF-06)', 'payroll', 'hr-onboarding', { kind: 'decide', ref: 'offer', decision: 'APPROVED', reason: 'Within the grade midpoint', followon: 'pre' },
-        async (c) => (c.refs.pre ? `The HRBP approved (${by(c, 'offer')}) and the candidate accepted. The HRMS created a pending worker, and the new-hire event started Dalil's pre-boarding ${c.refs.pre}: Qiwa contract, GOSI registration, Muqeem and medical insurance. The medical test is blocked; Dalil escalated it to HR Operations.` : `The HRBP approved (${by(c, 'offer')}).`), 'case:pre',
-        { chat: () => [system('Candidate', 'The candidate accepted the offer.', 'Offer portal'), agent('Dalil', 'Pre-boarding has started: the Qiwa contract, GOSI registration, Muqeem and medical insurance. The medical test is blocked at the clinic, so HR Operations has it now.', 'Teams, to the hiring manager')] }),
+        (c) => `The panel selected a candidate for ${c.out.role}, starting on ${fmtDate(c.out.start)}. Tarqiya proposed pay inside the grade and checked it against peers; the offer waits for approval.`, 'case:offer',
+        { chat: async (c) => { const hm = (await caseOf(c.refs.offer))?.requester_person_id; return [person(hm ? await nameOf(hm) : 'Hiring manager', `We've chosen our candidate for ${c.out.role}. Can they start this week?`), agent('Tarqiya', 'The offer is drafted at SAR 16,500 basic: inside the grade and in line with the team. It is with your HR business partner for approval.')]; } }),
+      S('h2', 'Accepted: the contract is drafted from the offer', 'القبول وصياغة العقد من العرض', 'Offer accepted (WF-28)', 'payroll', 'hr-inbox', { kind: 'decide', ref: 'offer', decision: 'APPROVED', reason: 'Within the grade midpoint', followon: 'pre', also: { contract: 'ctr' } },
+        async (c) => { const k = c.refs.ctr ? await caseOf(c.refs.ctr) : null; const p = k?.payload ?? {}; return k ? `Approved (${by(c, 'offer')}) and accepted. The pending record created at acceptance is the one that will be paid. Aqd drafted ${p.contract_number} from the offer: ${sar(p.wage ?? 0)} a month from ${fmtDate(p.start_date)}, ${p.contract?.contract_type === 'FIXED_TERM' ? 'a two-year fixed term (Art. 37)' : 'indefinite'}, ${p.contract?.probation_days} days' probation. It waits for HR operations to send it.` : `Approved (${by(c, 'offer')}).`; }, 'case:ctr',
+        { chat: async (c) => [system('Candidate', 'The candidate accepted the offer.', 'Offer portal'), agent('Aqd', `The contract is drafted from the accepted offer. Every pay term is the offer's; please read it and send it for signature.`, 'To HR operations')] }),
+      S('h3', 'Sent, signed, and the same record becomes the employee', 'الإرسال والتوقيع وتحول السجل نفسه إلى موظف', 'Human step: HR operations', 'payroll', 'hr-inbox', { kind: 'decide', ref: 'ctr', decision: 'APPROVED', reason: 'Terms match the offer' },
+        async (c) => { const k = await caseOf(c.refs.ctr); const fp = k?.result?.first_pay; return `HR operations sent the contract (${by(c, 'ctr')}); the employee accepted it on Qiwa. The pending record became the employee record from ${fmtDate(k?.payload?.start_date)} with the pay from the contract, and Tamin registered GOSI.${fp ? ` In ${new Date(`${fp.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })}'s run: ${fp.days} days, ${sar(fp.gross)} gross, ${sar(fp.net)} net.` : ''}`; }, 'case:ctr',
+        { chat: async (c) => { const k = await caseOf(c.refs.ctr); return [system('Qiwa', `${k?.payload?.contract?.employee ?? 'The employee'} accepted the employment contract.`, 'Qiwa'), agent('Tamin', 'Registered with GOSI from the start date, at the rate for the insured group.', 'To Tasama payroll')]; } }),
+      S('h4', 'The first payslip, without anything entered twice', 'أول قسيمة راتب دون إدخال مرتين', 'Payroll › Runs', 'tasama-specialist', 'payroll-runs', SHOW,
+        async (c) => { const k = await caseOf(c.refs.ctr); const fp = k?.result?.first_pay; return `Nasser opens SEVEN's draft run: ${k?.payload?.contract?.employee ?? 'the new hire'} is there${fp ? ` for ${fp.days} days, ${sar(fp.gross)} gross` : ''}, with GOSI, from the record created when the offer was accepted. Nobody typed the hire into payroll.`; }, 'case:ctr',
+        { focus: { fact: async (c) => { const k = await caseOf(c.refs.ctr); return `Entered once: offer ${k?.payload?.offer_number ?? ''} → contract ${k?.payload?.contract_number ?? ''} → employee → GOSI → first pay.`; } } }),
     ] },
   { key: 'termination-stop', level: 'client', shape: 'Stop and escalate', shape_ar: 'إيقاف وتصعيد', title: 'Termination without an improvement plan', title_ar: 'إنهاء خدمة دون خطة تحسين',
     summary: 'A manager asks to terminate a low performer. Sanad checks the file against Saudi Labor Law and the handbook, finds no improvement plan, and stops the case for the HRBP and Legal. No exit step runs.', summary_ar: 'يطلب مدير إنهاء خدمة موظف؛ يتحقق سند ولا يجد خطة تحسين فيوقف الحالة.',
@@ -441,6 +492,29 @@ export const SCRIPTS: Scenario[] = [
       S('o4', 'Each client paid by its own rules', 'كل عميل يدفع وفق قواعده', 'Runs', 'tasama-specialist', 'payroll-runs/saudicoffee', SHOW,
         async (c) => { const a = await d2Line('redsea', c.out.d2.redsea.id), b = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `The same ${D2_HOURS} hours: SAR ${a.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} at Red Sea Global, SAR ${b.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} at Saudi Coffee. Nobody chose a formula or remembered a cap: each run read its client's approved policy, and each line cites it.`; }, undefined,
         { focus: { fact: async (c: Ctx) => { const a = await d2Line('redsea', c.out.d2.redsea.id), b = await d2Line('saudicoffee', c.out.d2.saudicoffee.id); return `Same ${D2_HOURS} hours of overtime: Red Sea Global pays SAR ${Math.round(a.amount).toLocaleString('en-US')}; Saudi Coffee pays SAR ${Math.round(b.amount).toLocaleString('en-US')} and holds ${D2_HOURS - b.hours} hours for approval.`; } } }),
+    ] },
+  { key: 'late-change', level: 'tasama', client: 'riyadhair', shape: 'Real time', shape_ar: 'في الوقت الفعلي', title: 'The cut-off without chasing', title_ar: 'موعد الإقفال دون ملاحقة',
+    summary: 'Riyadh Air\'s month of changes was in the day before its cut-off: Wared listed them when the month opened and reminded HR operations twice. Two days after the cut-off a promotion is entered in Oracle HCM. Wared moves it to next month as back pay and shows HR operations what it is worth. The approved run does not reopen.', summary_ar: 'وصلت تغييرات طيران الرياض قبل الإقفال بيوم بعد تذكيرين من وارد؛ وبعد الإقفال بيومين تُدخل ترقية، فينقلها وارد إلى الشهر التالي كفروقات ويبيّن قيمتها، ولا يُعاد فتح الرواتب المعتمدة.',
+    record: async (c) => (c.refs.late ? workerRecord(c, await subjectOf(c.refs.late)) : null),
+    steps: [
+      S('e1', 'The month\'s changes were in without chasing', 'وصلت تغييرات الشهر دون ملاحقة', 'Payroll › This month', 'payroll', 'hr-payroll', { kind: 'start', starter: 'month', as: 'month' },
+        (c) => `Wared listed ${c.out.month?.lines ?? 'the'} changes for the month when it opened ten days before the cut-off: what came through approved cases was already in; three overtime lines only HR operations could send. Wared reminded ${c.out.month?.by ?? 'HR operations'} ${c.out.month?.reminders ?? 2} times, and they were confirmed on ${fmtDate(c.out.month?.at)}, the day before the cut-off. Nobody chased.`, 'case:month',
+        { chat: async (c) => [agent('Wared', 'Three overtime lines are still expected for this month, and the cut-off is tomorrow. Last month\'s figures are filled in as suggestions.', 'Teams, to HR operations'), person(c.out.month?.by ?? 'HR operations', 'Checked with the team leaders. Confirmed.', 'Tasama HR')] }),
+      S('e2', 'A promotion arrives after the cut-off', 'ترقية تصل بعد الإقفال', 'HRMS event: Oracle HCM', 'payroll', 'hr-inbox', { kind: 'start', starter: 'lateChange', as: 'late' },
+        async (c) => { const k = await caseOf(c.refs.late); const p = k?.payload ?? {}; return `${c.out.late?.who}'s promotion was entered in Oracle HCM today, effective ${fmtDate(c.out.late?.effective)}, after the cut-off on ${fmtDate(c.out.late?.cutoff)}. The month's run is already approved, so Wared did not touch it: the ${p.days ?? ''} days at the new pay are worth ${sar(p.backPay ?? 0)}, to be paid with next month as back pay. HR operations is shown the figure.`; }, 'case:late',
+        { chat: async (c) => { const k = await caseOf(c.refs.late); return [system('Oracle HCM', `Promotion recorded for ${c.out.late?.who}: basic SAR ${Number(c.out.late?.from ?? 0).toLocaleString('en-US')} → SAR ${Number(c.out.late?.to ?? 0).toLocaleString('en-US')}.`, 'HRMS event'), agent('Wared', `This came after the cut-off. ${sar(k?.payload?.backPay ?? 0)} of back pay goes with next month; this month's run stays as approved.`, 'To HR operations')]; } }),
+      S('e3', 'HR operations agrees', 'عمليات الموارد البشرية توافق', 'Human step: HR operations', 'payroll', 'hr-inbox', { kind: 'decide', ref: 'late', decision: 'APPROVED', reason: 'Pay it with next month' },
+        async (c) => { const k = await caseOf(c.refs.late); return `HR operations agreed (${by(c, 'late')}). ${sar(k?.payload?.backPay ?? 0)} of back pay is booked for next month. No approved run reopened, and no one had to be chased.`; }, 'case:late'),
+      S('e4', 'Tasama sees every client\'s month at once', 'تسامى ترى شهر كل عميل', 'Payroll › Inputs', 'tasama-specialist', 'payroll-inputs', SHOW,
+        async () => {
+          const waiting: string[] = [];
+          for (const cl of ['roshn', 'redsea', 'seven', 'saudicoffee']) {
+            const n = await withClient(cl, async () => (await pool.query(`SELECT count(*)::int n FROM layer.pay_inputs i JOIN hcm.payroll_periods p ON p.period_name=i.period_name AND p.status='OPEN' WHERE i.state='EXPECTED' AND p.cutoff_date >= CURRENT_DATE`)).rows[0].n);
+            if (n) waiting.push(`${clientByKey(cl)!.short} (${n})`);
+          }
+          return `Nasser sees each client's changes against its cut-off: Riyadh Air confirmed, with one change moved to next month${waiting.length ? `; still expected before the cut-off: ${waiting.join(', ')}` : '; every other client is in'}.`;
+        }, undefined,
+        { focus: { fact: async (c) => { const k = await caseOf(c.refs.late); return `After the cut-off: ${sar(k?.payload?.backPay ?? 0)} paid next month as back pay. The approved run is unchanged.`; } } }),
     ] },
   { key: 'attendance-month', level: 'tasama', client: 'saudicoffee', shape: 'Exception', shape_ar: 'استثناء', title: 'A month of attendance', title_ar: 'شهر من الحضور',
     summary: 'Saudi Coffee\'s attendance devices export last month\'s attendance. Hudoor reads it against schedules and approved leave, an employee explains one late morning, and HR operations confirms. One barista\'s lateness fines would pass five days\' wage: they stop at the legal cap, and the barista\'s day absent without leave is unpaid on its own line, not counted as a fine.', summary_ar: 'تصدّر أجهزة الحضور في الشركة السعودية للقهوة حضور الشهر الماضي؛ يقرؤه حضور مقابل الجداول والإجازات، وتشرح موظفة تأخراً، وتؤكد عمليات الموارد البشرية. غرامات أحد الموظفين تتوقف عند حد أجر خمسة أيام.',
@@ -558,12 +632,12 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
     case 'decide': {
       const k = await caseOf(c.refs[a.ref]);
       // Decided on screen before → was pressed: the room's decision stands and the story moves on.
-      if (k && (hand || !['WAITING', 'ESCALATED'].includes(k.status))) { c.out[`hand_${a.ref}`] = true; if (a.followon) { const f = (await pool.query(`SELECT result->>'followon' AS f FROM layer.requests WHERE id=$1`, [k.id])).rows[0]?.f; if (f) c.refs[a.followon] = f; } return 'Decided in the room'; }
+      if (k && (hand || !['WAITING', 'ESCALATED'].includes(k.status))) { c.out[`hand_${a.ref}`] = true; await capture(c, k.id, a); return 'Decided in the room'; }
       if (!k || k.status !== 'WAITING') return `${c.refs[a.ref]} is not waiting on anyone`;
       const who = k.waiting_name ?? (k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa' : k.waiting_on_role);
       const tasamaName = k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa, Tasama' : k.waiting_on_role === 'TASAMA_PAYROLL' ? 'Nasser AlFarraj, Tasama' : null;
       await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, edits: a.edits, actorName: a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : tasamaName ?? undefined }));
-      if (a.followon) { const f = (await pool.query(`SELECT result->>'followon' AS f FROM layer.requests WHERE id=$1`, [k.id])).rows[0]?.f; if (f) c.refs[a.followon] = f; }
+      await capture(c, k.id, a);
       return `${a.decision === 'APPROVED' ? 'Approved' : 'Declined'} for ${who}`;
     }
     case 'raqeeb_scan': { const f = await raqeebScan(); return `${f.length} new flag${f.length === 1 ? '' : 's'}`; }
@@ -662,7 +736,7 @@ export async function startScenario(key: string, clientKey: string) {
     for (const p of policiesFor(clientByKey('redsea')!)) for (const k of p.clauses) await pool.query(`UPDATE layer.policy_clauses SET text_en=$2, text_ar=$3 WHERE id=$1`, [`${p.id} §${k.ref}`, k.en, k.ar]);
   });
   // D3 starts before the export arrives: no upload, no attendance entries.
-  if (key === 'attendance-month') await withClient('saudicoffee', async () => { await pool.query(`DELETE FROM layer.attendance_uploads`); await pool.query(`DELETE FROM hcm.element_entries WHERE reference LIKE 'Attendance %'`); });
+  if (key === 'attendance-month') await withClient('saudicoffee', async () => { await pool.query(`DELETE FROM layer.attendance_uploads`); await pool.query(`DELETE FROM hcm.element_entries WHERE reference LIKE 'Attendance %'`); await pool.query(`UPDATE layer.pay_inputs SET state='EXPECTED', confirmed_by=NULL, confirmed_at=NULL, ref=NULL, label='The attendance month: unpaid days and lateness fines' WHERE kind='ATTENDANCE'`); });
   // D2 starts with no overtime entered; its first step enters it.
   if (key === 'overtime-two-clients') for (const k of D2_CLIENTS) await withClient(k, async () => { await pool.query(`DELETE FROM hcm.element_entries WHERE reference=$1`, [D2_REF]); });
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }

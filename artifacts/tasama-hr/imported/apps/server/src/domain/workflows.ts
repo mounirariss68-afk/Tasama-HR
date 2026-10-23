@@ -212,13 +212,27 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('activate', 'HUMAN', 'CHRO', 'The client\'s CHRO activates the version', 'الرئيس التنفيذي للموارد البشرية لدى العميل يفعّل النسخة', 'The version and what changes', 'Activated, or returned', 'Activate the version'),
       S('apply', 'SYSTEM', 'platform', 'Activate the version for payroll and the assistants', 'تفعيل النسخة للرواتب والمساعدين', 'Activated version', 'The active policy; the previous version kept for the record', 'None'),
     ] },
+  { id: 'WF-27', num: 27, name: 'Monthly inputs and cut-off', name_ar: 'مدخلات الشهر وموعد الإقفال', stage: 'Pay', coverage: 'implemented', trigger: 'The payroll month opens, ten days before the cut-off; or a change arrives after the cut-off', agents: ['wared'], decision_by: 'The client\'s HR operations',
+    steps: [
+      S('prefill', 'AGENT', 'wared', 'List the month\'s changes against the cut-off', 'سرد تغييرات الشهر مقابل موعد الإقفال', 'The master, approved cases, the payroll calendar', 'Changes already confirmed, and the ones the client still has to send', 'What is expected from the client before the cut-off'),
+      S('confirm', 'HUMAN', 'PAYROLL', 'The client\'s HR operations confirms the month\'s changes', 'عمليات الموارد البشرية لدى العميل تؤكد تغييرات الشهر', 'The expected lines with Wared\'s suggestions', 'Each line confirmed, changed or dropped', 'Confirm the changes'),
+      S('apply', 'SYSTEM', 'platform', 'Enter the confirmed changes in the payroll month', 'إدخال التغييرات المؤكدة في شهر الرواتب', 'Confirmed changes', 'Entries in the open month; a late change booked for next month', 'None'),
+    ] },
+  { id: 'WF-28', num: 28, name: 'Offer to contract to payroll', name_ar: 'من العرض إلى العقد إلى الرواتب', stage: 'Pay', coverage: 'implemented', trigger: 'An offer is accepted at a client whose payroll Tasama runs', agents: ['aqd', 'tamin'], decision_by: 'The client\'s HR operations sends the contract; the employee signs on Qiwa',
+    steps: [
+      S('draft', 'AGENT', 'aqd', 'Draft the employment contract from the accepted offer', 'صياغة عقد العمل من العرض المقبول', 'The offer, the client\'s policy, the contract template', 'A contract with every term and the article behind it', 'Contract type, probation, leave and notice'),
+      S('send', 'HUMAN', 'PAYROLL', 'The client\'s HR operations sends the contract for signature', 'عمليات الموارد البشرية لدى العميل ترسل العقد للتوقيع', 'The draft contract', 'The contract sent on Qiwa', 'Send for signature'),
+      S('sign', 'SYSTEM', 'qiwa', 'The employee accepts the contract on Qiwa', 'الموظف يقبل العقد في منصة قوى', 'The contract sent', 'The signed contract', 'None'),
+      S('hire', 'SYSTEM', 'platform', 'The pending worker becomes the employee, with the pay from the contract', 'يصبح الموظف المرتقب موظفاً بأجر العقد', 'The signed contract', 'The same record as an employee; pay elements from the start date', 'None'),
+      S('gosi', 'AGENT', 'tamin', 'Register the employee with GOSI', 'تسجيل الموظف في التأمينات الاجتماعية', 'Nationality, first registration, wage', 'The GOSI registration, insured group and rate', 'Which insured group applies'),
+    ] },
   { id: 'WF-29', num: 29, name: 'Attendance month', name_ar: 'شهر الحضور', stage: 'Pay', coverage: 'implemented', trigger: 'The month\'s attendance file is uploaded', agents: ['hudoor'], decision_by: 'The employee explains; the client\'s HR operations confirms',
     steps: [
       S('read', 'AGENT', 'hudoor', 'Read the attendance against schedules and leave; propose unpaid days and fines', 'قراءة الحضور مقابل الجداول والإجازات واقتراح أيام الغياب والغرامات', 'The attendance file, schedules, approved leave, the penalty table', 'Each day marked; per person, unpaid days and a fine capped at five days\' wage', 'Which days are late, absent or covered by leave'),
       S('confirm', 'HUMAN', 'PAYROLL', 'The client\'s HR operations confirms, after employees have explained', 'عمليات الموارد البشرية لدى العميل تؤكد بعد سماع الموظفين', 'The proposed amounts and the explanations', 'Each explanation accepted or not; the amounts confirmed', 'Confirm the deductions'),
       S('apply', 'SYSTEM', 'platform', 'Enter the confirmed amounts in the open payroll month', 'إدخال المبالغ المؤكدة في شهر الرواتب المفتوح', 'Confirmed amounts', 'Unpaid days and fines as entries in the open month', 'None'),
     ] },
-  { id: 'WF-30', num: 30, name: 'Run question to the client', name_ar: 'سؤال الرواتب إلى العميل', stage: 'Pay', coverage: 'implemented', trigger: 'Tasama payroll asks the client to settle a check on the draft run', agents: [], decision_by: 'The client\'s HR operations',
+  { id: 'WF-36', num: 36, name: 'Run question to the client', name_ar: 'سؤال الرواتب إلى العميل', stage: 'Pay', coverage: 'implemented', trigger: 'Tasama payroll asks the client to settle a check on the draft run', agents: [], decision_by: 'The client\'s HR operations',
     steps: [
       S('answer', 'HUMAN', 'PAYROLL', 'The client\'s HR operations answers', 'عمليات الموارد البشرية لدى العميل تجيب', 'The check on the draft run and what it costs', 'The registration date, or whether the held hours are paid', 'Answer'),
       S('apply', 'SYSTEM', 'platform', 'Apply the answer to the open payroll month', 'تطبيق الإجابة على شهر الرواتب المفتوح', 'The answer', 'Entries in the open month; the run recalculates', 'None'),

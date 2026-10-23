@@ -882,6 +882,44 @@ CREATE TABLE layer.attendance_punches (
   device         text
 );
 CREATE INDEX ON layer.attendance_punches (upload_id, person_id);
+-- The month's changes per employee, listed by Wared before the cut-off (design/payroll-addendum.md §17).
+CREATE TABLE layer.pay_inputs (
+  id            bigserial PRIMARY KEY,
+  period_name   text NOT NULL,             -- the payroll month it is paid in
+  person_id     int,                       -- null for a line about the whole client (the attendance month)
+  kind          text NOT NULL,             -- JOINER | LEAVER | SALARY_CHANGE | UNPAID_LEAVE | ADVANCE | OVERTIME | OT_HOURS | ATTENDANCE | BACK_PAY
+  label         text NOT NULL,
+  amount        numeric(12,2),             -- SAR, when the change is money
+  quantity      numeric(8,2),              -- hours or days, when it is counted
+  suggested     numeric(12,2),             -- Wared's suggestion for an expected line (last month's figure)
+  effective     date,
+  source        text NOT NULL,             -- HRMS_EVENT | HIRING | LEAVE | ADVANCE | ATTENDANCE | PREFILLED | LATE_CHANGE
+  state         text NOT NULL,             -- EXPECTED | CONFIRMED | NEXT_MONTH | DROPPED
+  request_id    int,                       -- the WF-27 (or WF-28, WF-29) case it belongs to
+  ref           text,                      -- the record behind it (case ref, entry number)
+  confirmed_by  text,
+  confirmed_at  timestamptz,
+  note          text,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ON layer.pay_inputs (period_name, state);
+
+-- Employment contracts drafted by Aqd from an accepted offer (§17).
+CREATE TABLE layer.contracts (
+  id              serial PRIMARY KEY,
+  contract_number text UNIQUE NOT NULL,
+  person_id       int NOT NULL,
+  offer_number    text,
+  request_id      int,
+  contract_type   text NOT NULL,           -- FIXED_TERM | INDEFINITE
+  fields          jsonb NOT NULL,
+  body            text NOT NULL,
+  status          text NOT NULL,           -- DRAFTED | SENT | SIGNED
+  drafted_at      timestamptz NOT NULL DEFAULT now(),
+  sent_at         timestamptz,
+  signed_at       timestamptz
+);
+
 -- What Tasama's payroll team did about each check on a draft run (design/payroll-addendum.md §16).
 CREATE TABLE layer.run_check_log (
   id          bigserial PRIMARY KEY,

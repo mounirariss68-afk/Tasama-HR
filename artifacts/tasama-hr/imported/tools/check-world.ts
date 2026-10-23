@@ -70,8 +70,8 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: twelve Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 12, `${d.length}`]; });
-  await check('API: twenty-one agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 21 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
+  await check('API: thirteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 13, `${d.length}`]; });
+  await check('API: twenty-four agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 24 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
   await check('API: the server refuses a decision that is not yours', async () => {
@@ -85,7 +85,7 @@ async function main() {
   await check('API: a client employee cannot read the payroll months', async () => { const r = await fetch(`${BASE}/api/payroll/months`, { headers: { 'x-persona': 'employee', 'x-client': 'roshn' } }); return [r.status === 403, `HTTP ${r.status}`]; });
 
   // Phase 2 (design/payroll-addendum.md §5): the clients held in Tasama HR are paid by the engine.
-  const q1 = async (sql: string) => (await pool.query(sql)).rows;
+  const q1 = async (sql: string, ps: unknown[] = []) => (await pool.query(sql, ps)).rows;
   for (const key of ['redsea', 'seven', 'saudicoffee']) {
     await check(`Engine: every closed month at ${key} has pay lines with their rule, and a provision`, async () => {
       const [r] = await q1(`SELECT (SELECT COUNT(*) FROM hcm_${key}.payroll_results)::int res, (SELECT COUNT(*) FROM hcm_${key}.payroll_provisions)::int prov,
@@ -157,6 +157,19 @@ async function main() {
     const row = after.draft.rows.find((r: any) => r.person_id === adv.person_id);
     const waited = mid.find((c: any) => c.person_id === gosi.person_id)?.status ?? '';
     return [before.length === 2 && /waiting on/.test(waited) && after.review.checks.length === 0 && row.deductions <= row.gross / 2 && after.review.fixed.length === 3, `${before.length} checks → ${after.review.checks.length}; "${waited}"; ${after.review.fixed.length} logged`];
+  });
+
+  await check('Inputs: each client\'s month follows its cut-off, and HR operations\' confirmation becomes entries (§17)', async () => {
+    const d = await (await fetch(`${BASE}/api/payroll/inputs`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'roshn' } })).json();
+    const by = Object.fromEntries(d.clients.map((c: any) => [c.key, c]));
+    const shape = by.riyadhair.month.status === 'COMPLETED' && by.redsea.month.status === 'COMPLETED' && by.roshn.counts.expected === 3 && by.seven.counts.expected === 3 && by.saudicoffee.counts.expected === 4;
+    const H = { 'x-persona': 'payroll', 'x-client': 'roshn', 'content-type': 'application/json' };
+    const tm = await (await fetch(`${BASE}/api/payroll/this-month`, { headers: H })).json();
+    const exp = tm.rows.filter((r: any) => r.state === 'EXPECTED');
+    await fetch(`${BASE}/api/requests/${tm.month.ref}/decide`, { method: 'POST', headers: H, body: JSON.stringify({ decision: 'APPROVED', edits: { values: { [exp[0].id]: 20 }, drop: [exp[1].id] } }) });
+    const after = await (await fetch(`${BASE}/api/payroll/this-month`, { headers: H })).json();
+    const e = await q1(`SELECT amount::float a FROM hcm_roshn.element_entries WHERE element_code='OT_HOURS' AND person_id=$1 AND source='RAFEEQ'`, [exp[0].person_id]);
+    return [shape && after.counts.expected === 0 && after.counts.dropped === 1 && e[0]?.a === 20, `riyadhair ${by.riyadhair.month.status}, roshn ${by.roshn.counts.expected} expected → ${after.counts.expected}; entry ${e[0]?.a}`];
   });
 
   await pool.end();

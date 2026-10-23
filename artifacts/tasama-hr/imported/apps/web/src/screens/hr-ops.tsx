@@ -1,5 +1,5 @@
 /** HR Workspace: payroll and rewards, exits and relations, compliance. */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { HeroFeature, PageColumns, Panel, PanelAction, StatTile, StatusRow } from '@cognirise/atelier/layout';
 import { ProvenanceNote } from '@cognirise/atelier/archetypes';
 import { AlertTriangle, Banknote, CalendarClock, DoorOpen, FileWarning, Landmark, Play, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
@@ -8,12 +8,59 @@ import { useLang } from '../lib/i18n';
 import { aed, aedShort, ago, date, daysUntil, month, num } from '../lib/format';
 import { useApp } from '../app/state';
 import { OverviewTabs } from './hr-core';
-import { AgentTag, Bar, Btn, Chip, Empty, Hero, Person, Screen, StatusChip, Table, StatRow } from '../app/ui';
+import { AgentTag, Bar, Btn, Chip, Empty, Hero, Person, Screen, StatusChip, Table, StatRow, TabStrip } from '../app/ui';
+import { InputRows, InputsBar } from '../app/inputs';
 import { roleName } from '../app/case';
 import { plain } from '../app/decision';
 import { ClockBar, SegmentBar } from '../app/viz';
 
+/**
+ * HR Workspace › Payroll for the client's HR operations and CHRO (design/payroll-addendum.md §3, §17).
+ * This month: the changes the client has to send before the cut-off. Pre-run check: Hisab's
+ * findings, until phase 5 moves them to Tasama's Runs and adds Approval and Reports.
+ */
 export function HrPayroll() {
+  const [tab, setTab] = useState('month');
+  const tabs = <TabStrip items={[{ id: 'month', label: 'This month' }, { id: 'precheck', label: 'Pre-run check' }]} value={tab} onChange={setTab} />;
+  return tab === 'month' ? <PayrollThisMonth tabs={tabs} /> : <HrPayrollPrecheck tabs={tabs} />;
+}
+
+function PayrollThisMonth({ tabs }: { tabs: ReactNode }) {
+  const { t, lang } = useLang();
+  const { openCase, has } = useApp();
+  const { data } = useApi<any>('/payroll/this-month', { poll: 8000 });
+  if (!data?.period) return null;
+  const m = data.month, rows: any[] = data.rows;
+  const expected = rows.filter((r) => r.state === 'EXPECTED');
+  const done = rows.filter((r) => r.state !== 'EXPECTED');
+  const monthName = new Date(`${data.period.name}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' });
+  const left = Math.round((Date.parse(data.period.cutoff) - Date.parse(data.today)) / 864e5);
+  const open = m && ['WAITING', 'ESCALATED'].includes(m.status);
+  const title = open && expected.length ? `${expected.length} ${t(expected.length === 1 ? 'change waits for you before the cut-off on' : 'changes wait for you before the cut-off on')} ${date(data.period.cutoff, lang)}`
+    : m?.status === 'COMPLETED' ? `${monthName}${t('’s changes were confirmed on')} ${date(m.closed_at, lang)}, ${t('before the cut-off')}` : `${monthName}${t('’s changes are all in')}`;
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={title}
+      lede={t('Wared lists the month\'s changes as soon as it opens. What came through approved cases is already in; what only you can send waits here, with last month\'s figure as a suggestion. After the cut-off, a change moves to next month as back pay.')}
+      actions={open && has('PAYROLL') ? <Btn kind="primary" onClick={() => openCase(m.ref)}>{t('Confirm the changes')}</Btn> : undefined}
+      feature={<HeroFeature label={left >= 0 ? 'Time to the cut-off' : 'Cut-off passed'} value={left > 0 ? `${left} ${t(left === 1 ? 'day' : 'days')}` : left === 0 ? t('Today') : `${-left} ${t(left === -1 ? 'day ago' : 'days ago')}`} support={m ? <div className="w-64"><ClockBar start={m.created_at} due={`${data.period.cutoff}T21:00:00Z`} /></div> : undefined} />} />}>
+      {tabs}
+      <Panel icon={<CalendarClock size={16} />} title={expected.length ? `${expected.length} ${t(expected.length === 1 ? 'change only you can send' : 'changes only you can send')}` : t('Nothing is waiting for you')} action={<AgentTag id="wared" />}>
+        {expected.length ? <InputRows rows={expected} client /> : <Empty>{t('Every change for the month is in.')}</Empty>}
+      </Panel>
+      {data.late.length ? (
+        <Panel icon={<RefreshCw size={16} />} title={`${data.late.length} ${t(data.late.length === 1 ? 'change arrived after the cut-off and is paid next month' : 'changes arrived after the cut-off and are paid next month')}`}>
+          <InputRows rows={data.late} client />
+        </Panel>
+      ) : null}
+      <Panel icon={<Banknote size={16} />} title={`${done.length} ${t(done.length === 1 ? 'change is in' : 'changes are in')} ${monthName}${t('’s payroll')}`}>
+        <InputsBar counts={data.counts} />
+        <div className="mt-3"><InputRows rows={done} client /></div>
+      </Panel>
+    </Screen>
+  );
+}
+
+function HrPayrollPrecheck({ tabs }: { tabs: ReactNode }) {
   const { t, bi, lang } = useLang();
   const { openCase, has } = useApp();
   const { data } = useApi<any>('/payroll');
@@ -31,6 +78,7 @@ export function HrPayroll() {
       actions={has('PAYROLL') ? (caseOpen ? <Btn kind="primary" onClick={() => openCase(data.openCase.ref)}>{t('Open the pre-run case')}</Btn> : <Btn kind="primary" onClick={start} disabled={busy}><Play className="h-4 w-4" />{t('Start the pre-run check')}</Btn>) : undefined}
       feature={<HeroFeature label="Findings in the draft" value={pc.findings.length} support={<div className="w-60"><SegmentBar segments={[{ label: t('Blocker'), value: blockers, tone: 'danger' }, { label: t('High'), value: high, tone: 'warn' }, { label: t('Other'), value: pc.findings.length - blockers - high, tone: 'muted' }]} /></div>} />}
       />}>
+      {tabs}
       <StatRow>
         <StatTile label="Employees on the run" value={num(pc.totals.headcount)} trend={{ direction: 'flat', label: `${pc.last?.n ?? '—'} ${t('last month')}` }} />
         <StatTile label="Draft gross" value={aedShort(pc.totals.gross, lang)} trend={{ direction: pc.totals.gross >= (pc.last?.gross ?? 0) ? 'up' : 'down', label: `${aed(pc.totals.gross - (pc.last?.gross ?? 0), lang)} ${t('on last month')}` }} />

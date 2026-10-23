@@ -438,7 +438,14 @@ export const HANDLERS: Record<string, H> = {
       await atom(h.conn, 'newhire', pnum, `Pending worker ${pnum} created (start ${p.start_date})`, { personNumber: pnum, startDate: p.start_date });
       const { startCase } = await import('./core.js');
       const r2 = await startCase(h.c, { workflowId: 'WF-06', type: 'PREBOARDING', title: `Pre-boarding: ${cand.first_name} ${cand.last_name}`, title_ar: `ما قبل الالتحاق: ${cand.display_name_ar}`, requester: p.hiring_manager_id, subject: pid, channel: 'EVENT', payload: { person_id: pid, start_date: p.start_date, blocked: !!p.block_medical, hiring_manager_id: p.hiring_manager_id }, scenario: h.req.scenario_key });
-      await h.setResult({ person_number: pnum, followon: r2.ref });
+      // Where Tasama runs the payroll, the same record goes on to a contract and the first pay (WF-28, §17).
+      let contractRef: string | null = null;
+      if (client().hrms === 'PLATFORM') {
+        const r3 = await startCase(h.c, { workflowId: 'WF-28', type: 'CONTRACT', title: `Employment contract: ${cand.first_name} ${cand.last_name}`, title_ar: `عقد العمل: ${cand.display_name_ar}`, requester: p.hiring_manager_id, subject: pid, channel: 'EVENT', scenario: h.req.scenario_key,
+          payload: { person_id: pid, offer_number: num, title: p.title, grade: p.grade, basic: p.basic, housing: p.housing, transport: p.transport, other_allowance: p.other_allowance, start_date: p.start_date } });
+        contractRef = r3.ref;
+      }
+      await h.setResult({ person_number: pnum, followon: r2.ref, contract: contractRef });
     }
     return { status: 'DONE', decision: `Extended ${num}` };
   },
@@ -484,6 +491,12 @@ export const HANDLERS: Record<string, H> = {
     return { status: 'DONE', decision: `${tasks.length} tasks`, outputs: { journey: jnum, tasks: tasks.length } };
   },
   'WF-06:immigration': async (h) => {
+    // Where Tasama runs the payroll, the contract and the GOSI registration are WF-28's (Aqd, Tamin): not done twice (§17).
+    if (client().hrms === 'PLATFORM') {
+      if (h.req.payload.expat) await ext(h, 'QIWA', 'POST', '/qiwa/work-permits/new', 'Submit work permit and work visa request');
+      await h.trail({ act: 'CHECK', summary: `${h.req.payload.expat ? 'Submitted the Qiwa work permit and work visa request. ' : ''}The employment contract and the GOSI registration go through the contract case, from the same record.`, summary_ar: 'العقد والتسجيل في التأمينات عبر حالة العقد.' });
+      return { status: 'DONE' };
+    }
     if (h.req.payload.expat) {
       await ext(h, 'QIWA', 'POST', '/qiwa/work-permits/new', 'Submit work permit and work visa request');
       await ext(h, 'GOSI', 'POST', '/gosi/employer/registrations', 'Register expatriate with GOSI (occupational hazards)');

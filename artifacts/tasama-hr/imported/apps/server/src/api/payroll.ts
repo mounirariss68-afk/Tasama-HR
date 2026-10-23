@@ -11,6 +11,7 @@ import { startCase } from '../engine/core.js';
 import { activeVersion, rulesOf } from '../payroll/policy.js';
 import { draftRun, provisionHistory } from '../payroll/run.js';
 import { runChecks, reschedule, ask } from '../payroll/checks.js';
+import { monthView } from '../payroll/inputs.js';
 import { tasamaTrail } from '../tasama/service.js';
 import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
 import { PENALTY_TABLE, FINE_CAP_DAYS } from '../domain/attendance.js';
@@ -173,6 +174,29 @@ payroll.post('/payroll/runs/:client/checks/:person/:action', async (req, res) =>
     await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: req.params.action === 'ask' ? 'NUDGE' : 'WRITE', summary: out.summary, summary_ar: out.summary, ref: (out as any).ref ?? null });
     res.json(out);
   } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/* ------------------------------------------------------------------ Inputs (WF-27, §17) */
+
+/** Every client's month of changes: confirmed, expected before the cut-off, moved to next month. */
+payroll.get('/payroll/inputs', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const today = new Date().toISOString().slice(0, 10);
+  const clients = await forEachClient(async (key) => {
+    const c = clientByKey(key)!;
+    const v = await monthView(pool);
+    return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, hrmsLabel: c.hrmsLabel, ...(v ?? {}), passed: v ? v.period.cutoff < today : false };
+  });
+  res.json({ today, clients });
+});
+
+/** The client's own month (HR Workspace › Payroll › This month). */
+payroll.get('/payroll/this-month', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
+  const v = await monthView(pool);
+  res.json({ today: new Date().toISOString().slice(0, 10), ...(v ?? {}) });
 });
 
 /* ------------------------------------------------------------------ Attendance (WF-29) */
