@@ -1234,4 +1234,12 @@ Present mode ships three more storylines next to Tasama leadership and Complianc
 
 No seed, engine or connector change was made. The new route only reads.
 
-**Effort so far:** one Claude session. The second session holds the menu review for the payroll lenses, the README, the Replit prompt and the rehearsal script.
+### The second session: the menu review, the README, Replit and the rehearsal script
+
+- **Menu review** (`design/menu-review.md`, last section, checked against the canon's `MENU-DISCIPLINE.md`): the Payroll lens holds eight items, and Payroll costs three, as the owner accepted. The payroll personas have no How it works item, which would be a ninth; that is a deviation for the owner to confirm. One repeated fact was removed: each client's stage on Months. The clients table's title now makes a claim, and a row opens that client's policy.
+- **The Stage:** a decision taken by the scenario no longer reads "Approved for TASAMA_PAYROLL". It names the person.
+- **README:** brought up to the built platform: 27 agents, 34 workflows, the payroll team's eight agents, Soudah, what is real and simulated in payroll, and the project layout.
+- **Replit:** the first-time prompt is in the README, adapted from the canon's `templates/REPLIT-PROMPT.md`. It creates the PostgreSQL database and turns on Replit AI Integrations for Anthropic, with no API key and no code change. `replit.md` at the repository root now describes this app, not Replit's template stack, so Replit's Agent is not led to add an ORM or a schema push.
+- **Rehearsal script** (`design/rehearsal-script.md`): per storyline, what is on screen, the one sentence to say and what to point at; the checks before the room; and what to do when something goes wrong. Every figure in it was checked against the narration of a played scenario.
+
+**Effort:** two Claude sessions, as planned. Phase 8 is done. What remains is the owner's rehearsal (review 5 in section 10).

@@ -86,17 +86,15 @@ export function PayrollMonths() {
       <Panel icon={<CalendarRange size={16} />} title="This month, client by client">
         <MonthStrip rows={rows} today={data.today} />
       </Panel>
-      <Panel icon={<FileText size={16} />} title="The clients">
-        <Table><thead><tr><th>{t('Client')}</th><th>{t('Employee master')}</th><th className="text-end">{t('Employees')}</th><th>{t('Cut-off')}</th><th>{t('Pay day')}</th><th>{t('Policy')}</th><th>{t('Stage')}</th><th></th></tr></thead>
+      <Panel icon={<FileText size={16} />} title={(() => { const o = rows.filter((r) => r.hrms === 'ORACLE').length; const p = rows.length - o; return lang === 'ar' ? `${o} من العملاء يحتفظون بسجل الموظفين في Oracle HCM، و${p} في تسامى HR` : `${o} ${o === 1 ? 'client keeps its' : 'clients keep their'} employee master in Oracle HCM; ${p} ${p === 1 ? 'holds it' : 'hold it'} in Tasama HR`; })()}>
+        <Table><thead><tr><th>{t('Client')}</th><th>{t('Employee master')}</th><th className="text-end">{t('Employees')}</th><th>{t('Cut-off')}</th><th>{t('Pay day')}</th><th>{t('Policy')}</th></tr></thead>
           <tbody>{rows.map((r) => (
-            <tr key={r.key}>
+            <tr key={r.key} className="clickable" onClick={() => go('payroll-policies', r.key)}>
               <td className="font-medium">{bi(r.short, r.name_ar)}</td>
               <td>{r.hrms === 'PLATFORM' ? t('Tasama HR') : r.hrms === 'ODOO' ? 'Odoo' : 'Oracle HCM'}</td>
               <td className="tabular-nums text-end">{num(r.employees)}</td>
               <td>{date(r.cutoff, lang)}</td><td>{date(r.pay, lang)}</td>
-              <td>{r.policy ? `v${r.policy.version}` : '—'}</td>
-              <td><Chip tone={STAGE[r.stage][2]}>{bi(STAGE[r.stage][0], STAGE[r.stage][1])}</Chip></td>
-              <td><Btn small onClick={() => go('payroll-policies', r.key)}>{t('Policy')}</Btn></td>
+              <td>{r.policy ? `${t('Version')} ${r.policy.version}` : '—'}</td>
             </tr>))}</tbody></Table>
       </Panel>
     </Screen>

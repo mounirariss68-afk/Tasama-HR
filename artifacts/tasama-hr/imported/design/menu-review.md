@@ -98,3 +98,30 @@ The canon says the lens picker, Demo control and title bar are Atelier component
 | Pattern root cause | `tasama-portfolio` | Overview |
 | Screening refusal | `evidence` | Audit trail |
 | Certificate, advance exception, payroll escalation, hire to onboard, termination stop, SLA rescue | `my-home`, `my-pay`, `hr-inbox`, `hr-hiring`, `hr-payroll`, `hr-onboarding`, `hr-exits`, `tasama-escalations`, `tasama-finance`, `tasama-patterns` | Unchanged screens; renamed labels only |
+
+## The payroll lenses, 23 October 2026: two lenses added, one repeated fact removed, and the title bar stays at five
+
+The 21 October review covered seven personas. The payroll addendum added three: Sharifa AlMousa (Payroll lead), Nasser AlFarraj (Payroll specialist) and the client's finance controller. HR operations and the CHRO gained a Payroll item. This review ran the same steps on what was built in phases 1 to 7.
+
+Checked against the canon's `MENU-DISCIPLINE.md` and `templates/menu-review.md` (now in the SharePoint Canon library, synced as `OneDrive-cogniriseai/Cognirise Delivery - Canon/Cognirise Prototype Canon - v1/`). The rules applied:
+
+- five to eight items per lens;
+- one inbox per lens;
+- workers land on their inbox, and people who run things on an Overview;
+- record properties are tabs;
+- no rig items in a lens;
+- a title bar of five.
+
+| Persona | Lenses (items) | Lands on | Finding |
+|---|---|---|---|
+| Payroll lead | Payroll (8) | Months | At the ceiling. Each item is one step of the month, with one inbox. **Months showed each client's stage twice**: under the name in the calendar and again in a Stage column of the table. The column is gone. The table's title now makes a claim ("2 clients keep their employee master in Oracle HCM; 3 hold it in Tasama HR"), and a row opens that client's policy, with no separate button. |
+| Payroll specialist | Payroll (8) | Inbox | His job is the cases waiting on him, so he lands on the inbox. |
+| Finance controller | My HR (5) · Payroll costs (3) | Payroll reports | Below the floor of five. The owner accepted the three-item lens on 22 October (payroll addendum §11), because a finance controller has three questions here and a fourth item would be padding. |
+| HR operations | My HR (5) · HR Workspace (6) | Inbox | Payroll's This month tab holds the changes only the client can send; the run's approval opens the case. There is no second inbox. |
+| CHRO | My HR · My Team · HR Workspace (8) · How it works | Overview | Payroll › Approval opens the run's decision card. The same case appears in Inbox as a row, not as a second card. |
+
+- **Names.** "Journals" appears in Payroll and in Payroll costs, and "Client policies" in Tasama Services and in Payroll. No persona sees both lenses of either pair, so no one meets the same name for two things.
+- **How it works.** The canon makes it the last lens, or the last item for a persona with one lens. The payroll personas do not get it. The Payroll lens is already at eight items, so a ninth would break the ceiling. Payroll staff are also not the sceptic or technical audience that the exhibit is for. Tasama's manager, the HRBP and the CHRO keep it. This is a deviation for the owner to confirm.
+- **Landing.** Sharifa runs the month, so Months is her Overview. Nasser works cases, so he lands on his inbox. The finance controller only reads, so Payroll reports is the Overview of his lens.
+- **Title bar.** Each Tasama payroll persona has one lens, so no lens picker is drawn. The title bar holds the brand, notifications and language, the person and the Demo control: five elements, as decided on 21 October.
+- **Scenario targets.** Every step of the 18 scenarios targets a screen in its persona's menu, or a record reached from one, with one exception. The second step of the screening refusal opens the Audit trail as Talent acquisition, a proof screen outside her menu. It stays, because the record is the point of that step, and its label now uses the menu's name (How it works › Audit trail).

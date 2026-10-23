@@ -1,22 +1,64 @@
 # Tasama HR: an agentic HR services platform (demo prototype)
 
-Tasama runs HR for several client companies. This platform is the agentic layer Tasama would use to do that. Two clients keep their employee master in Oracle Fusion Cloud HCM and the platform works on top of it. Three hold it, and their payroll, in Tasama HR itself (`design/payroll-addendum.md`).
+Tasama runs HR and payroll for several client companies. This platform is the agentic layer Tasama would use to do that. Two clients keep their employee master in Oracle Fusion Cloud HCM, and the platform works on top of it. Three hold the master and their payroll in Tasama HR itself (`design/payroll-addendum.md`). A sixth client, Soudah Development, moves in from spreadsheets during the demo.
 
-- **Inside each client account,** the client's employees get an HR helper, Rafeeq, and the HR team gets a co-pilot, Murshid. Fourteen agents run 21 workflows from position request to exit. Rafeeq answers each employee only from their own company's HR handbook.
-- **Above the accounts,** the Tasama HR Operations Manager runs the business: portfolio, service levels, escalations, rising problems and their causes (Patterns), invoices, the delivery team and every client's HR policies. Five more agents support this: Raqeeb (service levels), Basira (pattern watch and root cause), Fatoora (billing), Tawzee (workload) and Intiqal (client transition, designed, not built).
-- **Tasama's payroll team,** Sharifa AlMousa (Payroll lead) and Nasser AlFarraj (Payroll specialist), works in the Payroll lens: every client's month, one inbox across clients, and each client's payroll policy. Nizam reads a client's handbook into rules on 27 dimensions and flags what the law refuses or the words leave unclear; the client's CHRO activates a version.
+- **Inside each client account,** the client's employees get an HR helper, Rafeeq, and the HR team gets a co-pilot, Murshid. Fourteen agents run the HR workflows from position request to exit. Rafeeq answers each employee only from their own company's HR handbook.
+- **Above the accounts,** the Tasama HR Operations Manager runs the business:
+  - portfolio and service levels;
+  - escalations;
+  - rising problems and their causes (Patterns);
+  - invoices;
+  - the delivery team;
+  - every client's policies.
 
-Agents check, prepare and recommend; people decide. Every read and write to a client's employee master goes through one connector and is logged in that system's own API dialect (Oracle REST, or Tasama HR's own).
+  Five agents support this: Raqeeb (service levels), Basira (pattern watch and root cause), Fatoora (billing), Tawzee (workload) and Intiqal (a new client's files read into the platform).
+- **Tasama's payroll team** works in the Payroll lens: every client's month, one inbox across clients, the inputs, attendance, runs, payments, journals and each client's policy. The team is Sharifa AlMousa, the Payroll lead, and Nasser AlFarraj, the Payroll specialist. Eight agents each do one step, and none of them can approve a run or release a payment:
 
-**Data:** the client names are real PIF portfolio companies, used for this demo only. Every employee, salary, HR policy, contract, fee and service level is fictional. Which HRMS each client runs is also assumed for the demo.
+  | Agent | Step |
+  |---|---|
+  | Nizam | Reads a handbook into rules |
+  | Hudoor | Reads attendance |
+  | Wared | Collects the month's changes before the cut-off |
+  | Aqd | Drafts contracts |
+  | Tamin | Registers with GOSI |
+  | Mutabaqa | Explains every difference from last month |
+  | Tahweel | Builds the bank and WPS files |
+  | Qaid | Builds the journals |
+
+  The engine calculates every line from the client's approved rules, and every line names the rule it used.
+- **The client's side:**
+  - the CHRO approves each run in HR Workspace › Payroll;
+  - HR operations sends the month's changes there;
+  - the finance controller reads costs, provisions and journals in the Payroll costs lens.
+
+Twenty-seven agents run 34 workflows in all. Agents check, prepare and recommend; people decide. Every read and write to a client's employee master goes through one connector, and is logged in that system's own API dialect (Oracle REST, or Tasama HR's own).
+
+**Data:** the client names are real PIF portfolio companies, used for this demo only. Every employee, salary, HR policy, contract, fee and service level is fictional, and so is which HRMS each client runs. The July 2025 payroll file Tasama shared is used only, anonymised, as the engine's test fixture. It is never in the demo data.
 
 ## Run it on Replit (no terminal needed)
 
-1. **Import.** Go to replit.com/import, choose **ZIP**, upload `tasama-hr.zip` and press **Import**.
-2. **Add a database.** Open the **Database** tool and create a PostgreSQL database. Replit sets `DATABASE_URL` for you.
-3. **Connect Claude.** The assistants use Replit's built-in Anthropic connection (Replit AI Integrations), so no API key is needed. If it is not already on for this app, ask Replit's Agent: *"Enable Replit AI Integrations for Anthropic for this app. Don't change any code."* That sets `AI_INTEGRATIONS_ANTHROPIC_BASE_URL`, which the server reads. Replit AI Integrations needs a paid Replit plan. Until it is connected, the assistants run in *Offline* mode: they give fixed answers matched against the same data and handbooks, and the screen labels them "Offline".
-4. **Press Run.** The first run installs packages, builds the app and creates the five client accounts and Tasama's data. This takes two to three minutes. Later runs start in seconds.
-5. **Open the web view.** It opens as the Tasama HR Operations Manager. The lens picker in the title bar holds Tasama Services, Payroll, each client's HR and How it works. The **Demo** control (top right) holds the scenarios, the persona (any of the eight people inside a client, or Tasama's two payroll people), the client account, the theme and Reset. Add `?client=1` to the address to hide the Demo control when the client drives.
+The Replit project is linked to this GitHub repository. After a change: commit and push from GitHub Desktop, pull in Replit's Git pane, and restart the **Project** workflow (the Run button).
+
+**Setting up a new Replit project** follows the canon's `templates/REPLIT-PROMPT.md`. A ZIP import is used rather than a GitHub import, because GitHub imports have not received Replit's native Anthropic integration; link the project to this repository afterwards. Then paste the text below into Replit's Agent. When the **Confirm Anthropic Integration** card appears, choose **Approve**.
+
+> This app uses Anthropic Claude through Replit AI Integrations — Anthropic (Replit managed). It is complete; set it up to run without changing its code.
+>
+> 1. Connect **Anthropic (Replit managed)** via Replit AI Integrations to this app first, so the environment carries `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` and `AI_INTEGRATIONS_ANTHROPIC_API_KEY`. Show me the integration approval card. Do not ask me for an Anthropic API key, do not create an `ANTHROPIC_API_KEY` secret or any other secret, and do not install any SDK. The app reads only those two variables (`artifacts/tasama-hr/imported/apps/server/src/ai.ts`).
+> 2. Create a PostgreSQL database for this app with Replit's Database tool, so that `DATABASE_URL` is set. Do not create tables, run migrations, push a schema or insert data: the app creates its own schema and synthetic data on first start.
+> 3. Do not modify, add, rename or delete any file. Do not change dependencies, any `package.json`, the lockfiles, `.replit`, `replit.md` or the scripts in `tools/`. If something seems to require a code change, stop and ask me instead.
+> 4. Start the **Project** workflow defined in `.replit` (`bash tools/replit-run.sh`, port 5000 on external port 80) and wait until the console prints `Tasama HR platform is running on port 5000`. The first start takes two to three minutes because it installs, builds and generates the demo data; do not interrupt or restart it.
+> 5. When it is running, run `env | grep AI_INTEGRATIONS` and tell me the web view URL, whether `DATABASE_URL` is set, and which `AI_INTEGRATIONS_ANTHROPIC_*` variables are set. The console line must end `AI: Claude via Replit AI Integrations`. If it says `offline`, the integration is not connected: connect it and restart, without changing code. Then stop.
+
+What the first run does:
+
+- It installs packages, builds the app and creates the five client accounts and Tasama's data. This takes two to three minutes; later runs start in seconds. While it builds, the app shows "Preparing the demo data".
+- Replit AI Integrations needs a paid Replit plan. Until it is on, the assistants run *Offline*: they give fixed answers matched against the same data and handbooks, and the screen labels them "Offline". The payroll engine, the files and every scenario work the same either way.
+
+Using the app:
+
+- **The web view** opens as the Tasama HR Operations Manager. The lens picker in the title bar holds Tasama Services, each client's HR and How it works.
+- **The Demo control** (top right) holds Present mode, the scenarios, the persona, the client account, the theme and Reset. There are eight personas inside a client (employee, new joiner, line manager, HR business partner, talent acquisition, HR operations, CHRO, finance controller), plus Tasama's manager and its two payroll people.
+- **Add `?client=1`** to the address to hide the Demo control when the client drives.
 
 To return to a clean state, use **Demo → Reset the demo data**. It rebuilds everything in about 20 seconds.
 
@@ -43,12 +85,25 @@ The server uses the first Claude model Replit's connection accepts, trying in th
 | Red Sea Global | Tourism and hospitality | Tasama HR | Payroll and employee services |
 | SEVEN | Entertainment | Tasama HR | Full HR outsourcing |
 | Saudi Coffee Company | Food and agriculture | Tasama HR | Payroll managed service (build, operate, transfer) |
+| Soudah Development (added during the demo, D10) | Tourism and destination development | Tasama HR, moved in from spreadsheets | Payroll |
 
 ## What's real and what's simulated
 
-- **Real:** the data model, the workflow engine, approvals and the decision trail, policy search, and the agent checks (payroll pre-run, calibration, settlement, compliance). The Saudi Labor Law calculations are real too: Arts. 53, 75, 84, 85, 88, 92, 93, 109 and 117, plus GOSI. So are the service-level, invoice and workload calculations. With Replit AI Integrations connected, the assistant answers come from Claude.
-- **Simulated:** each client's HRMS is a Postgres schema (`hcm_<client>`), reached only through `apps/server/src/hcm/connector.ts`. That file logs Oracle REST resource names for Oracle clients and Tasama HR's own `/api/v1` calls for the three clients held on the platform. An Odoo dialect is kept in the code as a fallback and is not shown. Qiwa, GOSI, Muqeem, Mudad, Jadarat and Microsoft 365 are simulated too. Decisions that a scenario takes on a person's behalf are labelled "simulated".
-- **Designed, not built:** WF-24 (new client transition).
+- **Real:**
+  - the data model, the workflow engine, approvals and the decision trail;
+  - policy search and the agent checks;
+  - the Saudi Labor Law calculations: Arts. 53, 70, 75, 84, 85, 87, 88, 92, 93, 109, 116 and 117, plus GOSI by registration date;
+  - the payroll engine: Tasama's July 2025 template run is matched figure by figure in `npm run check:golden`;
+  - the bank, WPS and ledger files: the WPS wages file follows the public layout, and the Oracle journal file follows Oracle's GL interface;
+  - the service-level, invoice and workload calculations.
+
+  With Replit AI Integrations connected, the assistants' answers and Nizam's reading of a handbook come from Claude. Nothing in a payslip, a bank file or a journal does.
+- **Simulated:**
+  - **Each client's HRMS** is a Postgres schema (`hcm_<client>`), reached only through `apps/server/src/hcm/connector.ts`. That file logs Oracle REST resource names for the Oracle clients, and Tasama HR's own `/api/v1` calls for the clients held on the platform. An Odoo dialect is kept in the code as a fallback and is not shown.
+  - **Banks and their layouts:** the banks, their return files, and every bank layout except the WPS file are illustrative until Tasama sends the banks' templates.
+  - **Government and office systems:** Qiwa, GOSI, Muqeem, Mudad, Jadarat and Microsoft 365.
+  - **Ledgers:** posting to Oracle Finance or Odoo is simulated. The import file is real; the ledger that receives it is not.
+  - **Decisions a scenario takes on a person's behalf** are labelled "simulated".
 - **Partial workflows:**
   - WF-04 (interviews and assessment centre)
   - WF-07 (onboarding buddy)
@@ -69,7 +124,7 @@ Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is
 | The payroll engine | `npm run check:golden`: Tasama's July 2025 template run, and hand-worked cases | 43 of 43 figures match; 22 of 22 cases |
 | The Director | Every scenario, every step, twice through the Director's routes | 18 scenarios, 79 steps, 0 failing |
 
-Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app. The canon's agent budget is exceeded on purpose: the payroll addendum brings the platform to 27 agents (20 built so far), each with its own job (`design/payroll-addendum.md` §6).
+Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app. The canon's agent budget is exceeded on purpose: the payroll addendum brings the platform to 27 agents, all built, each with its own job (`design/payroll-addendum.md` §6).
 
 ## Project layout
 
@@ -83,4 +138,14 @@ apps/server/src/domain/clients.ts   the five clients: HRMS, size, handbook terms
 apps/server/src/domain/policies.ts  the fictional HR handbooks, generated per client
 apps/server/src/domain/payroll-policy.ts  the 27 payroll dimensions, each client's payroll terms and the legal checks
 apps/server/src/domain/calendar.ts  each client's cut-off and pay day around the seed date
+apps/server/src/domain/payroll/     the payroll engine: pure arithmetic over a client's approved rules
+apps/server/src/payroll/            runs, inputs, payments (bank, WPS, Mudad) and journals
+apps/server/src/domain/banks.ts     the banks and the bank file layouts
+apps/server/src/domain/ledger.ts    the illustrative chart of accounts and the Oracle and Odoo journal files
+apps/server/src/onboarding/         a new client read from its files into seven lanes, and go-live
+apps/server/src/director.ts         the 18 scenarios the Demo Director plays on the Stage
+apps/web/src/app/present.tsx        Present mode and its five storylines
+apps/web/src/lib/ar.ts              the Arabic interface strings and templates
+demo-files/soudah/                  the files Soudah Development hands over (generated by tools/new-client/)
+design/                             the addenda: payroll, Stage, screen and menu reviews
 ```

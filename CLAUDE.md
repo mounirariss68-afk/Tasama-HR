@@ -4,7 +4,7 @@ This is a Cognirise prototype built on the Cognirise Prototype Canon. The app is
 
 1. `artifacts/tasama-hr/imported/design/00-frame.md` — whose desk, the questions the demo must answer (not written yet for this prototype; until it is, the frame is the README's first section)
 2. `artifacts/tasama-hr/imported/design/DESIGN.md` — everything the app may contain; dated addenda override earlier sections (not written yet; `design/screen-review.md` and `design/menu-review.md` hold the screen and menu decisions until it is)
-3. The canon: `01- Cognirise/05 - IP/Cognirise Prototype Canon - v1/README.md`, then `SCREEN-DISCIPLINE.md`, then `MENU-DISCIPLINE.md`, then `stages/03-build.md` and `checks/before-delivery.md`
+3. The canon, in the SharePoint site Cognirise Delivery, library Canon, synced on the owner's Mac as `OneDrive-cogniriseai/Cognirise Delivery - Canon/Cognirise Prototype Canon - v1/`: `README.md`, then `SCREEN-DISCIPLINE.md`, then `MENU-DISCIPLINE.md`, then `stages/03-build.md` and `checks/before-delivery.md`
 
 Rules that bind every change in this repo:
 

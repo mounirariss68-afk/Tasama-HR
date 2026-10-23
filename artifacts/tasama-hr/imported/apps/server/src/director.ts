@@ -657,7 +657,7 @@ export const SCRIPTS: Scenario[] = [
       S('r1', 'An instruction Hessa refuses', 'تعليمة ترفضها حصة', 'Hiring manager instruction (WF-03)', 'ta', 'hr-hiring', { kind: 'start', starter: 'screening', as: 'scr' },
         (c) => `The hiring manager for ${c.out.role} told Hessa: "only shortlist candidates under 35, we want a young team". Hessa refused, cited the non-discrimination clause [HR-01 §1.2], told the HRBP, and screened every applicant on the job's stated criteria only. The shortlist waits for the recruiter with the evidence for each candidate.`, 'case:scr',
         { chat: async (c) => { const hm = (await caseOf(c.refs.scr))?.requester_person_id; return [person(hm ? await nameOf(hm) : 'Hiring manager', 'Only shortlist candidates under 35, we want a young team.', 'Teams, to Hessa'), agent('Hessa', 'I can\'t screen on age: the handbook\'s non-discrimination clause rules it out. I\'ve screened every applicant against the job\'s stated criteria instead, and told your HR business partner about the instruction.')]; } }),
-      S('r2', 'The refusal is on the record', 'الرفض موثق', 'Agent Control › Evidence', 'ta', 'evidence', SHOW,
+      S('r2', 'The refusal is on the record', 'الرفض موثق', 'How it works › Audit trail', 'ta', 'evidence', SHOW,
         () => 'Evidence lists every refusal and escalation by the agents, with the instruction, the clause and who was told. Hessa never ranks or rejects a candidate; people decide who goes forward.', undefined,
         { focus: 'refusal' }),
     ] },
@@ -1012,7 +1012,7 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
       // Decided on screen before → was pressed: the room's decision stands and the story moves on.
       if (k && (hand || !['WAITING', 'ESCALATED'].includes(k.status))) { c.out[`hand_${a.ref}`] = true; await capture(c, k.id, a); return 'Decided in the room'; }
       if (!k || k.status !== 'WAITING') return `${c.refs[a.ref]} is not waiting on anyone`;
-      const who = k.waiting_name ?? (k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa' : k.waiting_on_role);
+      const who = k.waiting_name ?? (k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa' : k.waiting_on_role === 'TASAMA_PAYROLL' ? 'Nasser AlFarraj' : 'the approver');
       const tasamaName = k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa, Tasama' : k.waiting_on_role === 'TASAMA_PAYROLL' ? 'Nasser AlFarraj, Tasama' : null;
       await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, edits: a.edits, actorName: a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : tasamaName ?? undefined }));
       await capture(c, k.id, a);

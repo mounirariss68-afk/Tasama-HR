@@ -1,6 +1,6 @@
-# [Project name]
+# Tasama HR
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A demo prototype of the agentic HR and payroll platform Tasama would use to run HR and payroll for its client companies, on synthetic data. The app is in `artifacts/tasama-hr/imported`; its README says how it runs and what is real.
 
 ## Screens (binding)
 
@@ -18,42 +18,36 @@ These rules come from the Cognirise Prototype Canon (`SCREEN-DISCIPLINE.md`) and
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- The Run button runs `tools/replit-run.sh`, which starts `artifacts/tasama-hr/imported/tools/replit-run.sh`: install once, build the web app, start the server on port 5000.
+- Required: a PostgreSQL database (`DATABASE_URL`) and Replit AI Integrations for Anthropic (`AI_INTEGRATIONS_ANTHROPIC_BASE_URL`). Never an Anthropic API key.
+- The server creates its tables and the demo data on first start (`SEED_VERSION` in `apps/server/src/seed/index.ts`); `/api/health` answers `"seeding":false` when ready.
+- Checks, from `artifacts/tasama-hr/imported`: `npm run typecheck`, `npm run check` (server running), `npm run check:golden`.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- npm workspaces inside `artifacts/tasama-hr/imported`: `apps/server` (Express, TypeScript run with tsx), `apps/web` (React, Vite), `packages/design-system` (Atelier).
+- PostgreSQL through `pg` with plain SQL: `db/schema.sql` per client, `db/tasama.sql` for Tasama. No ORM, no migrations, no schema push.
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
-
-## Architecture decisions
-
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
-
-## Product
-
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- `artifacts/tasama-hr/imported/README.md`: running it, the clients, what is real and simulated, the checks.
+- `artifacts/tasama-hr/imported/design/`: the design addenda. Nothing is built that is not in them.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Do not add Drizzle, migrations or `db push`: the app owns its schema and seed.
+- Do not change the seed, the payroll engine or the HRMS connector without a dated design addendum.
+- Keep the `rollup` and `vite` overrides in `artifacts/tasama-hr/imported/package.json`.
+- Changes are made in the GitHub repository and pulled here; edits made only in Replit are lost on the next pull.
 
-## Pointers
+## Product
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Tasama's HR operations: portfolio, service levels, escalations, patterns, invoices, delivery team.
+- Each client's HR on its own HRMS (Oracle HCM, or Tasama HR), with the employee helper Rafeeq and 27 agents.
+- Tasama's payroll month for every client: inputs, attendance, runs, payments (bank, WPS, Mudad), journals; and a new client moved in from its spreadsheets.
+- Present mode and the Stage: the demo plays scripted scenarios one step at a time, in English or Arabic.
+
+## User preferences
+
+- The prototype owner commits and pushes from GitHub Desktop; Replit pulls. Do not commit from Replit.
+- Claude only through Replit AI Integrations; the database is created by the Replit prompt in the README.
