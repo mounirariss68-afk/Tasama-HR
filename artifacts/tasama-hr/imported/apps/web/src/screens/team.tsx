@@ -144,7 +144,7 @@ export function TeamHiring() {
           <tbody>{list.map((r: any) => {
             const f = r.funnel ?? {};
             const n = Object.values(f).reduce((a: number, b: any) => a + Number(b), 0) as number;
-            return <tr key={r.id}><td>{bi(r.title, r.title_ar)}<span className="block text-xs text-muted-foreground">{r.department} · {r.grade}</span></td><td>{date(r.opened_date, lang)}</td><td className="tabular-nums">{n}</td><td className="tabular-nums">{(f.SHORTLISTED ?? 0) + (f.INTERVIEW ?? 0) + (f.ASSESSMENT ?? 0)}</td><td className="tabular-nums">{r.saudi_applicants}</td><td><StatusChip status={r.status} /></td><td>{r.open_case ? <Btn small kind="primary" onClick={() => openCase(r.open_case)}>{t('Decide')}</Btn> : null}</td></tr>;
+            return <tr key={r.id}><td>{bi(r.title, r.title_ar)}<span className="block text-xs text-muted-foreground">{t(r.department)} · {r.grade}</span></td><td>{date(r.opened_date, lang)}</td><td className="tabular-nums">{n}</td><td className="tabular-nums">{(f.SHORTLISTED ?? 0) + (f.INTERVIEW ?? 0) + (f.ASSESSMENT ?? 0)}</td><td className="tabular-nums">{r.saudi_applicants}</td><td><StatusChip status={r.status} /></td><td>{r.open_case ? <Btn small kind="primary" onClick={() => openCase(r.open_case)}>{t('Decide')}</Btn> : null}</td></tr>;
           })}</tbody></Table>
       </Panel>
     </Screen>

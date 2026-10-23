@@ -103,7 +103,7 @@ function Details({ c }: { c: any }) {
         <ReaderSection label={t('Advance check')}>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Kv k={t('Requested')} v={aed(p.amount, lang)} /><Kv k={t('Policy limit')} v={aed(e.max, lang)} /><Kv k={t('Recovery')} v={rc.monthly ? `${aed(rc.monthly, lang)} × ${rc.months}` : '—'} /><Kv k={t('Deductions after')} v={rc.deductionShare ? `${Math.round(rc.deductionShare * 100)}%` : '—'} /></dl>
           {(e.problems ?? []).length ? <ul className="mt-3 space-y-1 text-sm text-danger">{e.problems.map((x: string) => <li key={x}>• {x}</li>)}</ul> : null}
-          {p.reason ? <p className="mt-2 text-sm text-muted-foreground">{t('Reason')}: {p.reason}</p> : null}
+          {p.reason ? <p className="mt-2 text-sm text-muted-foreground">{t('Reason')}: {t(p.reason)}</p> : null}
         </ReaderSection>
       );
     }
@@ -111,18 +111,18 @@ function Details({ c }: { c: any }) {
       const o = out('check');
       return o.department ? (
         <ReaderSection label={t('Position check')}>
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Kv k={t('Department')} v={o.department} /><Kv k={t('Filled')} v={`${o.filled} / ${o.positions}`} /><Kv k={t('Grade range')} v={`${o.grade} · ${aed(o.grade_range?.[0], lang)}–${aed(o.grade_range?.[1], lang)}`} /><Kv k={t('Annual cost at midpoint')} v={aed(o.annual_cost_mid, lang)} /></dl>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Kv k={t('Department')} v={t(o.department)} /><Kv k={t('Filled')} v={`${o.filled} / ${o.positions}`} /><Kv k={t('Grade range')} v={`${o.grade} · ${aed(o.grade_range?.[0], lang)}–${aed(o.grade_range?.[1], lang)}`} /><Kv k={t('Annual cost at midpoint')} v={aed(o.annual_cost_mid, lang)} /></dl>
           <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4"><Kv k={t('Saudization today')} v={`${o.saudization?.current}%${o.saudization?.band ? ` · ${o.saudization.band}` : ''}`} /><Kv k={t('With a Saudi hire')} v={`${o.saudization?.ifSaudi}%`} /><Kv k={t('With a non-Saudi hire')} v={`${o.saudization?.ifNot}%`} /><Kv k={t('Nitaqat target')} v={`${o.saudization?.target}%`} /></dl>
           <dl className="mt-3 grid grid-cols-3 gap-3"><Kv k={t('Budget')} v={o.budgeted ? t('Budgeted') : t('Unbudgeted')} /></dl>
           <p className="mt-3 text-xs text-muted-foreground">{t('Draft job description')}</p>
           <p dir="auto" className="mt-1 text-sm">{bi(p.jd_en, p.jd_ar)}</p>
-          {p.reason ? <p className="mt-2 text-sm text-muted-foreground">{t('Reason')}: {p.reason}</p> : null}
+          {p.reason ? <p className="mt-2 text-sm text-muted-foreground">{t('Reason')}: {t(p.reason)}</p> : null}
         </ReaderSection>
       ) : null;
     }
     case 'WF-02': return (
       <ReaderSection label={t('Requisition draft')}>
-        <ul className="space-y-1 text-sm">{(p.criteria ?? []).map((cr: any) => <li key={cr.key}><Chip tone={cr.kind === 'must' ? 'primary' : undefined}>{cr.kind === 'must' ? t('Must') : t('Nice')}</Chip> {cr.label}</li>)}</ul>
+        <ul className="space-y-1 text-sm">{(p.criteria ?? []).map((cr: any) => <li key={cr.key}><Chip tone={cr.kind === 'must' ? 'primary' : undefined}>{cr.kind === 'must' ? t('Must') : t('Nice')}</Chip> {t(cr.label)}</li>)}</ul>
         {p.ad ? <p dir="auto" className="mt-3 text-sm">{bi(p.ad.en, p.ad.ar)}</p> : null}
         {(p.internal ?? []).length ? <p className="mt-3 text-sm"><span className="text-muted-foreground">{t('Internal matches')}:</span> {p.internal.map((m: any) => `${m.display_name} (${m.grade})`).join(', ')}</p> : null}
       </ReaderSection>
@@ -162,7 +162,7 @@ function Details({ c }: { c: any }) {
           {chk ? (
             <ReaderSection label={t('Case file check')}>
               <ul className="space-y-2">{chk.checks.map((x: any) => (
-                <li key={x.key} className="flex gap-2 text-sm">{x.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />}<span><span className="font-medium">{bi(x.label, x.label_ar)}</span><span className="block text-muted-foreground">{x.detail} · <span className="font-mono text-[11px]">{x.rule}</span></span></span></li>
+                <li key={x.key} className="flex gap-2 text-sm">{x.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />}<span><span className="font-medium">{bi(x.label, x.label_ar)}</span><span className="block text-muted-foreground">{t(x.detail)} · <span className="font-mono text-[11px]">{x.rule}</span></span></span></li>
               ))}</ul>
             </ReaderSection>
           ) : null}
@@ -170,7 +170,7 @@ function Details({ c }: { c: any }) {
             <ReaderSection label={t('Final settlement')}>
               <Table><tbody>{st.lines.map((l: any) => <tr key={l.code}><td>{bi(l.label, l.label_ar)}<span className="block font-mono text-[11px] text-muted-foreground">{l.rule}</span></td><td className="text-end tabular-nums">{aed(l.amount, lang)}</td></tr>)}
                 <tr><td className="font-semibold">{t('Total')} · {t('Pay by')} {date(st.payBy, lang)}{st.deadlineDays ? ` (${t('Art. 88')}: ${st.deadlineDays} ${t('days')})` : ''}</td><td className="text-end font-semibold tabular-nums">{aed(st.total, lang)}</td></tr></tbody></Table>
-              {st.note ? <p className="mt-2 text-sm text-muted-foreground">{st.note}</p> : null}
+              {st.note ? <p className="mt-2 text-sm text-muted-foreground">{t(st.note)}</p> : null}
               <p className="mt-2 text-sm text-muted-foreground">{t('Last working day')}: {date(st.lastDay, lang)} · {st.years} {t('years of service')} · {t(st.kind === 'RESIGNATION' ? 'Resignation' : 'Ended by the employer')}</p>
               {st.visa ? <p className="mt-1 text-sm text-muted-foreground">{st.visa}</p> : null}
             </ReaderSection>
@@ -227,12 +227,12 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
           const dropped = (edits.drop ?? []).includes(r.id);
           return (
             <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 px-3 py-2">
-              <span className="min-w-[12rem] flex-1 text-sm"><span className="font-medium">{bi(r.name, r.name_ar)}</span><span className="block text-xs text-muted-foreground">{t('Overtime hours this month')} · {r.note}</span></span>
+              <span className="min-w-[12rem] flex-1 text-sm"><span className="font-medium">{bi(r.name, r.name_ar)}</span><span className="block text-xs text-muted-foreground">{t('Overtime hours this month')} · {t(r.note)}</span></span>
               <label className="flex items-center gap-2 text-sm"><input type="number" min={0} max={100} disabled={dropped} className="input h-9 w-20 text-end text-sm" value={edits.values?.[r.id] ?? r.suggested ?? 0} onChange={(e) => set(r.id, Number(e.target.value))} />{t('hours')}</label>
               <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={dropped} onChange={(e) => drop(r.id, e.target.checked)} />{t('None this month')}</label>
             </div>);
         })}
-        {other.map((r: any) => <p key={r.id} className="text-sm text-muted-foreground">{r.label}: {t('confirmed in its own case')}</p>)}</div>
+        {other.map((r: any) => <p key={r.id} className="text-sm text-muted-foreground">{t(r.label)}: {t('confirmed in its own case')}</p>)}</div>
       </ReaderSection>
     );
   }
@@ -286,7 +286,7 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
           return (
             <div key={p.person_id} className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p><span className="font-semibold">{bi(p.name, p.name_ar)}</span> <span className="text-muted-foreground">· {p.dept}</span></p>
+                <p><span className="font-semibold">{bi(p.name, p.name_ar)}</span> <span className="text-muted-foreground">· {t(p.dept)}</span></p>
                 <p className="font-mono text-xs">{t('Deducted')}: {aed((waived ? 0 : p.fine) + (excusedAbs ? 0 : p.unpaid_days * p.daily), lang)}</p>
               </div>
               {p.lates ? <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2"><span className={waived ? 'text-muted-foreground line-through' : ''}>{p.lates} {t(p.lates === 1 ? 'late arrival' : 'late arrivals')}: {t('days')} {days(p, 'LATE')} · {p.fine ? `${t('fine')} ${aed(p.fine, lang)}${p.fine_before > p.cap ? ` (${t('capped at five days\' wage')})` : ''}` : t('written warnings only')}</span>
@@ -296,7 +296,7 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
               {p.explained.map((x: any) => (
                 <div key={x.day} className="mt-2 rounded-md bg-muted/50 p-2">
                   <p className="text-xs text-muted-foreground">{t('Explanation for')} {date(x.day, lang)}</p>
-                  <p>“{x.text}”</p>
+                  <p>“{t(x.text)}”</p>
                   <label className="mt-1 flex items-center gap-1.5 text-xs"><input type="checkbox" checked={!has('reject', `${p.person_id}:${x.day}`)} onChange={() => flip('reject', `${p.person_id}:${x.day}`)} />{t('Accept the explanation: no fine for this day')}</label>
                 </div>))}
             </div>
@@ -382,7 +382,7 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
               <select className="input h-8 w-24" value={ch?.rating ?? ''} onChange={(e) => { const rest = changes.filter((x: any) => x.person_id !== f.person_id); setEdits({ ...edits, changes: e.target.value ? [...rest, { person_id: f.person_id, rating: Number(e.target.value), reason: ch?.reason ?? '', name: f.text.split(' rated')[0], from: Number(/rated (\d)/.exec(f.text)?.[1]) }] : rest }); }}>
                 <option value="">{t('Keep')}</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              {ch ? <input className="input h-8 flex-1 text-sm" placeholder={t('Reason')} value={ch.reason} onChange={(e) => setEdits({ ...edits, changes: changes.map((x: any) => (x.person_id === f.person_id ? { ...x, reason: e.target.value } : x)) })} /> : null}
+              {ch ? <input className="input h-8 flex-1 text-sm" placeholder={t('Reason')} value={t(ch.reason)} onChange={(e) => setEdits({ ...edits, changes: changes.map((x: any) => (x.person_id === f.person_id ? { ...x, reason: e.target.value } : x)) })} /> : null}
             </div>
           );
         })}
@@ -394,13 +394,13 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
     const sel: number[] = edits.shortlist ?? apps.filter((a: any) => a.evidence.filter((e: any) => e.kind === 'must').every((e: any) => e.status === 'evident')).map((a: any) => a.id);
     return (
       <ReaderSection label={`${t('Evidence against the stated criteria')} · ${apps.length}`}>
-        <Table><thead><tr><th></th><th>{t('Candidate')}</th>{(shortlist.data.requisition.criteria ?? []).map((cr: any) => <th key={cr.key}>{cr.label}</th>)}<th>{t('Source')}</th></tr></thead>
+        <Table><thead><tr><th></th><th>{t('Candidate')}</th>{(shortlist.data.requisition.criteria ?? []).map((cr: any) => <th key={cr.key}>{t(cr.label)}</th>)}<th>{t('Source')}</th></tr></thead>
           <tbody>{apps.map((a: any) => (
             <tr key={a.id}>
               <td><input type="checkbox" checked={sel.includes(a.id)} onChange={() => setEdits({ ...edits, shortlist: sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id] })} /></td>
-              <td className="whitespace-nowrap">{a.first_name} {a.last_name}</td>
-              {a.evidence.map((e: any) => <td key={e.key} title={e.note}><span className={e.status === 'evident' ? 'text-success' : e.status === 'partial' ? 'text-warn' : 'text-muted-foreground'}>{e.status === 'evident' ? '●' : e.status === 'partial' ? '◐' : '○'}</span> <span className="text-xs text-muted-foreground">{e.note}</span></td>)}
-              <td className="text-xs">{a.source}</td>
+              <td className="whitespace-nowrap">{t(`${a.first_name} ${a.last_name}`)}</td>
+              {a.evidence.map((e: any) => <td key={e.key} title={t(e.note)}><span className={e.status === 'evident' ? 'text-success' : e.status === 'partial' ? 'text-warn' : 'text-muted-foreground'}>{e.status === 'evident' ? '●' : e.status === 'partial' ? '◐' : '○'}</span> <span className="text-xs text-muted-foreground">{t(e.note)}</span></td>)}
+              <td className="text-xs">{t(a.source)}</td>
             </tr>
           ))}</tbody></Table>
       </ReaderSection>
@@ -425,6 +425,7 @@ function RulesCited({ trail }: { trail: any[] }) {
 
 /** The facts, each once: a tiled grid so values never wrap into a column of words. */
 export function FactGrid({ facts }: { facts: Fact[] }) {
+  const { t } = useLang();
   if (!facts.length) return null;
   const twoCols = facts.length > 1 && !(facts.length === 3 && !facts.some((f) => f.viz || f.wide));
   const cols = facts.length === 1 ? 'grid-cols-1' : twoCols ? 'grid-cols-2' : 'grid-cols-3';
@@ -437,7 +438,7 @@ export function FactGrid({ facts }: { facts: Fact[] }) {
           <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">{f.k}{f.tone === 'danger' ? <AlertTriangle className="h-3.5 w-3.5 text-danger" /> : f.tone === 'warn' ? <AlertTriangle className="h-3.5 w-3.5 text-warn" /> : null}</dt>
           <dd className="mt-1 break-words text-sm font-semibold leading-snug">{f.v}</dd>
           {f.viz ? <div className="mt-2.5">{f.viz}</div> : null}
-          {f.note ? <p className="mt-0.5 text-xs text-muted-foreground">{f.note}</p> : null}
+          {f.note ? <p className="mt-0.5 text-xs text-muted-foreground">{t(f.note)}</p> : null}
         </div>
       ))}
     </dl>
@@ -568,7 +569,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
         <span className="ms-auto">{open && c.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
       <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by === 'Tahweel' ? bi('Tahweel', 'تحويل') : c.payload?.asked_by ?? ''}${t(', Tasama,')} ${t('on')}` : ['WF-27', 'WF-28', 'WF-30', 'WF-33', 'WF-34'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${c.canDecide ? t('now with you') : `${t('now with')} ${holder}`}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by === 'Tahweel' ? bi('Tahweel', 'تحويل') : c.payload?.asked_by ?? ''}${t(', Tasama,')} ${t('on')}` : ['WF-27', 'WF-28', 'WF-30', 'WF-33', 'WF-34'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${t(c.requester_name)} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${c.canDecide ? t('now with you') : `${t('now with')} ${holder}`}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
     </div>
   );
 

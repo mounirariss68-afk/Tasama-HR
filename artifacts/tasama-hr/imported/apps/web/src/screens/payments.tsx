@@ -83,8 +83,8 @@ function Timeline({ p, counts, followUps }: { p: any; counts: any; followUps: an
   const { t, lang } = useLang();
   const fu = followUps[0];
   const steps: [string, string | null, string, 'success' | 'warn' | 'muted'][] = [
-    [t('Sent'), p.sent_at, p.sent_by ?? '', p.sent_at ? 'success' : 'muted'],
-    [t('Approved in the bank'), p.approved_at, p.approved_by ?? '', p.approved_at ? 'success' : 'muted'],
+    [t('Sent'), p.sent_at, t(p.sent_by ?? ''), p.sent_at ? 'success' : 'muted'],
+    [t('Approved in the bank'), p.approved_at, t(p.approved_by ?? ''), p.approved_at ? 'success' : 'muted'],
     [t('Feedback file'), p.feedback_at, p.feedback_at ? `${num(counts?.paid ?? 0)} ${t('paid')}${(counts?.failed ?? 0) + (counts?.repaid ?? 0) ? `, ${(counts?.failed ?? 0) + (counts?.repaid ?? 0)} ${t('returned')}` : ''}` : '', p.feedback_at ? ((counts?.failed ?? 0) ? 'warn' : 'success') : 'muted'],
     ...(fu ? [[t('Follow-up'), fu.state === 'PAID' ? fu.valueDate : null, `${fu.lines} ${t('line')} · ${aed(fu.total, lang)} · ${t(fu.state === 'PAID' ? 'paid' : fu.state === 'BUILT' ? 'to send' : 'in the bank')}`, fu.state === 'PAID' ? 'success' : 'warn'] as [string, string | null, string, 'success' | 'warn' | 'muted']] : []),
     [t('Signed WPS file'), p.wps_at, p.wps_state === 'ACCEPTED' ? t('matches what was paid') : '', p.wps_at ? 'success' : 'muted'],

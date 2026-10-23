@@ -77,7 +77,7 @@ export function ChroOverview() {
           <div className="space-y-4">
             <section>
               <div className="mb-1 flex items-center justify-between"><h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{critical.length ? `${covered.length} ${t('of')} ${critical.length} ${t('critical roles have a ready successor')}` : t('No critical roles are mapped')}</h3><button type="button" onClick={() => go('hr-performance')} className="text-xs text-primary hover:underline">{t('Succession')}</button></div>
-              {uncovered.length ? uncovered.slice(0, 4).map((s: any) => <StatusRow key={s.id} name={s.position} detail={s.incumbent} status={<StatusChip status={s.risk_of_loss} />} />) : <p className="text-sm text-muted-foreground">{t(critical.length ? 'Every critical role has someone ready now.' : 'No succession plan has been made yet.')}</p>}
+              {uncovered.length ? uncovered.slice(0, 4).map((s: any) => <StatusRow key={s.id} name={t(s.position)} detail={s.incumbent} status={<StatusChip status={s.risk_of_loss} />} />) : <p className="text-sm text-muted-foreground">{t(critical.length ? 'Every critical role has someone ready now.' : 'No succession plan has been made yet.')}</p>}
             </section>
             <section>
               <div className="mb-1 flex items-center justify-between"><h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{`${urgent.length} ${t(urgent.length === 1 ? 'urgent compliance alert' : 'urgent compliance alerts')}`}</h3><button type="button" onClick={() => go('hr-compliance')} className="text-xs text-primary hover:underline">{t('Compliance')}</button></div>

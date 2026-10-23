@@ -180,7 +180,7 @@ function LaneRow({ lane }: { lane: Lane }) {
       <div className="min-w-0">
         {lane.state === 'DONE' ? <>
           <p className="text-sm font-semibold leading-snug">{bi(lane.headline, lane.headline_ar)}</p>
-          {shown.length ? <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">{shown.map((s) => <span key={s.label}><span className="font-semibold text-foreground">{typeof s.value === 'number' ? num(s.value) : lang === 'ar' && s.value_ar ? s.value_ar : s.value}</span> {lang === 'ar' ? s.label_ar ?? s.label : lower(s.label)}</span>)}</p> : null}
+          {shown.length ? <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">{shown.map((s) => <span key={s.label}><span className="font-semibold text-foreground">{typeof s.value === 'number' ? num(s.value) : lang === 'ar' ? s.value_ar || t(String(s.value)) : s.value}</span> {lang === 'ar' ? s.label_ar ?? s.label : lower(s.label)}</span>)}</p> : null}
         </> : lane.state === 'EMPTY' ? <p className="text-sm text-muted-foreground">{bi(lane.headline, lane.headline_ar) || t('No file for this lane in the folder')}</p>
           : <p className="text-sm text-muted-foreground">{lane.state === 'READING' ? t('Reading…') : t('Waiting')}</p>}
       </div>

@@ -22,7 +22,7 @@ To return to a clean state, use **Demo → Reset the demo data**. It rebuilds ev
 
 ## Present mode and the Stage
 
-The demo runs without PowerPoint (`design/stage-addendum.md`, canon stage 5). **Demo › Present** opens a storyline: cards with live numbers from the five client accounts, three scenarios on the Stage, a card after each with what it did, and the close. Two storylines ship: **Tasama leadership** (salary certificate, advance exception, service level rescue) and **Compliance and Legal** (screening refusal, termination stop, payroll pre-run). Edit them in Settings › Present mode; they are saved on the server and survive a reset.
+The demo runs without PowerPoint (`design/stage-addendum.md`, canon stage 5). **Demo › Present** opens a storyline: cards with live numbers from the five client accounts, three scenarios on the Stage, a card after each with what it did, and the close. Five storylines ship: **Tasama leadership** (salary certificate, advance exception, service level rescue), **Compliance and Legal** (screening refusal, termination stop, payroll pre-run), and three for Tasama's payroll managers, in the order they named their problems: **Every client's own rules** (a new client from Excel, same overtime with different pay, a month of attendance), **Changes on time** (the cut-off without chasing, offer to first payslip, back pay and a leaver) and **From run to ledger** (run and approve, bank file, WPS and Mudad, the journal in Oracle). Edit them in Settings › Present mode; they are saved on the server and survive a reset.
 
 On the **Stage** a scenario runs on one screen: **01 The request** (the employee in Rafeeq, the hiring manager's message, the schedule, Raqeeb's reminder), **02 The agents** (the narration and what the agents did, in plain words), **03 the client's system** (the record as the HRMS holds it, with "agent wrote" on what changed, and the decision card under it). When the next step is a decision the person on screen may take, pane 02 says "Your move": decide in pane 03 and the scenario moves on by itself, or press → and the scenario decides as scripted. Keys: → or space next, ← back, F full screen, Esc leave. The **App** toggle shows the product's own screens for the same step.
 
@@ -60,13 +60,14 @@ The server uses the first Claude model Replit's connection accepts, trying in th
 
 Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is one card: a meta line, a headline, up to four facts and one recommendation line, then the actions and one collapsed "How this was checked" disclosure (`apps/web/src/app/decision.tsx`). The assistant confirms with one card (`apps/web/src/app/confirm-card.tsx`). What was removed from each screen is listed in `design/screen-review.md`; the menu review is in `design/menu-review.md`.
 
-| Check | Command | Result, 22 October 2026 |
+| Check | Command | Result, 23 October 2026 |
 |---|---|---|
 | Types | `npm run typecheck` | Clean |
-| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 83 of 83 pass |
-| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 168 views, 0 problems |
+| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 96 of 96 pass |
+| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 179 views, 0 problems |
+| The screen lint in Arabic | `npm run check:arabic`: English left on a work surface | 179 views; the Payroll and Payroll costs lenses clean; 23 left in HR and Tasama screens (Basira's findings, text people typed). The Stage's narration is English |
 | The payroll engine | `npm run check:golden`: Tasama's July 2025 template run, and hand-worked cases | 43 of 43 figures match; 22 of 22 cases |
-| The Director | Every scenario, every step, twice through the Director's routes | 12 scenarios, 0 failing steps |
+| The Director | Every scenario, every step, twice through the Director's routes | 18 scenarios, 79 steps, 0 failing |
 
 Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app. The canon's agent budget is exceeded on purpose: the payroll addendum brings the platform to 27 agents (20 built so far), each with its own job (`design/payroll-addendum.md` §6).
 

@@ -23,7 +23,7 @@ const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).jo
 
 // ------------------------------------------------------------------ model
 /** Shown in the Present bar so the presenter can tell which build is running. Bump it with every change to Present mode or the Stage. */
-export const PRESENT_BUILD = '1.0';
+export const PRESENT_BUILD = '1.1';
 export type CardLayout = 'statement' | 'steps' | 'columns' | 'agenda';
 export type CardChapter = { kind: 'card'; id: string; layout: CardLayout; eyebrow?: string; title: string; lines: string[] };
 export type ScenarioChapter = { kind: 'scenario'; id: string; scenario: string; audience?: string; question?: string };
@@ -31,13 +31,22 @@ export type Chapter = CardChapter | ScenarioChapter;
 export type Storyline = { id: string; name: string; chapters: Chapter[] };
 
 /** Tokens a card may use; filled from the five client accounts when the card is shown. */
-export const TOKENS = ['{clients}', '{employees}', '{openCases}', '{cases30d}', '{noTouchPct}', '{slaMet}', '{slaScored}', '{today}'];
+export const TOKENS = ['{clients}', '{employees}', '{openCases}', '{cases30d}', '{noTouchPct}', '{slaMet}', '{slaScored}', '{today}', '{payrollPaid}', '{payrollGross}', '{monthsPaid}', '{journalsPosted}', '{bankFiles}', '{payrollRules}', '{oracleClients}', '{platformClients}'];
 
 const REAL_CLAUDE_SIMULATED: CardChapter = { kind: 'card', id: 'real', layout: 'columns', eyebrow: 'Honest boundaries', title: 'Here is what is real, what is Claude and what is simulated.', lines: [
   '## Real', 'The workflows, the approvals and the trail: who may decide what, and the reason when a decision goes against the agent', 'The Saudi rules the agents apply: advance caps (Art. 92 and 93), end of service, notice and leave', 'Service levels per contract, the escalations and the invoices, computed from the cases',
   '## Claude', 'Rafeeq and Murshid: understanding the request and answering from the client\'s handbook, when Claude is connected', 'Wording the letters and the explanations', 'The likely cause Basira gives for a rising problem',
   '## Simulated', 'Each client\'s employee master (Oracle HCM, or Tasama HR for clients with no system), behind one connector that logs every call', 'Qiwa, GOSI, Muqeem, Mudad and the banks', 'Every client, employee and case: synthetic data, marked DEMO'] };
 const PROMISE: CardChapter = { kind: 'card', id: 'promise', layout: 'statement', eyebrow: 'The rule behind it', title: 'Agents check, prepare and recommend, and people decide.', lines: ['Nothing is written to a client\'s HRMS before the person who owns the decision approves it.', 'An agent told to break a rule refuses, cites the clause and tells someone.', 'Every step is on the audit trail, and every HRMS call is on the integration log.'] };
+
+/** What is real, Claude and simulated in the payroll storylines: the engine is arithmetic, and only Nizam's reading uses Claude. */
+const PAYROLL_REAL: CardChapter = { kind: 'card', id: 'real', layout: 'columns', eyebrow: 'Honest boundaries', title: 'The pay is calculated, not generated, and here is what is simulated around it.', lines: [
+  '## Real', 'The engine: each pay line is arithmetic over the client\'s approved rules, and names the rule it applied', 'Tasama\'s July 2025 template run, reproduced figure by figure, and the Saudi rules on top of it: GOSI rates by registration date, Arts. 70, 84, 87, 92, 93 and 116', 'Every run, payment and journal balances, and the checks prove it after each reset',
+  '## Claude', 'Nizam reading a client\'s handbook into rules, when Claude is connected', 'Rafeeq answering an employee\'s question about their pay', 'Nothing in a payslip, a bank file or a journal comes from Claude',
+  '## Simulated', 'The banks, WPS and Mudad, and the bank layouts other than the public WPS file', 'Posting to Oracle Finance or Odoo: the import file is real, the ledger that receives it is not', 'Every client, employee and handbook: synthetic data, marked DEMO'] };
+const PAYROLL_PROMISE: CardChapter = { kind: 'card', id: 'promise', layout: 'statement', eyebrow: 'The rule behind it', title: 'Agents calculate, check and explain, and no agent can approve a run or release a payment.', lines: ['Tasama\'s lead never validates a run she prepared, and the client\'s CHRO approves every run.', 'A rule below the law is refused, with the article, and the engine pays what the law requires.', 'Every line names its rule, and every change is on the audit trail.'] };
+const PAYROLL_OPEN: CardChapter = { kind: 'card', id: 'open', layout: 'statement', eyebrow: 'Tasama Payroll · five clients', title: '{payrollPaid} people at {clients} clients were paid {payrollGross} last month from one platform.', lines: ['{monthsPaid} client months calculated by one engine, each client under its own approved rules.', '{oracleClients} clients keep Oracle HCM and the engine writes back to it; {platformClients} hold their payroll here.', 'Every month leaves as a bank file, a WPS file and the client\'s journals.'] };
+const PAYROLL_PROBLEMS: CardChapter = { kind: 'card', id: 'problems', layout: 'steps', eyebrow: 'What your payroll managers told us', title: 'Your payroll managers named five problems the process documents do not cover.', lines: ['Every client has its own HR policy', 'Attendance deductions come from fingerprint data', 'Clients enter changes late', 'The Oracle Finance upload is prepared by hand', 'Each bank has its own file format'] };
 
 export const DEFAULT_STORYLINES: Storyline[] = [
   { id: 'tasama', name: 'Tasama leadership', chapters: [
@@ -59,6 +68,34 @@ export const DEFAULT_STORYLINES: Storyline[] = [
     { kind: 'scenario', id: 's2', scenario: 'termination-stop', audience: 'Legal and the HRBPs', question: 'Who stops a termination like this at your clients today?' },
     { kind: 'scenario', id: 's3', scenario: 'payroll-escalation', audience: 'Payroll', question: 'How many of these would reach Mudad today?' },
     REAL_CLAUDE_SIMULATED,
+  ] },
+  { id: 'payroll-rules', name: 'Every client\'s own rules', chapters: [
+    PAYROLL_OPEN, PAYROLL_PROBLEMS, PAYROLL_PROMISE,
+    { kind: 'card', id: 'agenda', layout: 'agenda', eyebrow: 'The next twenty minutes', title: 'Each client is paid by its own rules, from day one.', lines: ['Nothing is pre-recorded. Every step runs the same engine a click would run.'] },
+    { kind: 'scenario', id: 's1', scenario: 'client-transition', audience: 'Tasama\'s payroll team', question: 'How many weeks does taking on a client like Soudah take today?' },
+    { kind: 'scenario', id: 's2', scenario: 'overtime-two-clients', audience: 'payroll specialists', question: 'Where does each client\'s overtime rule live today, and who checks it is applied?' },
+    { kind: 'scenario', id: 's3', scenario: 'attendance-month', audience: 'client HR operations', question: 'How long does turning a fingerprint file into deductions take each month?' },
+    PAYROLL_REAL,
+    { kind: 'card', id: 'next', layout: 'steps', eyebrow: 'Next step', title: 'Next, we read one of your clients\' real handbooks and run last month under its rules.', lines: ['Tasama shares one client\'s handbook and last month\'s payroll file', 'Nizam reads the handbook into rules and your lead settles what it flags', 'The engine runs the month, and every difference from your file is explained'] },
+  ] },
+  { id: 'payroll-changes', name: 'Changes on time', chapters: [
+    PAYROLL_OPEN, PAYROLL_PROMISE,
+    { kind: 'card', id: 'agenda', layout: 'agenda', eyebrow: 'The next twenty minutes', title: 'Changes reach payroll once, and on time.', lines: ['Nothing is pre-recorded. Every step runs the same engine a click would run.'] },
+    { kind: 'scenario', id: 's1', scenario: 'late-change', audience: 'client HR operations', question: 'Who chases the client today when the 15th passes?' },
+    { kind: 'scenario', id: 's2', scenario: 'hire-to-onboard', audience: 'client HR and payroll', question: 'How many times is a new hire\'s salary typed today, and by whom?' },
+    { kind: 'scenario', id: 's3', scenario: 'backpay-leaver', audience: 'payroll specialists', question: 'How long does a three-month back pay take to calculate by hand?' },
+    PAYROLL_REAL,
+    { kind: 'card', id: 'next', layout: 'steps', eyebrow: 'Next step', title: 'Next, we replay one client\'s last three months of changes through the platform.', lines: ['Tasama shares the changes one client sent for three months, as they arrived', 'Wared reads them and routes each to its month', 'We compare the result with what was paid, and explain every difference'] },
+  ] },
+  { id: 'payroll-ledger', name: 'From run to ledger', chapters: [
+    PAYROLL_OPEN, PAYROLL_PROMISE,
+    { kind: 'card', id: 'agenda', layout: 'agenda', eyebrow: 'The next twenty minutes', title: 'Every step from run to ledger reconciles.', lines: ['Nothing is pre-recorded. Every step runs the same engine a click would run.'] },
+    { kind: 'scenario', id: 's1', scenario: 'run-approve', audience: 'payroll and the client\'s CHRO', question: 'How long does explaining last month\'s differences take today?' },
+    { kind: 'scenario', id: 's2', scenario: 'bank-file', audience: 'payroll and client finance', question: 'How do you find out today that a salary was returned?' },
+    { kind: 'scenario', id: 's3', scenario: 'ledger-loop', audience: 'client finance', question: 'How many days after pay day does finance receive the journal today?' },
+    { kind: 'card', id: 'loop', layout: 'statement', eyebrow: 'Every client, every month', title: 'Since each client\'s history began, {bankFiles} bank files and {journalsPosted} journals have left the platform with no spreadsheet in between.', lines: ['The bank file total equals net pay, and the WPS file matches the bank file.', 'Salaries payable credited by each month\'s accrual equals what its payment journal pays out.', 'An element with no account stops the journals, and the account is approved once.'] },
+    PAYROLL_REAL,
+    { kind: 'card', id: 'next', layout: 'steps', eyebrow: 'Next step', title: 'Next, your bank templates and one client\'s chart of accounts replace the illustrative ones.', lines: ['Tasama sends each paying bank\'s file template', 'One Oracle client shares its chart of accounts and the payroll mapping spreadsheet', 'We load one past month into that client\'s test ledger'] },
   ] },
 ];
 
@@ -232,14 +269,18 @@ export function usePresent(): PresentCtx { const c = useContext(Ctx); if (!c) th
 // ------------------------------------------------------------------ live numbers
 function useTokens() {
   const { data: n } = useApi<any>('/director/numbers');
+  const { lang } = useLang();
   return useCallback((s: string) => {
     if (!n) return s.replace(/\{[a-zA-Z0-9]+\}/g, '…');
     const map: Record<string, string> = {
       clients: String(n.clients), employees: Number(n.employees).toLocaleString('en-US'), openCases: Number(n.openCases).toLocaleString('en-US'), cases30d: Number(n.cases30d).toLocaleString('en-US'),
       noTouchPct: `${n.noTouchPct}%`, slaMet: String(n.slaMet), slaScored: String(n.slaScored), today: n.today,
+      payrollPaid: Number(n.payrollPaid ?? 0).toLocaleString('en-US'), monthsPaid: String(n.monthsPaid ?? 0), journalsPosted: String(n.journalsPosted ?? 0), bankFiles: String(n.bankFiles ?? 0),
+      payrollRules: Number(n.payrollRules ?? 0).toLocaleString('en-US'), oracleClients: String(n.oracleClients ?? 0), platformClients: String(n.platformClients ?? 0),
+      payrollGross: lang === 'ar' ? `${(Number(n.payrollGross ?? 0) / 1e6).toFixed(1)} ${'مليون ريال'}` : `SAR ${(Number(n.payrollGross ?? 0) / 1e6).toFixed(1)} million`,
     };
     return s.replace(/\{([a-zA-Z0-9]+)\}/g, (m, k) => map[k] ?? m);
-  }, [n]);
+  }, [n, lang]);
 }
 
 // ------------------------------------------------------------------ the full-screen card

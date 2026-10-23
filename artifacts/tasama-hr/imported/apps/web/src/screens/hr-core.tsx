@@ -154,14 +154,14 @@ export function PersonScreen() {
         </Panel> : null}
       {tab === 'assignments' ? <Panel icon={<Building2 size={16} />} title="Assignment history">
           <Table><thead><tr><th>{t('From')}</th><th>{t('To')}</th><th>{t('Action')}</th><th>{t('Job')}</th><th>{t('Grade')}</th></tr></thead>
-            <tbody>{data.history.map((h: any, i: number) => <tr key={i}><td className="whitespace-nowrap">{date(h.effective_start, lang)}</td><td className="whitespace-nowrap">{h.effective_end === '4712-12-31' ? t('current') : date(h.effective_end, lang)}</td><td><Chip>{t(h.action_code.replace(/_/g, ' ').toLowerCase().replace(/^./, (x: string) => x.toUpperCase()))}</Chip></td><td>{h.job}</td><td>{h.grade}</td></tr>)}</tbody></Table>
+            <tbody>{data.history.map((h: any, i: number) => <tr key={i}><td className="whitespace-nowrap">{date(h.effective_start, lang)}</td><td className="whitespace-nowrap">{h.effective_end === '4712-12-31' ? t('current') : date(h.effective_end, lang)}</td><td><Chip>{t(h.action_code.replace(/_/g, ' ').toLowerCase().replace(/^./, (x: string) => x.toUpperCase()))}</Chip></td><td>{t(h.job)}</td><td>{h.grade}</td></tr>)}</tbody></Table>
         </Panel> : null}
       {tab === 'pay' ? <div className="space-y-4">{data.salaries.length ? <Panel icon={<Building2 size={16} />} title="Salary history">
           <Table><thead><tr><th>{t('From')}</th><th>{t('Reason')}</th><th className="text-end">{t('Basic')}</th><th className="text-end">{t('Total')}</th></tr></thead>
-            <tbody>{data.salaries.map((s: any) => <tr key={s.id}><td>{date(s.date_from, lang)}</td><td className="text-sm">{s.reason}</td><td className="text-end tabular-nums">{aed(s.basic, lang)}</td><td className="text-end tabular-nums">{aed(s.basic + s.housing + s.transport + s.other_allowance, lang)}</td></tr>)}</tbody></Table>
+            <tbody>{data.salaries.map((s: any) => <tr key={s.id}><td>{date(s.date_from, lang)}</td><td className="text-sm">{t(s.reason)}</td><td className="text-end tabular-nums">{aed(s.basic, lang)}</td><td className="text-end tabular-nums">{aed(s.basic + s.housing + s.transport + s.other_allowance, lang)}</td></tr>)}</tbody></Table>
         </Panel> : null}{data.entries.length ? <Panel icon={<Building2 size={16} />} title="Current element entries">
           <Table><thead><tr><th>{t('Element')}</th><th className="text-end">{t('Amount')}</th><th>{t('From')}</th><th>{t('Source')}</th></tr></thead>
-            <tbody>{data.entries.map((e: any, i: number) => <tr key={i}><td>{e.name}</td><td className="text-end tabular-nums">{aed(e.amount, lang)}</td><td>{date(e.effective_start, lang)}</td><td><Chip tone={e.source === 'RAFEEQ' ? 'primary' : undefined}>{e.source === 'RAFEEQ' ? t('Tasama HR') : t('HRMS')}</Chip></td></tr>)}</tbody></Table>
+            <tbody>{data.entries.map((e: any, i: number) => <tr key={i}><td>{t(e.name)}</td><td className="text-end tabular-nums">{aed(e.amount, lang)}</td><td>{date(e.effective_start, lang)}</td><td><Chip tone={e.source === 'RAFEEQ' ? 'primary' : undefined}>{e.source === 'RAFEEQ' ? t('Tasama HR') : t('HRMS')}</Chip></td></tr>)}</tbody></Table>
         </Panel> : null}{!data.salaries.length && !data.entries.length ? <Empty>{t('No pay history you may see.')}</Empty> : null}</div> : null}
       {tab === 'reviews' ? <Panel icon={<Building2 size={16} />} title="Reviews">
           <Table><thead><tr><th>{t('Period')}</th><th>{t('Status')}</th><th>{t('Self')}</th><th>{t('Manager')}</th><th>{t('Calibrated')}</th></tr></thead>

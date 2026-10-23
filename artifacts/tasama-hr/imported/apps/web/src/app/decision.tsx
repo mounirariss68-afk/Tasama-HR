@@ -73,7 +73,7 @@ const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certifica
 export function metaLine(c: any, x: T & { youDecide: boolean; showRef: boolean }): string {
   const { t, bi, lang } = x;
   const parts = [t(KIND[c.workflow_id] ?? 'Request')];
-  if (!x.mine && c.requester_name) parts.push(`${t('from')} ${c.requester_name}`);
+  if (!x.mine && c.requester_name) parts.push(`${t('from')} ${t(c.requester_name)}`);
   if (['WAITING', 'ESCALATED'].includes(c.status)) {
     const who = x.youDecide ? t('waiting on you') : `${t('with')} ${bi(c.waiting_on_name, c.waiting_on_name_ar) || t('HR')}`;
     parts.push(c.sla_due ? `${who}, ${until(c.sla_due, lang)}` : who);
@@ -223,7 +223,7 @@ export function caseCard(c: any, x: T): Card {
     case 'WF-12': {
       const k = r.case;
       if (!k) return base;
-      return { kind, headline: `${c.requester_name} ${t('proposes promoting')} ${who} ${t('to')} ${k.to.grade} ${t('at')} ${aed(k.proposed, lang)}`,
+      return { kind, headline: `${t(c.requester_name)} ${t('proposes promoting')} ${who} ${t('to')} ${k.to.grade} ${t('at')} ${aed(k.proposed, lang)}`,
         facts: [{ k: `${t('In the')} ${k.to.grade} ${t('range')}`, v: `${aed(k.proposed, lang)} · +${k.increasePct}%`, wide: true, tone: k.equity ? 'warn' : undefined,
             viz: <RangeBar min={k.to.min} max={k.to.max} format={(v) => aed(v, lang)} markers={[{ label: t('Today'), value: k.from.basic, tone: 'muted' }, { label: t('Peer median'), value: k.peerMedian, tone: 'chart2' }, { label: t('Proposed'), value: k.proposed, tone: 'primary' }]} /> },
           { k: t('Last ratings'), v: k.ratings.slice(0, 3).map((x: any) => x.rating).join(' · ') }, { k: t('Months in grade'), v: k.monthsInGrade }],
@@ -239,7 +239,7 @@ export function caseCard(c: any, x: T): Card {
     }
     case 'WF-01': {
       const o = out(c, 'check');
-      return { kind, headline: `${c.requester_name} ${t('asks for a new position')}: ${p.job_title}`,
+      return { kind, headline: `${t(c.requester_name)} ${t('asks for a new position')}: ${t(p.job_title)}`,
         facts: ([{ k: t('Budget'), v: p.budgeted ? t('Budgeted') : t('Not budgeted'), tone: p.budgeted ? undefined : 'warn' }, ...(o.annual_cost_mid ? [{ k: t('Annual cost'), v: aed(o.annual_cost_mid, lang) }] : []), ...(o.grade ? [{ k: t('Grade'), v: o.grade }] : []), ...(o.saudization ? [{ k: t('Saudization with a Saudi hire'), v: `${o.saudization.ifSaudi}%`, viz: <CapBar value={o.saudization.ifSaudi} cap={o.saudization.target} max={Math.max(60, o.saudization.ifSaudi + 10)} tone={o.saudization.ifSaudi >= o.saudization.target ? 'success' : 'warn'} capLabel={`${t('target')} ${o.saudization.target}%`} /> }] : [])] as Fact[]).slice(0, 4),
         rec: recOf(c) };
     }
@@ -307,7 +307,7 @@ export function caseCard(c: any, x: T): Card {
         { k: t('GOSI on the back pay'), v: aed(bp.gosiEe, lang), note: `${t('employer')} ${aed(bp.gosiEr, lang)}` },
         { k: t('Provisions re-measured'), v: `${t('End of service')} +${aed(bp.catchUp.eos, lang)}`, note: `${t('leave')} +${aed(bp.catchUp.leave, lang)}` },
       ];
-      return { kind, headline: c.status === 'COMPLETED' ? `${p.person_name}${t('’s back pay is in')} ${mon(bp.open)}${t('’s run')}` : `${p.person_name}${t('’s raise reaches')} ${bp.months.length} ${t(bp.months.length === 1 ? 'closed month:' : 'closed months:')} ${aed(bp.total, lang)} ${t('of back pay, no month reopened')}`, facts, rec: recOf(c) };
+      return { kind, headline: c.status === 'COMPLETED' ? `${t(p.person_name)}${t('’s back pay is in')} ${mon(bp.open)}${t('’s run')}` : `${t(p.person_name)}${t('’s raise reaches')} ${bp.months.length} ${t(bp.months.length === 1 ? 'closed month:' : 'closed months:')} ${aed(bp.total, lang)} ${t('of back pay, no month reopened')}`, facts, rec: recOf(c) };
     }
     case 'WF-30': {
       const ck = r.check ?? {}, dx = r.differences;
@@ -373,7 +373,7 @@ export function caseCard(c: any, x: T): Card {
           { k: t('Worth'), v: aed(p.backPay ?? 0, lang), note: `${p.days ?? '—'} ${t('days of')} ${mon(p.period)} ${t('at')} ${aed(p.monthly ?? 0, lang)} ${t('a month more')}` },
           { k: `${mon(p.period)}${t('’s run')}`, v: t('Stays as approved'), note: t('Nothing reopens; the difference is paid as back pay.') },
         ];
-        return { kind, headline: done ? `${p.person_name}${t('’s back pay of')} ${aed(p.backPay ?? 0, lang)} ${t('is booked for')} ${mon(p.next)}` : `${p.person_name}${t('’s')} ${t(String(p.what ?? 'change').toLowerCase())} ${t('arrived after the cut-off:')} ${aed(p.backPay ?? 0, lang)} ${t('is paid with')} ${mon(p.next)}`, facts, rec: recOf(c) };
+        return { kind, headline: done ? `${t(p.person_name)}${t('’s back pay of')} ${aed(p.backPay ?? 0, lang)} ${t('is booked for')} ${mon(p.next)}` : `${t(p.person_name)}${t('’s')} ${t(String(p.what ?? 'change').toLowerCase())} ${t('arrived after the cut-off:')} ${aed(p.backPay ?? 0, lang)} ${t('is paid with')} ${mon(p.next)}`, facts, rec: recOf(c) };
       }
       const m = r.month ?? {};
       const facts: Fact[] = [
@@ -420,8 +420,8 @@ export function caseCard(c: any, x: T): Card {
       const gosi = p.kind === 'GOSI_REGISTRATION';
       const done = c.status === 'COMPLETED';
       const headline = gosi
-        ? (done ? `${p.person_name}${t('’s GOSI registration is recorded')}` : `${t('Is')} ${p.person_name} ${t('registered with GOSI? The')} ${month} ${t('run stops until you give the date')}`)
-        : (done ? `${p.person_name}${t('’s held overtime is settled')}` : `${t('Should')} ${p.person_name}${t('’s')} ${p.held_hours ?? ''} ${t('overtime hours above the cap be paid?')}`);
+        ? (done ? `${t(p.person_name)}${t('’s GOSI registration is recorded')}` : `${t('Is')} ${t(p.person_name)} ${t('registered with GOSI? The')} ${month} ${t('run stops until you give the date')}`)
+        : (done ? `${t(p.person_name)}${t('’s held overtime is settled')}` : `${t('Should')} ${t(p.person_name)}${t('’s')} ${p.held_hours ?? ''} ${t('overtime hours above the cap be paid?')}`);
       const facts: Fact[] = [
         { k: t('Tasama found'), v: plain(p.finding ?? ''), wide: true },
         gosi ? { k: t('What you do'), v: t('Register in your GOSI account, then give the date here'), note: t('The run calculates the contribution from that date.') }

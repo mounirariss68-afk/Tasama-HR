@@ -144,7 +144,7 @@ function RuleTiles({ dims, rules, changed, selected, onSelect }: { dims: any[]; 
           <button key={d.n} type="button" onClick={() => onSelect(d.n)}
             className={`rounded-xl border p-3 text-start transition-all hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.99] ${tone} ${selected === d.n ? 'ring-2 ring-primary' : ''}`}>
             <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><span className="tabular-nums">{d.n}</span><span className="truncate">{bi(d.name, d.name_ar)}</span>{isNew ? <span className="ms-auto rounded bg-primary/15 px-1 text-[10px] font-semibold text-primary">{t('changed')}</span> : null}</p>
-            <p className="mt-1.5 line-clamp-2 text-sm font-semibold leading-snug">{rs[0] ? <>{rs.length > 1 ? <span className="font-normal text-muted-foreground">{bi(rs[0].label, rs[0].label_ar)}: </span> : null}{bi(rs[0].value, rs[0].value_ar ?? rs[0].value)}</> : '—'}</p>
+            <p className="mt-1.5 line-clamp-2 text-sm font-semibold leading-snug">{rs[0] ? <>{rs.length > 1 ? <span className="font-normal text-muted-foreground">{bi(rs[0].label, rs[0].label_ar)}: </span> : null}{bi(rs[0].value, rs[0].value_ar || t(rs[0].value))}</> : '—'}</p>
             {flag ? <p className={`mt-1.5 text-[11px] font-medium ${flag.flag === 'BELOW_LAW' ? 'text-danger' : flag.flag === 'UNCLEAR' ? 'text-warn' : 'text-muted-foreground'}`}>{bi(...(FLAG[flag.flag].slice(0, 2) as [string, string]))}{flag.resolution ? ` · ${t('decided')}` : ''}</p> : <p className="mt-1.5 text-[11px] text-muted-foreground">{rs.length > 1 ? `${rs.length} ${t('rules')}` : rs[0]?.basis === 'LAW' ? t('The law applies') : rs[0]?.clause ?? ''}</p>}
           </button>
         );
@@ -162,7 +162,7 @@ function Dimension({ d, rules }: { d: any; rules: any[] }) {
       <div className="mt-3 space-y-3">
         {rules.map((r) => (
           <div key={r.key} className="border-t border-border/50 pt-3 first:border-0 first:pt-0">
-            <div className="flex flex-wrap items-baseline gap-2"><span className="text-sm text-muted-foreground">{bi(r.label, r.label_ar)}</span><span className="text-sm font-semibold">{bi(r.value, r.value_ar ?? r.value)}</span>{r.flag ? <Chip tone={FLAG[r.flag][2]}>{bi(FLAG[r.flag][0], FLAG[r.flag][1])}</Chip> : null}</div>
+            <div className="flex flex-wrap items-baseline gap-2"><span className="text-sm text-muted-foreground">{bi(r.label, r.label_ar)}</span><span className="text-sm font-semibold">{bi(r.value, r.value_ar || t(r.value))}</span>{r.flag ? <Chip tone={FLAG[r.flag][2]}>{bi(FLAG[r.flag][0], FLAG[r.flag][1])}</Chip> : null}</div>
             {r.flag_note ? <p className="mt-1 text-sm">{r.flag_note}</p> : null}
             {r.resolution ? <p className="mt-1 text-sm text-success">{t('Decided')}: {r.resolution}</p> : null}
             {r.quote ? <details className="mt-1.5 text-xs text-muted-foreground"><summary className="cursor-pointer">{t('Where it comes from')}: {r.clause}</summary><p className="mt-1 italic">“{r.quote}”</p></details> : r.clause ? <p className="mt-1 text-xs text-muted-foreground">{r.clause}</p> : null}
@@ -210,7 +210,7 @@ export function ClientPolicies() {
       {data && v ? (
         <Panel icon={<Scale size={16} />} title={`${bi(data.client.short, data.client.name_ar)}: ${t('version')} ${v.version} ${v.status === 'DRAFT' ? t('waits for a decision') : t('is active')}`}
           action={<PanelAction>{v.status === 'DRAFT' && v.ref ? <Btn small kind="primary" onClick={() => openCase(v.ref, key!)}>{t('Open the decision')}</Btn> : persona?.roles.includes('TASAMA_PAYROLL') ? <Btn small onClick={upload} disabled={busy}>{t('Read a revised handbook')}</Btn> : null}</PanelAction>}>
-          <p className="mb-3 text-sm text-muted-foreground">{v.status === 'ACTIVE' ? `${t('Activated by')} ${v.activated_by} ${t('on')} ${date(v.activated_at ?? v.effective_from, lang)} · ${t('read by')} ${v.read_by}` : `${t('Read by')} ${v.read_by} ${t('from')} ${v.source}`}</p>
+          <p className="mb-3 text-sm text-muted-foreground">{v.status === 'ACTIVE' ? `${t('Activated by')} ${t(v.activated_by ?? '')} ${t('on')} ${date(v.activated_at ?? v.effective_from, lang)} · ${t('read by')} ${t(v.read_by)}` : `${t('Read by')} ${t(v.read_by)} ${t('from')} ${t(v.source)}`}</p>
           <TabStrip items={[{ id: 'rules', label: 'Rules' }, { id: 'versions', label: 'Versions' }, { id: 'handbook', label: 'Handbook' }, { id: 'compare', label: 'Compare clients' }]} value={tab} onChange={setTab} />
           <div className="mt-4">
             {tab === 'rules' ? (
@@ -222,7 +222,7 @@ export function ClientPolicies() {
               <Table><thead><tr><th>{t('Version')}</th><th>{t('Status')}</th><th>{t('From')}</th><th>{t('Activated by')}</th><th>{t('Read by')}</th><th></th></tr></thead>
                 <tbody>{data.versions.map((x: any) => (
                   <tr key={x.id}><td className="font-medium">v{x.version}</td><td><Chip tone={x.status === 'ACTIVE' ? 'success' : x.status === 'DRAFT' ? 'warn' : undefined}>{t(x.status === 'ACTIVE' ? 'Active' : x.status === 'DRAFT' ? 'Waiting' : 'Superseded')}</Chip></td>
-                    <td>{date(x.effective_from, lang)}</td><td>{x.activated_by ?? '—'}</td><td>{x.read_by}</td>
+                    <td>{date(x.effective_from, lang)}</td><td>{x.activated_by ? t(x.activated_by) : '—'}</td><td>{t(x.read_by)}</td>
                     <td>{x.ref ? <Btn small onClick={() => openCase(x.ref, key!)}>{t('Open')}</Btn> : null}</td></tr>))}</tbody></Table>
             ) : tab === 'handbook' ? (
               <div className="space-y-2">{data.clauses.map((c: any) => (
@@ -236,7 +236,7 @@ export function ClientPolicies() {
                 {cmp ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{cmp.rows.map((r: any) => (
                   <div key={r.key} className="rounded-xl glass-l3 p-3">
                     <p className="text-sm font-semibold">{bi(r.short, r.name_ar)}</p>
-                    {r.rules.map((x: any) => <div key={x.key} className="mt-2"><p className="text-[11px] text-muted-foreground">{bi(x.label, x.label_ar)}</p><p className="text-sm font-medium">{bi(x.value, x.value_ar ?? x.value)}</p>{x.flag ? <Chip tone={FLAG[x.flag][2]}>{bi(FLAG[x.flag][0], FLAG[x.flag][1])}</Chip> : null}</div>)}
+                    {r.rules.map((x: any) => <div key={x.key} className="mt-2"><p className="text-[11px] text-muted-foreground">{bi(x.label, x.label_ar)}</p><p className="text-sm font-medium">{bi(x.value, x.value_ar || t(x.value))}</p>{x.flag ? <Chip tone={FLAG[x.flag][2]}>{bi(FLAG[x.flag][0], FLAG[x.flag][1])}</Chip> : null}</div>)}
                   </div>))}</div> : null}
               </div>
             )}
@@ -388,7 +388,7 @@ export function PayrollRuns() {
   const points = [...hist.filter((h) => !d || h.period_name !== d.period.name).map((h) => ({ label: mon(h.period_name), eos: h.eos, leave: h.leave })), ...(d ? [{ label: mon(d.period.name), eos: rows.reduce((s, r) => s + r.eos.accrued, 0), leave: rows.reduce((s, r) => s + r.leave.accrued, 0), draft: true }] : [])];
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll"
-      title={d ? `${name}'s ${monthWord} ${t('run pays')} SAR ${sarK(d.totals.net)} ${t('to')} ${rows.length} ${t('people')}${run?.state === 'APPROVED' ? `; ${t('approved by')} ${run.approver}` : blocks.length ? `; ${blocks.length} ${t(blocks.length === 1 ? 'check stops it' : 'checks stop it')}` : `; ${t('nothing stops it')}`}` : t('Runs')}
+      title={d ? `${lang === 'ar' ? `مسير ${monthWord} لـ${name} يصرف ${sarK(d.totals.net).replace(/M$/, ' مليون').replace(/K$/, ' ألف')} ريال إلى ${rows.length} موظفًا` : `${name}'s ${monthWord} run pays SAR ${sarK(d.totals.net)} to ${rows.length} people`}${run?.state === 'APPROVED' ? `; ${t('approved by')} ${t(run.approver ?? '')}` : blocks.length ? `; ${blocks.length} ${t(blocks.length === 1 ? 'check stops it' : 'checks stop it')}` : `; ${t('nothing stops it')}`}` : t('Runs')}
       actions={d ? (run && run.state !== 'RETURNED' ? <Btn kind="primary" onClick={() => openCase(run.ref, current!)}>{t(STATE[run.state]?.[0] ?? run.state)} · {t('open the run')}</Btn> : cutPassed ? <span className="flex items-center gap-2"><Btn kind="primary" disabled={busyRun} onClick={startRun}>{t(run?.state === 'RETURNED' ? 'Prepare the run again' : 'Start the run')}</Btn>{runErr ? <span className="text-xs text-danger">{runErr}</span> : null}</span> : <Chip tone="primary">{t('Draft until the cut-off on')} {date(d.period.cutoff, lang)}</Chip>) : undefined}
       lede={t('The draft is the engine\'s calculation from the employee master, the month\'s confirmed changes and the client\'s active policy. Every line names the rule behind it. Nothing is paid until the client approves.')}
       feature={d ? <HeroFeature label="Net pay against last month" value={`${base.change >= 0 ? '+' : '−'}SAR ${sarK(Math.abs(base.change))}`} support={<span className="text-xs text-muted-foreground">{base.people} {t('people paid differently')}</span>} /> : undefined} />}>
@@ -420,7 +420,7 @@ export function PayrollRuns() {
                       <tr key={r.person_id} className="align-top">
                         <td><span className="font-medium">{bi(r.name, r.name_ar)}</span>{checkOf(r.person_id).length ? <button type="button" className="ms-2" onClick={() => setTab('checks')}><Chip tone={checkOf(r.person_id).some((c) => c.severity === 'BLOCK') ? 'danger' : 'warn'}>{t(checkOf(r.person_id).some((c) => c.severity === 'BLOCK') ? 'Stops the run' : 'Needs the client')} ›</Chip></button> : r.prev_net == null ? <span className="ms-2"><Chip tone="primary">{t('New')}</Chip></span> : null}
                           {settledOf(r.person_id) ? <p className="mt-0.5 text-xs text-muted-foreground">{settledOf(r.person_id).text}</p> : null}<PersonLines r={r} /></td>
-                        <td>{r.department}</td>
+                        <td>{t(r.department)}</td>
                         <td className="text-end tabular-nums">{r.pay_days}</td>
                         <td className="text-end tabular-nums">{num(r.gross, 2)}</td>
                         <td className="text-end tabular-nums">{num(r.deductions, 2)}</td>
@@ -434,7 +434,7 @@ export function PayrollRuns() {
                   <div className="space-y-5">
                     <ChangeWaterfall from={dx.lastNet} to={dx.thisNet} fromLabel={`${t('Last month')}, ${t('net')}`} toLabel={`${monthWord}, ${t('net')}`} steps={dx.steps.map((x: any) => ({ label: t(x.label), amount: x.amount }))} format={(v) => `SAR ${num(Math.round(v))}`} />
                     <Table><thead><tr><th>{t('Person')}</th><th className="text-end">{t('Last month')}</th><th className="text-end">{t('This month')}</th><th>{t('Why')}</th></tr></thead>
-                      <tbody>{dx.people.slice(0, showAll ? 999 : 15).map((x: any) => <tr key={x.person_id}><td className="text-sm">{x.name}</td><td className="text-end tabular-nums text-muted-foreground">{num(x.from, 2)}</td><td className="text-end tabular-nums">{num(x.to, 2)}</td>
+                      <tbody>{dx.people.slice(0, showAll ? 999 : 15).map((x: any) => <tr key={x.person_id}><td className="text-sm">{bi(x.name, x.name_ar) || t(x.name)}</td><td className="text-end tabular-nums text-muted-foreground">{num(x.from, 2)}</td><td className="text-end tabular-nums">{num(x.to, 2)}</td>
                         <td className="text-xs">{Object.entries(x.causes).map(([k, v]: any) => <span key={k} className="me-2 inline-block">{t(dx.steps.find((s: any) => s.key === k)?.label ?? k)} <span className={v >= 0 ? 'text-success' : 'text-danger'}>{v >= 0 ? '+' : '−'}{num(Math.abs(v), 2)}</span></span>)}</td></tr>)}</tbody></Table>
                     {!showAll && dx.people.length > 15 ? <Btn small onClick={() => setShowAll(true)}>{t('Show everyone')} ({dx.people.length})</Btn> : null}
                     <p className="text-xs text-muted-foreground">{t('Mutabaqa recalculates last month on the engine and replaces one input at a time with this month\'s, so each cause gets its exact share and the causes add up to the change.')}</p>
@@ -446,11 +446,11 @@ export function PayrollRuns() {
                     <div className="grid gap-3 md:grid-cols-3">{[
                       ['Prepared', run.preparer, run.prepared_at, 'Payroll specialist, Tasama'],
                       ['Validated', run.validator, run.validated_at, 'Payroll lead, Tasama'],
-                      ['Approved', run.approver, run.approved_at, `CHRO, ${name}`],
+                      ['Approved', run.approver, run.approved_at, lang === 'ar' ? `${t('CHRO')}، ${name}` : `CHRO, ${name}`],
                     ].map(([k, who, at, role]: any) => (
                       <div key={k} className="rounded-xl glass-l3 p-3">
                         <p className="text-xs text-muted-foreground">{t(k)}</p>
-                        <p className="mt-0.5 text-sm font-semibold">{who ?? (run.state === 'RETURNED' ? '—' : `${t('Waiting')}${run.waiting_on && !who ? `: ${run.waiting_on}` : ''}`)}</p>
+                        <p className="mt-0.5 text-sm font-semibold">{who ? t(who) : (run.state === 'RETURNED' ? '—' : `${t('Waiting')}${run.waiting_on && !who ? `: ${t(run.waiting_on)}` : ''}`)}</p>
                         <p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p>
                       </div>))}</div>
                     {run.state === 'RETURNED' ? <p className="text-sm text-danger">{t('Returned by')} {run.returned_by ?? t('the client')}: {run.returned_reason ?? '—'}</p> : null}

@@ -1194,3 +1194,44 @@ Phase 5b is done.
 - **Seen once journals ran on every client:** a person whose deductions exceed their pay has a negative net. That amount is a receivable from the employee (130600), not less salaries payable. This was found by the check that salaries payable equals what the bank paid.
 
 **Effort:** two Claude sessions, as planned. Phase 7 is done.
+
+## 22. Phase 8: the three payroll storylines play in Present mode, and the Arabic interface carries the payroll lens without English
+
+### Three storylines follow the problems in the order the payroll managers named them
+
+Present mode ships three more storylines next to Tasama leadership and Compliance and Legal (`apps/web/src/app/present.tsx`). Each one plays three scenarios, as section 9 set out.
+
+| Storyline | Cards before | Scenarios | Cards after |
+|---|---|---|---|
+| Every client's own rules | The month in numbers; the five problems; the rule behind it; the agenda | D10 a new client from Excel, D2 same overtime, different pay, D3 a month of attendance | What is real, Claude and simulated; the next step |
+| Changes on time | The month in numbers; the rule behind it; the agenda | D5 the cut-off without chasing, D4 from offer to first payslip, D9 back pay and a leaver | The same two |
+| From run to ledger | The month in numbers; the rule behind it; the agenda | D6 run, explain, approve, D7 bank file, WPS and Mudad, D8 the journal lands in Oracle | Bank files and journals since each history began; the same two |
+
+- **The numbers are live.** `/director/numbers` adds last month's paid people and gross across the five clients, the client months calculated, the bank files built, the journals posted and the active rules. The opening card reads, after a Reset, "928 people at 5 clients were paid SAR 22.4 million last month from one platform."
+- **The honest-boundaries card for payroll** says the pay is calculated, not generated. Only Nizam's reading and Rafeeq's answers use Claude. The banks, WPS, Mudad and the ledgers are simulated, and the import files are real.
+- **Each "next step" card is a proposal for the owner to confirm before a room sees it:**
+  1. One real handbook and last month's file.
+  2. Three months of one client's changes, replayed.
+  3. The banks' templates and one Oracle client's chart of accounts.
+
+  Each card can be edited in Settings › Present mode.
+
+### Arabic: one translator, the names from the records, and a check
+
+- **Policy values.** The payroll lens showed each client's policy values, input labels, people and departments in English. The values are now in `lib/ar.ts`. Values that the records hold as text pass through `t()`, and so do labels, notes and names.
+- **Templates (`AR_PATTERNS` in `lib/ar.ts`).** Some sentences are written on the server with a name, a date or an amount in them: an input's label, a compliance finding, a reschedule. These are matched by template.
+- **Names (`/api/names`).** This route returns the Arabic for every name held as text, for every client: people, candidates, employers, sites, departments, jobs, positions, pay elements, leave types, Tasama's staff and roles, and the clients. The web app keeps a copy in the browser so the first screen already has them. `bi()` falls back to the translator when a record has no Arabic.
+- **Safety net (`lib/ar-dom.ts`).** In Arabic it translates a text node when the whole node has an Arabic entry, and replaces a known name inside a longer text. Turning Arabic off puts every changed node back. Screens should still use `t()`; the net covers cells that were drawn straight from a record.
+- **The check: `npm run check:arabic`.** It runs the screen lint in Arabic and reports any run of three English words, and any person's English name, on a work surface. File previews and product and system names are left alone. It went from 726 problems to 23. Every screen in the Payroll and Payroll costs lenses is clean.
+- **What is still English, and why:**
+  - Basira's findings on the Patterns screen. Claude writes them when it is connected.
+  - Text people typed: a manager's quoted instruction, a requested job title, a letter type, an assessment centre's name.
+  - The requisition criteria labels.
+
+  These would need Arabic fields in the records, which is a seed change. This section does not make it.
+- **The Stage's narration is English in both languages.** Each scenario step writes it on the server with that run's live names and amounts, for all 18 scenarios. Writing it in Arabic as well would take about one Claude session, and is a decision for the prototype owner.
+- **Known gap.** One chart label on HR › Exits stays in Arabic after switching back to English without a reload, because the design system's chart does not redraw.
+
+No seed, engine or connector change was made. The new route only reads.
+
+**Effort so far:** one Claude session. The second session holds the menu review for the payroll lenses, the README, the Replit prompt and the rehearsal script.

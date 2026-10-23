@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { aiStatus } from '../ai.js';
 import { allClients } from '../domain/clients.js';
-import { pool } from '../db.js';
+import { pool, withClient } from '../db.js';
 import { personaOf, personas, has , TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST } from './session.js';
 import { worker, team, balances } from '../hcm/queries.js';
 import { read, type Ctx } from '../hcm/connector.js';
@@ -27,6 +27,25 @@ me.get('/session', async (req, res) => {
     anchor,
     today: today(),
   });
+});
+
+/**
+ * The Arabic for names the records hold as text, keyed by the English: people (approvers, preparers and
+ * people named in a trail are stored as text), and each client's employers, sites, departments, jobs,
+ * positions, pay elements and leave types. The web app's translator looks them up.
+ */
+me.get('/names', async (_req, res) => {
+  const out: Record<string, string> = {};
+  for (const p of [TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST] as any[]) if (p.display_name && p.display_name_ar) out[p.display_name] = p.display_name_ar;
+  for (const c of allClients()) {
+    if (c.name_ar) { out[c.name] = c.name_ar; out[c.short] = c.name_ar; }
+    const rows = await withClient(c.key, async () => (await pool.query(`SELECT display_name AS en, display_name_ar AS ar FROM hcm.persons
+        UNION ALL SELECT name, name_ar FROM hcm.legal_employers UNION ALL SELECT name, name_ar FROM hcm.locations UNION ALL SELECT name, name_ar FROM hcm.departments
+        UNION ALL SELECT name, name_ar FROM hcm.jobs UNION ALL SELECT name, name_ar FROM hcm.positions UNION ALL SELECT name, name_ar FROM hcm.element_types UNION ALL SELECT name, name_ar FROM hcm.absence_types UNION ALL SELECT first_name || ' ' || last_name, display_name_ar FROM hcm.candidates`).catch(() => ({ rows: [] as any[] }))).rows);
+    for (const r of rows) if (r.en && r.ar && r.en !== r.ar) out[r.en] = r.ar;
+  }
+  for (const r of (await pool.query(`SELECT name, name_ar, role, role_ar FROM tasama.staff`).catch(() => ({ rows: [] as any[] }))).rows) { out[r.name] = r.name_ar; out[r.role] = r.role_ar; }
+  res.json(out);
 });
 
 me.get('/me', async (req, res) => {

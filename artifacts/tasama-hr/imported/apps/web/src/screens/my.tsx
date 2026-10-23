@@ -303,7 +303,7 @@ export function MyPay() {
       </PageColumns>
       <Dialog open={!!slip} onOpenChange={(o) => !o && setSlip(null)}>
         <DialogContent className="max-w-lg"><DialogTitle>{t('Payslip')} · {slip ? month(slip.period_name, lang) : ''}</DialogTitle>
-          {slip ? <Table><tbody>{slip.lines.map((l: any) => <tr key={l.code}><td>{l.name}</td><td className="text-end tabular-nums">{l.kind === 'DEDUCTION' ? '−' : ''}{aed(l.amount, lang)}</td></tr>)}<tr><td className="font-semibold">{t('Net')}</td><td className="text-end font-semibold tabular-nums">{aed(slip.net, lang)}</td></tr></tbody></Table> : null}
+          {slip ? <Table><tbody>{slip.lines.map((l: any) => <tr key={l.code}><td>{t(l.name)}</td><td className="text-end tabular-nums">{l.kind === 'DEDUCTION' ? '−' : ''}{aed(l.amount, lang)}</td></tr>)}<tr><td className="font-semibold">{t('Net')}</td><td className="text-end font-semibold tabular-nums">{aed(slip.net, lang)}</td></tr></tbody></Table> : null}
           {slip ? <DocumentDownload document={payslipDocument(slip, bi(w.display_name, w.display_name_ar), lang)} /> : null}
         </DialogContent>
       </Dialog>
@@ -336,7 +336,7 @@ export function MyGrowth() {
           {me.performance.map((p: any) => <StatusRow key={p.review_period} name={p.review_period} detail={p.calibrated_rating ? `${t('Rating')} ${p.calibrated_rating} / 5` : p.manager_rating ? `${t('Manager rating')} ${p.manager_rating}` : t('In progress')} status={<StatusChip status={p.status} />} />)}
         </Panel> : null}
         <Panel icon={<Sprout size={16} />} title="Internal openings" action={<PanelAction>{t('Apply internally first')}</PanelAction>}>
-          <div className="space-y-2">{(hiring?.requisitions ?? []).filter((r: any) => r.status === 'OPEN').slice(0, 5).map((r: any) => <RecordCard key={r.req_number} state={<Chip>{r.grade}</Chip>} title={bi(r.title, r.title_ar)} meta={<span className="text-xs text-muted-foreground">{r.department}</span>} />)}</div>
+          <div className="space-y-2">{(hiring?.requisitions ?? []).filter((r: any) => r.status === 'OPEN').slice(0, 5).map((r: any) => <RecordCard key={r.req_number} state={<Chip>{r.grade}</Chip>} title={bi(r.title, r.title_ar)} meta={<span className="text-xs text-muted-foreground">{t(r.department)}</span>} />)}</div>
         </Panel>
       </>}>
         <Panel icon={<Target size={16} />} title="Goals and learning">
@@ -384,7 +384,7 @@ export function MyOnboarding() {
           <div className="space-y-2">{tasks.map((x: any) => (
             <div key={x.id} className="flex items-start gap-3 rounded-xl glass-l3 px-4 py-3">
               <StatusChip status={x.status} />
-              <div className="min-w-0 flex-1"><p className="text-sm font-medium">{bi(x.title, x.title_ar)}</p><p className="text-xs text-muted-foreground">{t('Owner')}: {owner(x.owner)}{x.external_system ? ` · ${x.external_system}` : ''} · {t('due')} {date(x.due_date, lang)}</p>{x.note ? <p className="mt-1 text-xs text-danger">{x.note}</p> : null}</div>
+              <div className="min-w-0 flex-1"><p className="text-sm font-medium">{bi(x.title, x.title_ar)}</p><p className="text-xs text-muted-foreground">{t('Owner')}: {t(owner(x.owner))}{x.external_system ? ` · ${t(({ QIWA: 'Qiwa', MUQEEM: 'Muqeem', MUDAD: 'Mudad', GOSI: 'GOSI', ABSHER: 'Absher', JADARAT: 'Jadarat' } as Record<string, string>)[x.external_system] ?? x.external_system)}` : ''} · {t('due')} {date(x.due_date, lang)}</p>{x.note ? <p className="mt-1 text-xs text-danger">{t(x.note)}</p> : null}</div>
             </div>
           ))}</div>
         </Panel>

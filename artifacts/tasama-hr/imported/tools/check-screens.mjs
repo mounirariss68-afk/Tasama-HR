@@ -11,6 +11,11 @@
  * The Audit trail, Integration log, Workflows, Agents, Policies and the rig
  * (Scenarios, Settings) are the proof and are not linted for ids.
  *
+ * With CHECK_LANG=ar every screen is opened in Arabic and English left on a
+ * work surface is reported too: three or more English words in a row, other
+ * than product and system names (Oracle, WPS, Mudad, Claude…). The fix is a
+ * line in apps/web/src/lib/ar.ts, or an `_ar` field from the API.
+ *
  * Needs Playwright (present in the Cognirise container; `npm i -D playwright` elsewhere).
  * Screenshots go to SHOTS_DIR when it is set.
  */
@@ -21,6 +26,9 @@ import { mkdirSync } from 'node:fs';
 const BASE = process.env.CHECK_BASE ?? `http://localhost:${process.env.PORT ?? 5000}`;
 const SHOTS = process.env.SHOTS_DIR;
 const CLIENT = process.env.CHECK_CLIENT ?? 'roshn';
+const LANG = process.env.CHECK_LANG === 'ar' ? 'ar' : 'en';
+// Names that stay in Latin script in the Arabic interface.
+const KEEP_LATIN = /\b(?:Tasama HR|Oracle(?: Fusion)?(?: Cloud)?(?: HCM| Finance| REST)?|Odoo(?: Accounting)?|Claude|Replit|WPS|GOSI|Mudad|Qiwa|Muqeem|Jadarat|SARIE|IBAN|SAR|HCM|HRMS|DEMO|Excel|PDF|CSV|ZIP|TSV|API|Microsoft 365|Al Rajhi|SNB|SAB|Alinma|Albilad|Riyad Bank|ROSHN|SEVEN|Saudi National Bank|GlInterface|csv|xlsx|pdf|zip)\b/g;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 const LENS_SCREENS = {
@@ -50,6 +58,8 @@ const ID_RULES = [
 const GOVERNANCE = [/the decision is yours/i, /nothing is submitted until/i, /never acts/i, /never (?:scores|ranks|rejects)/i, /synthetic data/i, /generated for this demo/i, /the agents have done the checking/i, /arrives prepared/i, /hypotheses for a person to test/i];
 
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM ?? undefined });
+// In Arabic, a person's English name anywhere on a work surface is reported too (two words pass the run-of-three rule).
+const NAMES = LANG === 'ar' ? Object.keys(await (await fetch(`${BASE}/api/names`)).json()).filter((n) => /^[A-Z][a-z]+(?: [A-Z][a-zA-Z]+)+$/.test(n)) : [];
 const session = await (await fetch(`${BASE}/api/session`, { headers: { 'x-persona': 'tasama', 'x-client': CLIENT } })).json();
 const personas = session.personas;
 const problems = [];
@@ -57,7 +67,7 @@ let pages = 0;
 
 async function open(page, persona, screen) {
   await page.goto(`${BASE}/#/${screen}`);
-  await page.evaluate(([p, c]) => { localStorage.setItem('tasama-persona', p); localStorage.setItem('tasama-client', c); localStorage.setItem('atelier-nav-orientation', 'vertical'); }, [persona, CLIENT]);
+  await page.evaluate(([p, c, l]) => { localStorage.setItem('tasama-persona', p); localStorage.setItem('tasama-client', c); localStorage.setItem('atelier-nav-orientation', 'vertical'); localStorage.setItem('rafeeq-lang', l); }, [persona, CLIENT, LANG]);
   await page.evaluate((h) => { window.location.hash = h; }, `#/${screen}`);
   await page.reload();
   await page.waitForLoadState('networkidle').catch(() => {});
@@ -79,6 +89,16 @@ async function lint(page, persona, screen, where) {
     text = text.replace(/\b[A-Z]{3}-CASE-\d{2}-\d{4,}\b/, ''); // one, small, in the case's meta line
     for (const [re, what] of ID_RULES) { const m = text.match(re); if (m) out.push(`${what}: "${m[0]}" in "…${text.slice(Math.max(0, m.index - 50), m.index + m[0].length + 30).replace(/\s+/g, ' ')}…"`); }
     for (const re of GOVERNANCE) { const m = res.text.match(re); if (m) out.push(`governance copy: "${m[0]}"`); }
+    if (LANG === 'ar') {
+      const seen = new Set();
+      for (const line of res.text.split('\n')) {
+        if ((line.match(/,/g) ?? []).length >= 5) continue; // a file's contents shown as a preview stay as the file has them
+        const m = line.replace(KEEP_LATIN, ' ').match(/[A-Za-z][A-Za-z'’]+(?:[\s,.:;·()\-–]+[A-Za-z][A-Za-z'’]*){2,}/);
+        if (m && !seen.has(m[0])) { seen.add(m[0]); out.push(`English in Arabic: "${line.trim().slice(0, 110)}"`); continue; }
+        const who = NAMES.find((n) => line.includes(n));
+        if (who && !seen.has(who)) { seen.add(who); out.push(`English name in Arabic: "${who}" in "${line.trim().slice(0, 90)}"`); }
+      }
+    }
   }
   if (res.openProof) out.push('a disclosure is open without a click');
   if (where === 'screen' && !PROOF.has(screen) && res.fold > 3) out.push(`${res.fold} panels before the fold (budget 3)`);

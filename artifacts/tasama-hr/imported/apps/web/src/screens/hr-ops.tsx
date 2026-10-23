@@ -130,7 +130,7 @@ export function HrExits() {
         {!data.cases.length ? <Empty>{t('No exit cases are open.')}</Empty> : null}
       </Panel>
       <PageColumns aside={<Panel icon={<FileWarning size={16} />} title="Why people left (12 months)">
-        {data.reasons.map((r: any) => <div key={r.reason} className="py-1.5"><div className="flex justify-between text-sm"><span>{r.reason}</span><span className="font-mono text-xs">{r.n}</span></div><Bar value={r.n} max={data.reasons[0]?.n} className="mt-1" tone="accent" /></div>)}
+        {data.reasons.map((r: any) => <div key={t(r.reason)} className="py-1.5"><div className="flex justify-between text-sm"><span>{t(r.reason)}</span><span className="font-mono text-xs">{r.n}</span></div><Bar value={r.n} max={data.reasons[0]?.n} className="mt-1" tone="accent" /></div>)}
       </Panel>}>
         <Panel icon={<CalendarClock size={16} />} title="Clearance journeys">
           {data.journeys.length ? data.journeys.map((j: any) => { const done = j.tasks.filter((x: any) => x.status === 'DONE').length; return (
@@ -140,7 +140,7 @@ export function HrExits() {
         </Panel>
         <Panel icon={<DoorOpen size={16} />} title="Leavers on record">
           <Table><thead><tr><th>{t('Person')}</th><th>{t('Department')}</th><th>{t('Last day')}</th><th>{t('Action')}</th><th>{t('Reason')}</th></tr></thead>
-            <tbody>{data.leavers.map((l: any) => <tr key={l.id} className="clickable" onClick={() => go('person', String(l.id))}><td className="text-sm">{l.display_name}</td><td className="text-sm">{l.department}</td><td>{date(l.last_working_day, lang)}</td><td><Chip>{t(String(l.termination_action ?? '').replace(/_/g, ' ').toLowerCase().replace(/^./, (x: string) => x.toUpperCase()))}</Chip></td><td className="text-xs">{l.termination_reason}</td></tr>)}</tbody></Table>
+            <tbody>{data.leavers.map((l: any) => <tr key={l.id} className="clickable" onClick={() => go('person', String(l.id))}><td className="text-sm">{l.display_name}</td><td className="text-sm">{t(l.department)}</td><td>{date(l.last_working_day, lang)}</td><td><Chip>{t(String(l.termination_action ?? '').replace(/_/g, ' ').toLowerCase().replace(/^./, (x: string) => x.toUpperCase()))}</Chip></td><td className="text-xs">{l.termination_reason}</td></tr>)}</tbody></Table>
         </Panel>
       </PageColumns>
     </Screen>
@@ -162,11 +162,11 @@ export function HrCompliance() {
       actions={<Btn onClick={async () => { await post('/compliance/scan'); bump(); reload(); }}><RefreshCw className="h-4 w-4" />{t('Run the scan now')}</Btn>}
       />}>
       <OverviewTabs />
-      {sa ? <Panel icon={<ShieldCheck size={16} />} title="Saudization (Nitaqat)" tone="accent"><p className="text-sm font-medium">{bi(sa.title, sa.title_ar)}</p><p className="mt-1 text-sm text-muted-foreground">{sa.detail}</p></Panel> : null}
+      {sa ? <Panel icon={<ShieldCheck size={16} />} title="Saudization (Nitaqat)" tone="accent"><p className="text-sm font-medium">{bi(sa.title, sa.title_ar)}</p><p className="mt-1 text-sm text-muted-foreground">{t(sa.detail)}</p></Panel> : null}
       <div className="flex flex-wrap gap-1.5"><button type="button" onClick={() => setKind('all')} className={`mono-chip ${kind === 'all' ? 'is-primary' : ''}`}>{t('All')} · {data.alerts.length}</button>{kinds.map((k) => <button key={k} type="button" onClick={() => setKind(k)} className={`mono-chip ${kind === k ? 'is-primary' : ''}`}>{t(K[k] ?? k)} · {data.alerts.filter((a: any) => a.kind === k).length}</button>)}</div>
       <Panel icon={<AlertTriangle size={16} />} title="Alerts" action={<AgentTag id="amin" />}>
         <Table><thead><tr><th>{t('Severity')}</th><th>{t('Alert')}</th><th>{t('Person')}</th><th>{t('Due')}</th><th>{t('Owner')}</th><th></th></tr></thead>
-          <tbody>{rows.map((a: any) => <tr key={a.ref}><td><StatusChip status={a.severity} /></td><td className="min-w-[18rem] text-sm"><span className="font-medium">{bi(a.title, a.title_ar)}</span><span className="block text-xs text-muted-foreground">{a.detail}</span></td><td>{a.person_id ? <button type="button" onClick={() => go('person', String(a.person_id))}><Person name={bi(a.display_name, a.display_name_ar)} size={22} /></button> : '—'}</td><td className="min-w-[8rem] whitespace-nowrap">{date(a.due_date, lang)}{a.due_date ? <><span className="block text-[11px] text-muted-foreground">{daysUntil(a.due_date)} {t('days')}</span><ClockBar compact start={new Date(new Date(`${String(a.due_date).slice(0, 10)}T00:00:00Z`).getTime() - 30 * 86400000).toISOString()} due={a.due_date} /></> : null}</td><td className="text-xs text-muted-foreground">{roleName(a.owner_role, bi)}</td><td>{a.status === 'OPEN' ? <Btn small onClick={async () => { await post(`/compliance/${a.ref}/resolve`); reload(); }}>{t('Resolve')}</Btn> : <StatusChip status={a.status} />}</td></tr>)}</tbody></Table>
+          <tbody>{rows.map((a: any) => <tr key={a.ref}><td><StatusChip status={a.severity} /></td><td className="min-w-[18rem] text-sm"><span className="font-medium">{bi(a.title, a.title_ar)}</span><span className="block text-xs text-muted-foreground">{t(a.detail)}</span></td><td>{a.person_id ? <button type="button" onClick={() => go('person', String(a.person_id))}><Person name={bi(a.display_name, a.display_name_ar)} size={22} /></button> : '—'}</td><td className="min-w-[8rem] whitespace-nowrap">{date(a.due_date, lang)}{a.due_date ? <><span className="block text-[11px] text-muted-foreground">{daysUntil(a.due_date)} {t('days')}</span><ClockBar compact start={new Date(new Date(`${String(a.due_date).slice(0, 10)}T00:00:00Z`).getTime() - 30 * 86400000).toISOString()} due={a.due_date} /></> : null}</td><td className="text-xs text-muted-foreground">{roleName(a.owner_role, bi)}</td><td>{a.status === 'OPEN' ? <Btn small onClick={async () => { await post(`/compliance/${a.ref}/resolve`); reload(); }}>{t('Resolve')}</Btn> : <StatusChip status={a.status} />}</td></tr>)}</tbody></Table>
       </Panel>
     </Screen>
   );

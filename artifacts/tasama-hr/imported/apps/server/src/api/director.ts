@@ -31,7 +31,21 @@ director.get('/director/numbers', async (_req, res) => {
       const sla = (await slaFor(cl, monthStart(now(), -1))).filter((s) => s.ok !== null);
       slaMet += sla.filter((s) => s.ok).length; slaScored += sla.length;
     }
-    res.json({ clients: CLIENTS.length, employees, openCases, cases30d, noTouch30d, noTouchPct: cases30d ? Math.round((100 * noTouch30d) / cases30d) : 0, slaMet, slaScored, today: iso(now()) });
+    // The payroll storylines quote last paid month across the five clients, and what the platform has done since each client's history starts.
+    const last = (await pool.query(`SELECT COALESCE(SUM(employees),0)::int AS paid, COALESCE(SUM(gross),0)::float AS gross, MAX(period) AS period
+      FROM tasama.payroll_runs WHERE period = (SELECT MAX(period) FROM tasama.payroll_runs) AND client_key = ANY($1)`, [CLIENTS.map((c) => c.key)])).rows[0];
+    const monthsPaid = Number((await pool.query(`SELECT COUNT(*)::int AS n FROM tasama.payroll_runs WHERE client_key = ANY($1)`, [CLIENTS.map((c) => c.key)])).rows[0].n);
+    let journalsPosted = 0, bankFiles = 0, rules = 0;
+    for (const cl of CLIENTS) {
+      const r = await withClient(cl.key, async () => (await pool.query(`SELECT
+          (SELECT COUNT(*)::int FROM layer.journals WHERE state='POSTED') AS journals,
+          (SELECT COUNT(*)::int FROM layer.payments) AS files,
+          (SELECT COUNT(*)::int FROM layer.policy_rules r JOIN layer.policy_versions v ON v.id = r.version_id WHERE v.status='ACTIVE') AS rules`)).rows[0]);
+      journalsPosted += r.journals; bankFiles += r.files; rules += r.rules;
+    }
+    const oracle = CLIENTS.filter((c) => c.hrms === 'ORACLE').length;
+    res.json({ clients: CLIENTS.length, employees, openCases, cases30d, noTouch30d, noTouchPct: cases30d ? Math.round((100 * noTouch30d) / cases30d) : 0, slaMet, slaScored, today: iso(now()),
+      payrollPaid: last.paid, payrollGross: last.gross, payrollMonth: last.period ? iso(new Date(last.period)) : null, monthsPaid, journalsPosted, bankFiles, payrollRules: rules, oracleClients: oracle, platformClients: CLIENTS.length - oracle });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

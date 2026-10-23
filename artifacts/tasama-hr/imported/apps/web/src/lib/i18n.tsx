@@ -10,11 +10,17 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { setDirection, setTranslator } from '@cognirise/atelier/layout';
-import { AR } from './ar';
+import { AR, AR_PATTERNS } from './ar';
+import { arabicDom, arabicDomRefresh } from './ar-dom';
 import type { Lang } from './format';
 
 const STORAGE = 'rafeeq-lang';
 const NUMERIC = /(?:AED\s)?-?\d[\d.,]*(?:%|h|d)?/g;
+
+/** People's names in Arabic, keyed by the English display name; filled from /names once the session loads. */
+const NAMES_STORE = 'tasama-names';
+const NAMES: Record<string, string> = (() => { try { return JSON.parse(localStorage.getItem(NAMES_STORE) ?? '{}'); } catch { return {}; } })();
+export function setNames(m: Record<string, string>) { Object.assign(NAMES, m); try { localStorage.setItem(NAMES_STORE, JSON.stringify(m)); } catch { /* a convenience only */ } }
 
 export function lookup(s: string): string {
   const exact = AR[s];
@@ -22,7 +28,15 @@ export function lookup(s: string): string {
   const held: string[] = [];
   const key = s.replace(NUMERIC, (m) => { held.push(m); return '{}'; });
   const pattern = AR[key];
-  if (!pattern) return s;
+  if (!pattern) {
+    for (const [re, to] of AR_PATTERNS) { const m = s.match(re); if (m) return to(m, lookup); }
+    if (NAMES[s]) return NAMES[s];
+    // "<a name>: <a sentence>", the way agents write a finding about one person.
+    const said = /^([^:]{3,60}): (.+)$/.exec(s);
+    if (said && (NAMES[said[1]] || AR[said[1]])) { const rest = lookup(said[2]); if (rest !== said[2] || /[\u0600-\u06FF]/.test(rest)) return `${NAMES[said[1]] ?? AR[said[1]]}: ${rest}`; }
+    const who = /^(.+), (Tasama|Tasama HR)$/.exec(s);
+    return who && NAMES[who[1]] ? `${NAMES[who[1]]}، تسامى` : s;
+  }
   let i = 0;
   return pattern.replace(/\{\}/g, () => held[i++] ?? '');
 }
@@ -42,9 +56,17 @@ export function LangProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(STORAGE, lang); } catch { /* */ }
   }, [lang, dir]);
   const setLang = useCallback((l: Lang) => setLangState(l), []);
-  const t = useCallback((s: string) => (lang === 'ar' ? lookup(s) : s), [lang]);
-  const bi = useCallback((en: string | null | undefined, ar: string | null | undefined) => (lang === 'ar' ? (ar || en || '') : (en || ar || '')), [lang]);
-  const value = useMemo(() => ({ lang, dir: dir as 'ltr' | 'rtl', setLang, t, bi }), [lang, dir, setLang, t, bi]);
+  // Names arrive once, the first time Arabic is on; the version re-renders what was drawn before.
+  const [names, setNamesVer] = useState(0);
+  useEffect(() => {
+    if (lang !== 'ar' || names) return;
+    fetch('/api/names').then((r) => (r.ok ? r.json() : {})).then((m) => { setNames(m); setNamesVer((v) => v + 1); }).catch(() => {});
+  }, [lang, names]);
+  useEffect(() => { arabicDom(lang === 'ar', lookup, NAMES); return () => arabicDom(false, lookup); }, [lang]);
+  useEffect(() => { if (names) arabicDomRefresh(lookup); }, [names]);
+  const t = useCallback((s: string) => (lang === 'ar' && typeof s === 'string' ? lookup(s) : s), [lang, names]);
+  const bi = useCallback((en: string | null | undefined, ar: string | null | undefined) => (lang === 'ar' ? (ar && ar !== en ? ar : lookup(en || ar || '')) : (en || ar || '')), [lang, names]);
+  const value = useMemo(() => ({ lang, dir: dir as 'ltr' | 'rtl', setLang, t, bi }), [lang, dir, setLang, t, bi, names]);
   return <LangCtx.Provider value={value}>{children}</LangCtx.Provider>;
 }
 

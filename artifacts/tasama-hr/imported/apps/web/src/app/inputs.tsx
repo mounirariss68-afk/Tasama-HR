@@ -38,7 +38,7 @@ export function InputRows({ rows, client }: { rows: any[]; client?: boolean }) {
       <tbody>{rows.map((r) => (
         <tr key={r.id} className={r.case_ref ? 'clickable' : undefined} onClick={r.case_ref ? () => openCase(r.case_ref) : undefined}>
           <td className="text-sm">{r.person_id ? bi(r.name, r.name_ar) : t('Everyone')}</td>
-          <td className="text-sm">{r.label}{r.note ? <span className="block text-xs text-muted-foreground">{r.note}</span> : null}{r.confirmed_by && r.state !== 'EXPECTED' ? <span className="block text-xs text-muted-foreground">{t('by')} {r.confirmed_by}{r.confirmed_at ? `, ${date(r.confirmed_at, lang)}` : ''}</span> : null}</td>
+          <td className="text-sm">{t(r.label)}{r.note ? <span className="block text-xs text-muted-foreground">{t(r.note)}</span> : null}{r.confirmed_by && r.state !== 'EXPECTED' ? <span className="block text-xs text-muted-foreground">{t('by')} {t(r.confirmed_by)}{r.confirmed_at ? `, ${date(r.confirmed_at, lang)}` : ''}</span> : null}</td>
           <td className="text-end tabular-nums text-sm">{figure(r)}</td>
           <td className="text-xs text-muted-foreground">{t(client && r.source === 'PREFILLED' ? 'Only you can send this' : SOURCE[r.source] ?? r.source)}</td>
           <td><Chip tone={STATE[r.state]?.tone}>{t(STATE[r.state]?.en ?? r.state)}</Chip></td>

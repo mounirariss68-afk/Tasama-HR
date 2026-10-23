@@ -249,7 +249,7 @@ export function TasamaEscalations() {
                   <DropdownMenuTrigger asChild><button type="button" className="pill-btn pill-btn-ghost px-2.5 py-1.5 text-xs" aria-label={t('More')}><MoreHorizontal className="h-4 w-4" /></button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-64">
                     <DropdownMenuLabel>{t('Assign to')}</DropdownMenuLabel>
-                    {(dl?.staff ?? []).filter((s: any) => s.allocations.some((a: any) => a.client === e.client_key)).map((s: any) => <DropdownMenuItem key={s.id} onSelect={() => act(e.id, 'assign', { staff_id: s.id })}><span className="flex-1">{s.name}</span><span className="text-xs text-muted-foreground">{s.utilization}%</span></DropdownMenuItem>)}
+                    {(dl?.staff ?? []).filter((s: any) => s.allocations.some((a: any) => a.client === e.client_key)).map((s: any) => <DropdownMenuItem key={s.id} onSelect={() => act(e.id, 'assign', { staff_id: s.id })}><span className="flex-1">{t(s.name)}</span><span className="text-xs text-muted-foreground">{s.utilization}%</span></DropdownMenuItem>)}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => act(e.id, 'resolve', { note: 'Closed by Tasama HR Operations' })}>{t('Close the escalation')}</DropdownMenuItem>
                   </DropdownMenuContent>
@@ -289,7 +289,7 @@ export function TasamaFinance() {
         <StatTile label="Overdue" value={aedShort(overdue, lang)} state={overdue ? <Chip tone="danger">{t('chase')}</Chip> : undefined} />
       </StatRow>
       {data.notPrepared.length ? <Panel icon={<Receipt size={16} />} title="Not yet prepared">
-        {data.notPrepared.map((n: any) => <StatusRow key={n.key} name={`${n.short} · ${month(n.period, lang)}`} detail={t('No invoice yet for last month.')} status={<Btn small kind="primary" onClick={() => prepare(n.key)} disabled={!!busy}>{busy === `p${n.key}` ? t('Preparing…') : t('Prepare with Fatoora')}</Btn>} />)}
+        {data.notPrepared.map((n: any) => <StatusRow key={n.key} name={`${t(n.short)} · ${month(n.period, lang)}`} detail={t('No invoice yet for last month.')} status={<Btn small kind="primary" onClick={() => prepare(n.key)} disabled={!!busy}>{busy === `p${n.key}` ? t('Preparing…') : t('Prepare with Fatoora')}</Btn>} />)}
       </Panel> : null}
       <Panel icon={<Receipt size={16} />} title="Invoices">
         <Table><thead><tr><th>{t('Client')}</th><th>{t('Month')}</th><th className="text-end">{t('Employees')}</th><th className="text-end">{t('Base fee')}</th><th className="text-end">{t('Hires')}</th><th className="text-end">{t('Credits')}</th><th className="text-end">{t('Total incl. VAT')}</th><th>{t('Status')}</th><th /></tr></thead>
@@ -329,7 +329,7 @@ export function TasamaDelivery() {
   return (
     <Screen hero={<Hero tone="surface" eyebrow={EYEBROW} title={over.length ? `${over.length} ${t(over.length === 1 ? 'person is over capacity' : 'people are over capacity')}` : t('Everyone is within capacity')} lede={t('Each person\'s load from the work their clients generated in the last 30 days, against their capacity on these accounts.')} />}>
       {data.suggestions.length ? <Panel icon={<Workflow size={16} />} title="Tawzee suggests">
-        {data.suggestions.map((s: any, i: number) => <StatusRow key={i} name={s.skill === 'HR_OPS' ? t('HR operations') : s.skill === 'PAYROLL' ? t('Payroll') : t('Recruitment')} detail={s.text} status={<Chip tone="warn">{s.hours} h</Chip>} />)}
+        {data.suggestions.map((s: any, i: number) => <StatusRow key={i} name={s.skill === 'HR_OPS' ? t('HR operations') : s.skill === 'PAYROLL' ? t('Payroll') : t('Recruitment')} detail={t(s.text)} status={<Chip tone="warn">{s.hours} h</Chip>} />)}
       </Panel> : null}
       <Panel icon={<Users size={16} />} title="People and load">
         <Table><thead><tr><th>{t('Name')}</th><th>{t('Role')}</th><th>{t('Accounts')}</th><th className="text-end">{t('Load (h/month)')}</th><th className="text-end">{t('Capacity')}</th><th className="w-[220px]">{t('Utilisation')}</th></tr></thead>
@@ -408,8 +408,8 @@ function PatternCard({ p, staff, focus }: { p: any; staff: any[]; focus: boolean
           <ol className="mt-1 space-y-2">
             {(p.causes as any[]).map((c, i) => (
               <li key={i} className="rounded-xl border border-border/60 p-3">
-                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">{c.cause} <Chip tone={c.strength === 'strong' ? 'danger' : c.strength === 'moderate' ? 'warn' : undefined}>{t(c.strength)}</Chip></p>
-                <p className="mt-1 text-[13px] text-muted-foreground">{t('Evidence')}: {c.evidence}</p>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">{t(c.cause)} <Chip tone={c.strength === 'strong' ? 'danger' : c.strength === 'moderate' ? 'warn' : undefined}>{t(c.strength)}</Chip></p>
+                <p className="mt-1 text-[13px] text-muted-foreground">{t('Evidence')}: {t(c.evidence)}</p>
                 {c.next_step ? <p className="mt-1 text-[13px]">{t('Next step')}: {c.next_step}</p> : null}
               </li>
             ))}
@@ -419,23 +419,23 @@ function PatternCard({ p, staff, focus }: { p: any; staff: any[]; focus: boolean
       <div className="mt-3 border-t border-border/50 pt-3">
         {p.status === 'NEW' ? (
           <div className="grid gap-2 sm:grid-cols-[14rem_1fr_12rem_auto] sm:items-start">
-            <select className="input h-9 text-sm" value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">{t('Owner…')}</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.role}</option>)}</select>
+            <select className="input h-9 text-sm" value={owner} onChange={(e) => setOwner(e.target.value)}><option value="">{t('Owner…')}</option>{staff.map((s) => <option key={s.id} value={s.id}>{bi(s.name, s.name_ar)} · {bi(s.role, s.role_ar)}</option>)}</select>
             <textarea className="input text-sm" rows={2} placeholder={t('What will be done about the cause')} value={action} onChange={(e) => setAction(e.target.value)} />
             <select className="input h-9 text-sm" value={days} onChange={(e) => setDays(e.target.value)}>{['7', '14', '21', '28'].map((d) => <option key={d} value={d}>{t('Measure again in')} {d} {t('days')}</option>)}</select>
             <Btn kind="primary" onClick={() => act('assign', { staff_id: Number(owner), action, recheck_days: Number(days) })} disabled={busy}>{t('Assign')}</Btn>
           </div>
         ) : p.status !== 'CLOSED' ? (
           <div className="space-y-2">
-            <p className="text-sm"><span className="font-medium">{bi(p.owner, p.owner_ar)}</span>: {p.action} <span className="text-muted-foreground">· {t('measure again on')} {date(p.recheck_on, lang)}</span></p>
+            <p className="text-sm"><span className="font-medium">{bi(p.owner, p.owner_ar)}</span>: {t(p.action)} <span className="text-muted-foreground">· {t('measure again on')} {date(p.recheck_on, lang)}</span></p>
             <div className="flex flex-wrap gap-2"><input className="input h-9 flex-1 text-sm" placeholder={t('Outcome, once the rate is back to its baseline')} value={outcome} onChange={(e) => setOutcome(e.target.value)} /><Btn onClick={() => act('close', { outcome })} disabled={busy}>{t('Close the pattern')}</Btn></div>
           </div>
-        ) : <p className="text-sm"><span className="font-medium">{t('Closed')}:</span> {p.outcome}</p>}
+        ) : <p className="text-sm"><span className="font-medium">{t('Closed')}:</span> {t(p.outcome)}</p>}
         {err ? <p className="mt-1 text-sm text-danger">{err}</p> : null}
         <button type="button" className="mt-2 text-xs text-primary" onClick={() => setShowIssues(!showIssues)}>{showIssues ? t('Hide the issues') : `${t('Show the')} ${p.issue_refs.length} ${t('issues behind it')}`}</button>
         {showIssues && issues.data ? (
           <Table className="mt-2"><thead><tr><th>{t('Issue')}</th><th>{t('Client')}</th><th>{t('When')}</th><th>{t('What happened')}</th></tr></thead>
             <tbody>{issues.data.map((i) => (
-              <tr key={i.ref}><td className="font-mono text-[11px]">{i.ref}{i.case_ref ? <button type="button" className="block text-primary" onClick={() => { switchClient(i.client_key, 'hr-inbox'); setTimeout(() => openCase(i.case_ref), 300); }}>{i.case_ref}</button> : null}</td><td className="text-xs">{i.client}</td><td className="text-xs">{date(i.occurred_at, lang)}</td><td className="text-xs">{i.summary}</td></tr>
+              <tr key={i.ref}><td className="font-mono text-[11px]">{i.ref}{i.case_ref ? <button type="button" className="block text-primary" onClick={() => { switchClient(i.client_key, 'hr-inbox'); setTimeout(() => openCase(i.case_ref), 300); }}>{i.case_ref}</button> : null}</td><td className="text-xs">{i.client}</td><td className="text-xs">{date(i.occurred_at, lang)}</td><td className="text-xs">{t(i.summary)}</td></tr>
             ))}</tbody></Table>
         ) : null}
       </div>
@@ -465,7 +465,7 @@ export function TasamaPatterns() {
         {!data.patterns.length ? <Empty>{t('No rising problems in the last two weeks.')}</Empty> : null}
       </div>
       <Panel icon={<Scale size={16} />} title="Looked at, not flagged">
-        {data.watch.length ? data.watch.map((w: any) => <StatusRow key={w.id} name={`${w.client_names[0]} · ${bi(w.reason, w.reason_ar)}`} detail={w.note} status={null} />) : <Empty>{t('Nothing else rose above its usual rate.')}</Empty>}
+        {data.watch.length ? data.watch.map((w: any) => <StatusRow key={w.id} name={`${w.client_names[0]} · ${bi(w.reason, w.reason_ar)}`} detail={t(w.note)} status={null} />) : <Empty>{t('Nothing else rose above its usual rate.')}</Empty>}
       </Panel>
     </Screen>
   );
