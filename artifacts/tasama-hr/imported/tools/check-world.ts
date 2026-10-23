@@ -40,6 +40,14 @@ async function main() {
     await check(`${k}: every waiting case names the person it waits on, or Tasama's payroll team`, async () => { const c = await n(`SELECT count(*) FROM ${L}.requests WHERE status='WAITING' AND waiting_on_person_id IS NULL AND COALESCE(waiting_on_role,'') NOT IN ('TASAMA_PAYROLL','TASAMA_PAYROLL_LEAD')`); return [c === 0, `${c} without`]; });
     await check(`${k}: an active policy with rules on all 27 dimensions`, async () => { const r = await one(`SELECT count(*) AS n, count(DISTINCT dim) AS d FROM ${L}.policy_rules r JOIN ${L}.policy_versions v ON v.id=r.version_id WHERE v.status='ACTIVE'`); return [Number(r.d) === 27 && Number(r.n) >= 38, `${r.n} rules, ${r.d} dimensions`]; });
     await check(`${k}: the payroll calendar sits around the anchor`, async () => { const a = (await one(`SELECT value FROM ${L}.meta WHERE key='anchor'`)).value; const per = await one(`SELECT to_char(cutoff_date, 'YYYY-MM-DD') AS cutoff_date FROM ${H}.payroll_periods WHERE status='OPEN'`); const want = new Date(new Date(a).getTime() + CALENDAR[k].cutoff * 86400000).toISOString().slice(0, 10); return [String(per.cutoff_date).slice(0, 10) === want, `cut-off ${per.cutoff_date}, expected ${want}`]; });
+    await check(`${k}: the waiting offer shows its candidate, two or more interviews held and the manager's reason (hiring addendum)`, async () => {
+      const o = await one(`SELECT ref, payload FROM ${L}.requests WHERE workflow_id='WF-05' AND status='WAITING' ORDER BY id LIMIT 1`);
+      if (!o) return [false, 'no waiting offer'];
+      const held = await n(`SELECT count(*) FROM ${H}.interviews WHERE application_id=${Number(o.payload.application_id)} AND status='COMPLETED'`);
+      const cand = await one(`SELECT c.first_name FROM ${H}.applications a JOIN ${H}.candidates c ON c.id=a.candidate_id WHERE a.id=${Number(o.payload.application_id)}`);
+      const reason = String(o.payload.selection_reason ?? '');
+      return [!!cand && held >= 2 && reason.startsWith(cand.first_name), `${cand?.first_name}: ${held} held; "${reason.slice(0, 60)}…"`];
+    });
     await check(`${k}: a leave request waits on a line manager`, async () => { const c = await n(`SELECT count(*) FROM ${L}.requests WHERE workflow_id='WF-15' AND status='WAITING' AND waiting_on_role='LINE_MANAGER'`); return [c >= 1, `${c}`]; });
     await check(`${k}: every case has a trail`, async () => { const c = await n(`SELECT count(*) FROM ${L}.requests r WHERE NOT EXISTS (SELECT 1 FROM ${L}.trail t WHERE t.request_id=r.id)`); return [c === 0, `${c} without`]; });
     await check(`${k}: every completed case wrote through the connector or needed no write`, async () => { const c = await n(`SELECT count(*) FROM ${L}.integration_log WHERE method <> 'GET'`); return [c > 0, `${c} writes logged`]; });

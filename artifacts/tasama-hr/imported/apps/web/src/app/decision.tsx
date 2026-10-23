@@ -231,10 +231,28 @@ export function caseCard(c: any, x: T): Card {
     }
     case 'WF-05': {
       const o = out(c, 'propose');
-      return { kind, headline: `${t('Offer for the')} ${p.title}: ${aed(p.basic, lang)} ${t('basic, starting')} ${date(p.start_date, lang)}`,
-        facts: [{ k: `${t('In the')} ${p.grade} ${t('range')}`, v: aed(p.basic, lang), wide: true,
-            viz: o.range ? <RangeBar min={o.range[0]} max={o.range[2]} format={(v) => aed(v, lang)} markers={[{ label: t('Peer median'), value: o.median, tone: 'chart2' }, { label: t('Offer'), value: p.basic, tone: 'primary' }]} /> : undefined },
-          { k: t('Package a month'), v: aed((p.basic ?? 0) + (p.housing ?? 0) + (p.transport ?? 0) + (p.other_allowance ?? 0), lang) }, { k: t('Start'), v: date(p.start_date, lang) }],
+      const sel = c.selection;
+      const pkg = (p.basic ?? 0) + (p.housing ?? 0) + (p.transport ?? 0) + (p.other_allowance ?? 0);
+      const pay: Fact = { k: `${t('In the')} ${p.grade} ${t('range')}`, v: aed(p.basic, lang), wide: true, note: `${t('Package a month')} ${aed(pkg, lang)}`,
+        viz: o.range ? <RangeBar min={o.range[0]} max={o.range[2]} format={(v) => aed(v, lang)} markers={[{ label: t('Peer median'), value: o.median, tone: 'chart2' }, { label: t('Offer'), value: p.basic, tone: 'primary' }]} /> : undefined };
+      if (!sel) return { kind, headline: `${t('Offer for the')} ${p.title}: ${aed(p.basic, lang)} ${t('basic, starting')} ${date(p.start_date, lang)}`, facts: [pay, { k: t('Start'), v: date(p.start_date, lang) }], rec: recOf(c) };
+      const ar = lang === 'ar';
+      const cand = ar ? sel.candidate.name_ar : sel.candidate.name;
+      const mgr = ar ? sel.manager.name_ar : sel.manager.name;
+      const must = sel.criteria.filter((x: any) => x.kind === 'must'), nice = sel.criteria.filter((x: any) => x.kind !== 'must');
+      const shown = (l: any[]) => l.filter((x) => x.status === 'evident').length;
+      const fit = ar ? `${shown(must)} من ${must.length} من المتطلبات الأساسية${nice.length ? `، و${shown(nice)} من ${nice.length} من المتطلبات المفضلة` : ''}` : `${shown(must)} of ${must.length} ${must.length === 1 ? 'must-have' : 'must-haves'}${nice.length ? `, ${shown(nice)} of ${nice.length} ${nice.length === 1 ? 'nice-to-have' : 'nice-to-haves'}` : ''}`;
+      const yes = sel.stages.filter((x: any) => x.avg >= 3.5).length;
+      const heldLine = ar ? `${sel.stages.length} مراحل؛ ${yes === sel.stages.length ? 'كلها توصي بالتعيين' : `${yes} منها توصي بالتعيين`}` : `${sel.stages.length} held; ${yes === sel.stages.length ? 'all recommend hiring' : `${yes} recommend hiring`}`;
+      return { kind,
+        headline: ar ? `${mgr} ${sel.manager.gender === 'F' ? 'تريد' : 'يريد'} تعيين ${cand} في وظيفة ${String(c.title_ar ?? '').split(': ').pop() || p.title}: ${aed(p.basic, lang)} أساسي اعتبارًا من ${date(p.start_date, lang)}` : `${mgr} wants ${cand} as ${p.title}: ${aed(p.basic, lang)} basic from ${date(p.start_date, lang)}`,
+        facts: [
+          { k: ar ? `لماذا اختار ${sel.manager.first_ar} ${sel.candidate.first_ar}` : `Why ${sel.manager.first} chose ${sel.candidate.first}`, v: ar ? sel.reason_ar : sel.reason, wide: true,
+            note: `${ar ? (sel.candidate.years <= 10 && sel.candidate.years > 2 ? `${sel.candidate.years} سنوات` : `${sel.candidate.years} سنة`) : `${sel.candidate.years} years`} · ${t(sel.candidate.title)}${sel.candidate.employer ? ` ${t('at')} ${t(sel.candidate.employer)}` : ''} · ${t(sel.candidate.source)}` },
+          { k: t('Fit with the role'), v: fit, wide: true, viz: <ul className="space-y-1">{sel.criteria.map((x: any) => <li key={x.label} className="flex items-start gap-2 text-xs"><span className={`mt-0.5 font-mono ${x.status === 'evident' ? 'text-success' : x.status === 'partial' ? 'text-warn' : 'text-muted-foreground'}`}>{x.status === 'evident' ? '●' : x.status === 'partial' ? '◐' : '○'}</span><span className="min-w-0"><span className="text-muted-foreground">{t(x.kind === 'must' ? 'Must-have' : 'Nice-to-have')}:</span> {t(x.label)}</span></li>)}</ul> },
+          { k: t('Interviews'), v: heldLine, wide: true, viz: <ol className="space-y-1.5">{sel.stages.map((x: any) => <li key={x.stage} className="grid grid-cols-[8.5rem_4.5rem_1fr] items-baseline gap-2 text-xs"><span className="font-medium">{ar ? x.stage_ar : x.stage}<span className="block font-normal text-muted-foreground">{dateShort(x.date, lang)} · {(ar ? x.panel_ar : x.panel).join(ar ? '، ' : ', ')}</span></span><span className={x.avg >= 3.5 ? 'text-success' : x.avg >= 3 ? 'text-warn' : 'text-danger'}>{ar ? x.verdict_ar : x.verdict}</span><span className="text-muted-foreground">{ar ? x.finding_ar : cap(x.finding)}</span></li>)}</ol> },
+          pay,
+        ],
         rec: recOf(c) };
     }
     case 'WF-01': {

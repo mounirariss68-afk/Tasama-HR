@@ -955,7 +955,7 @@ Two salary differences between a contract and the master data are explained by p
   - the interviews held and what each found;
   - why the hiring manager wants them.
 
-  The synthetic candidate data for this does not exist yet. It is added once the payroll phases are done.
+  The synthetic candidate data for this does not exist yet. It is added once the payroll phases are done. **Built on 23 October 2026:** see `design/hiring-addendum.md`.
 
 ### Go-live, the decision and D10, as built in the third session (23 October 2026)
 

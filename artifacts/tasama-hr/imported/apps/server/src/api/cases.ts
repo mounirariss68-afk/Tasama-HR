@@ -1,4 +1,5 @@
 /** Cases: create, read, decide; the inbox; the lifecycle board. */
+import { selectionOf } from '../domain/selection.js';
 import { Router } from 'express';
 import { ibanValid, bankByIban } from '../domain/banks.js';
 import { pool, tx, currentClient } from '../db.js';
@@ -117,7 +118,10 @@ cases.get('/requests/:ref', async (req, res) => {
   const def = WORKFLOWS.find((w) => w.id === r.workflow_id)!;
   const reminders = trail.rows.filter((x: any) => x.act === 'REMIND').map((x: any) => ({ at: x.at, by: x.actor_name }));
   const canRemind = isTasamaStaff(p) && ['WAITING', 'ESCALATED'].includes(r.status) && r.waiting_on_person_id !== null && r.waiting_on_person_id !== p.person_id;
-  res.json({ ...r, reminders, canRemind, client: client().key, client_short: client().short, client_ar: client().name_ar, steps: steps.rows.map((s: any) => ({ ...s, def: def.steps.find((d) => d.key === s.step_key) })), approvals: approvals.rows, trail: trail.rows, logs: logs.rows, canDecide: ['WAITING', 'ESCALATED'].includes(r.status) && (r.waiting_on_person_id === p.person_id || (r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role))) });
+  // An offer shows who it is for (design/hiring-addendum.md): the selection, read from the HRMS; the reason as written when the case opened.
+  const selection = r.workflow_id === 'WF-05' && r.payload?.application_id ? await selectionOf(pool, Number(r.payload.application_id)) : null;
+  if (selection && r.payload?.selection_reason) { selection.reason = r.payload.selection_reason; selection.reason_ar = r.payload.selection_reason_ar ?? selection.reason_ar; }
+  res.json({ ...r, selection, reminders, canRemind, client: client().key, client_short: client().short, client_ar: client().name_ar, steps: steps.rows.map((s: any) => ({ ...s, def: def.steps.find((d) => d.key === s.step_key) })), approvals: approvals.rows, trail: trail.rows, logs: logs.rows, canDecide: ['WAITING', 'ESCALATED'].includes(r.status) && (r.waiting_on_person_id === p.person_id || (r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role))) });
 });
 
 cases.post('/requests/:ref/decide', async (req, res) => {

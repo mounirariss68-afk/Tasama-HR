@@ -118,9 +118,9 @@ Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is
 | Check | Command | Result, 23 October 2026 |
 |---|---|---|
 | Types | `npm run typecheck` | Clean |
-| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 96 of 96 pass |
+| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 101 of 101 pass |
 | The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 179 views, 0 problems |
-| The screen lint in Arabic | `npm run check:arabic`: English left on a work surface | 179 views; the Payroll and Payroll costs lenses clean; 23 left in HR and Tasama screens (Basira's findings, text people typed). The Stage's narration is English |
+| The screen lint in Arabic | `npm run check:arabic`: English left on a work surface | 179 views; the Payroll and Payroll costs lenses clean; 20 left in HR and Tasama screens (Basira's findings, text people typed). The Stage's narration is English |
 | The payroll engine | `npm run check:golden`: Tasama's July 2025 template run, and hand-worked cases | 43 of 43 figures match; 22 of 22 cases |
 | The Director | Every scenario, every step, twice through the Director's routes | 18 scenarios, 79 steps, 0 failing |
 

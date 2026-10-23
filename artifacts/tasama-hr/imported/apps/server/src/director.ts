@@ -10,6 +10,7 @@
  *
  * Adapted from the Jahiz Demo Director (QIB): same step model, same bar.
  */
+import { selectionOf } from './domain/selection.js';
 import { pool, tx, withClient } from './db.js';
 import { startCase, decide } from './engine/core.js';
 import { letterName } from './engine/handlers.js';
@@ -454,7 +455,7 @@ const STARTERS = {
   },
   offer: async (c: Ctx) => {
     const rq = (await pool.query(`SELECT r.* FROM hcm.requisitions r JOIN hcm.positions p ON p.id=r.position_id JOIN hcm.jobs j ON j.id=p.job_id WHERE j.code='SEC-AN'`)).rows[0];
-    const app = (await pool.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 AND a.phase NOT IN ('HIRED','NOT_SELECTED') ORDER BY a.id LIMIT 1`, [rq.id])).rows[0];
+    const app = (await pool.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 AND a.phase NOT IN ('HIRED','NOT_SELECTED') ORDER BY (EXISTS (SELECT 1 FROM hcm.interviews i WHERE i.application_id=a.id AND i.stage='Panel' AND i.status='COMPLETED')) DESC, a.id LIMIT 1`, [rq.id])).rows[0];
     if (!app) throw new Error('No candidate left on this requisition. Reset the demo to play this scenario again.');
     c.out.role = rq.title;
     // D4 (§17): the new hire starts in two days, inside the open payroll month, so the first pay is this month's.
@@ -462,7 +463,9 @@ const STARTERS = {
     const two = iso(addDays(now(), 2));
     c.out.start = per && two > per.e ? per.e : two;
     const div = (await divisionOf(rq.hiring_manager_id)) ?? 'Technology and Digital';
-    const r = await tx((x) => startCase(x, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: c.out.start, expected_basic: 16500, accept: true, block_medical: false, division: div } }));
+    const sel = await selectionOf(pool, app.id);
+    c.out.cand = sel?.candidate.name ?? 'a candidate';
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: c.out.start, expected_basic: 16500, accept: true, block_medical: false, division: div, selection_reason: sel?.reason, selection_reason_ar: sel?.reason_ar } }));
     return r.ref as string;
   },
   /** D6, payroll-escalation: this month's run, started fresh if an earlier play left one past preparation (§18). */
@@ -678,7 +681,7 @@ export const SCRIPTS: Scenario[] = [
     record: async (c) => (c.refs.ctr ? workerRecord(c, await subjectOf(c.refs.ctr)) : requisitionRecord(c, 'SEC-AN')),
     steps: [
       S('h1', 'The offer is drafted', 'إعداد العرض', 'Panel selection (WF-05)', 'chro', 'hr-hiring', { kind: 'start', starter: 'offer', as: 'offer' },
-        (c) => `The panel selected a candidate for ${c.out.role}, starting on ${fmtDate(c.out.start)}. Tarqiya proposed pay inside the grade and checked it against peers; the offer waits for approval.`, 'case:offer',
+        (c) => `The panel selected ${c.out.cand ?? 'a candidate'} for ${c.out.role}, starting on ${fmtDate(c.out.start)}. Tarqiya proposed pay inside the grade and checked it against peers; the offer waits for approval.`, 'case:offer',
         { chat: async (c) => { const hm = (await caseOf(c.refs.offer))?.requester_person_id; return [person(hm ? await nameOf(hm) : 'Hiring manager', `We've chosen our candidate for ${c.out.role}. Can they start this week?`), agent('Tarqiya', 'The offer is drafted at SAR 16,500 basic: inside the grade and in line with the team. It is with your HR business partner for approval.')]; } }),
       S('h2', 'Accepted: the contract is drafted from the offer', 'القبول وصياغة العقد من العرض', 'Offer accepted (WF-28)', 'payroll', 'hr-inbox', { kind: 'decide', ref: 'offer', decision: 'APPROVED', reason: 'Within the grade midpoint', followon: 'pre', also: { contract: 'ctr' } },
         async (c) => { const k = c.refs.ctr ? await caseOf(c.refs.ctr) : null; const p = k?.payload ?? {}; return k ? `Approved (${by(c, 'offer')}) and accepted. The pending record created at acceptance is the one that will be paid. Aqd drafted ${p.contract_number} from the offer: ${sar(p.wage ?? 0)} a month from ${fmtDate(p.start_date)}, ${p.contract?.contract_type === 'FIXED_TERM' ? 'a two-year fixed term (Art. 37)' : 'indefinite'}, ${p.contract?.probation_days} days' probation. It waits for HR operations to send it.` : `Approved (${by(c, 'offer')}).`; }, 'case:ctr',

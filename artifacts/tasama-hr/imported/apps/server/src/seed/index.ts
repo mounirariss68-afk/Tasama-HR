@@ -16,12 +16,13 @@ import { seedRuns } from './runs.js';
 import { fillBankDetails, seedPaymentHistory } from '../payroll/payments.js';
 import { seedJournalHistory, startJournals } from '../payroll/journals.js';
 import { seedHistory } from './history.js';
+import { seedSelection } from './selection.js';
 import { seedTasama } from './tasama.js';
 import { seedIssues } from './issues.js';
 import { basiraScan } from '../tasama/basira.js';
 
 /** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
-export const SEED_VERSION = 11;
+export const SEED_VERSION = 12;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
@@ -57,6 +58,7 @@ export async function reseed(log: (s: string) => void = console.log) {
             await seedAttendance(c, base, cl);
             await c.query('COMMIT');
             await c.query('BEGIN');
+            await seedSelection(c, base, cl.key);
             const open = await seedHistory(c, base, cl);
             setClock(null);
             await seedInputs(c, base, cl);

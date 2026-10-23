@@ -6,6 +6,7 @@
  * real trail rows, real HRMS writes (letters in document records, leave in
  * absences, advances in element entries) and real connector log entries.
  */
+import { selectionOf } from '../domain/selection.js';
 import type { PoolClient } from 'pg';
 import { setClock } from '../clock.js';
 import { startCase, decide, type Req } from '../engine/core.js';
@@ -168,7 +169,8 @@ export async function seedHistory(c: PoolClient, base: BaseResult, client: Clien
   const corApp = (await c.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 ORDER BY a.id LIMIT 1 OFFSET 1`, [corReq.id])).rows[0];
   await c.query(`UPDATE hcm.applications SET phase='ASSESSMENT' WHERE requisition_id=$1 AND id IN (SELECT id FROM hcm.applications WHERE requisition_id=$1 ORDER BY id LIMIT 4)`, [corReq.id]);
   live(22);
-  results.corOffer = (await startCase(c, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${corReq.title}`, title_ar: `عرض عمل: ${corReq.title_ar}`, requester: corReq.hiring_manager_id, subject: corReq.hiring_manager_id, channel: 'EVENT', payload: { application_id: corApp.id, position_id: corReq.position_id, requisition_id: corReq.id, title: corReq.title, hiring_manager_id: corReq.hiring_manager_id, start_date: nextMonth(45), expected_basic: 21500, division: 'Commercial' } })).ref;
+  const corSel = await selectionOf(c, corApp.id);
+  results.corOffer = (await startCase(c, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${corReq.title}`, title_ar: `عرض عمل: ${corReq.title_ar}`, requester: corReq.hiring_manager_id, subject: corReq.hiring_manager_id, channel: 'EVENT', payload: { application_id: corApp.id, position_id: corReq.position_id, requisition_id: corReq.id, title: corReq.title, hiring_manager_id: corReq.hiring_manager_id, start_date: nextMonth(45), expected_basic: 21500, division: 'Commercial', selection_reason: corSel?.reason, selection_reason_ar: corSel?.reason_ar } })).ref;
 
   // The promotee: promotion G07 -> G08, waiting on the HRBP persona.
   live(40);

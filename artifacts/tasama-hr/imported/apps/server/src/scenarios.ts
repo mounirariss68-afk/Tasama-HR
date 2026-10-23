@@ -8,6 +8,7 @@
  * the human decision IS the point, the scenario stops and tells the presenter
  * which persona to switch to.
  */
+import { selectionOf } from './domain/selection.js';
 import { pool, tx } from './db.js';
 import { startCase, decide } from './engine/core.js';
 import { letterName } from './engine/handlers.js';
@@ -140,11 +141,12 @@ export function runScenario(key: string): string {
     }
     if (key === 'hire-to-onboard') {
       const rq = (await pool.query(`SELECT r.* FROM hcm.requisitions r JOIN hcm.positions p ON p.id=r.position_id JOIN hcm.jobs j ON j.id=p.job_id WHERE j.code='SEC-AN'`)).rows[0];
-      const app = (await pool.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 AND a.phase NOT IN ('HIRED','NOT_SELECTED') ORDER BY a.id LIMIT 1`, [rq.id])).rows[0];
+      const app = (await pool.query(`SELECT a.* FROM hcm.applications a WHERE a.requisition_id=$1 AND a.phase NOT IN ('HIRED','NOT_SELECTED') ORDER BY (EXISTS (SELECT 1 FROM hcm.interviews i WHERE i.application_id=a.id AND i.stage='Panel' AND i.status='COMPLETED')) DESC, a.id LIMIT 1`, [rq.id])).rows[0];
+      const sel = await selectionOf(pool, app.id);
       say(`The panel selected a candidate for ${rq.title}. Tarqiya proposes pay within the grade.`, `اختارت اللجنة مرشحاً لوظيفة ${rq.title_ar}.`);
       await sleep(900);
       const start = iso(addDays(today, 30));
-      const r = await tx(async (c) => startCase(c, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: start, expected_basic: 16500, accept: true, block_medical: true, division: (await divisionOf(rq.hiring_manager_id)) ?? 'Technology and Digital' } }));
+      const r = await tx(async (c) => startCase(c, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: start, expected_basic: 16500, accept: true, block_medical: true, division: (await divisionOf(rq.hiring_manager_id)) ?? 'Technology and Digital', selection_reason: sel?.reason, selection_reason_ar: sel?.reason_ar } }));
       run.cases.push(r.ref);
       const n = await narrate(run, r.ref);
       await simulateDecision(r.ref, 'Approved within midpoint (simulated by the scenario)');
