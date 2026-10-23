@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-35': 'Back pay',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-34': 'Journals', 'WF-35': 'Back pay',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -346,6 +346,22 @@ export function caseCard(c: any, x: T): Card {
       const headline = done ? `${month}${t('’s bank file is in')} ${bi(pm.bank, pm.bank_ar)}${t('’s portal for the client’s finance to approve')}`
         : failing.length ? `${month}${t('’s bank file is held:')} ${failing.length} ${t(failing.length === 1 ? 'release check fails' : 'release checks fail')}`
         : `${month}${t('’s bank file passes every release check and is ready to send')}`;
+      return { kind, headline, facts, rec: recOf(c) };
+    }
+    case 'WF-34': {
+      const js: any[] = r.journals ?? [], props: any[] = r.proposals ?? [];
+      const month = p.period ? new Date(`${p.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+      const done = c.status === 'COMPLETED';
+      const blocked = js.filter((j) => j.state === 'BLOCKED');
+      const oracle = r.ledger === 'ORACLE_FIN';
+      const facts: Fact[] = [];
+      for (const pr of props) facts.push({ k: t('Proposed account'), v: `${pr.account} ${bi(pr.account_name, pr.account_name_ar)}`, wide: true, tone: done ? 'success' : 'warn', note: `${t('For the')} ${t(pr.name).toLowerCase()}, ${aed(pr.amount, lang)} ${t('this month')}. ${t('Matched by name against the chart; there is no earlier mapping for it.')}` });
+      facts.push({ k: t('Journals'), v: blocked.length && !done ? `${blocked.length} ${t('of')} ${js.length} ${t('blocked')}` : `${js.length} ${t('balanced')}`, tone: blocked.length && !done ? 'danger' : 'success',
+        note: js.map((j) => `${t(({ ACCRUAL: 'Accrual', PROVISIONS: 'Provisions', PAYMENT: 'Payment', PROVISION_USE: 'Provision use' } as any)[j.kind])} ${aed(j.debit, lang)}`).join(' · ') });
+      facts.push({ k: t('Ledger'), v: t(oracle ? 'Oracle Finance' : 'Odoo Accounting'), note: done && r.posted ? r.posted.status : t(oracle ? 'Oracle journal import file' : 'Journal-entry CSV, illustrative') });
+      const headline = done ? `${month}${t('’s journals are posted to')} ${t(oracle ? 'Oracle Finance' : 'Odoo Accounting')}`
+        : props.length ? `${month}${t('’s accrual balances once the')} ${t(props[0].name).toLowerCase()} ${t('has an account')}`
+        : blocked.length ? `${month}${t('’s journals do not balance')}` : `${month}${t('’s four journals balance and are ready to post')}`;
       return { kind, headline, facts, rec: recOf(c) };
     }
     case 'WF-27': {

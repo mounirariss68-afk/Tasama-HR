@@ -99,7 +99,7 @@ export async function atom(ctx: Ctx, collection: string, entityKey: string, summ
 }
 
 /** Saudi government and third-party systems the HR process depends on. All simulated. */
-export type ExternalSystem = 'QIWA' | 'GOSI' | 'MUQEEM' | 'MUDAD' | 'BANK' | 'JADARAT' | 'ABSHER' | 'CCHI' | 'M365' | 'BGCHECK' | 'ASSESSMENT';
+export type ExternalSystem = 'QIWA' | 'GOSI' | 'MUQEEM' | 'MUDAD' | 'BANK' | 'ORACLE_FIN' | 'ODOO_ACC' | 'JADARAT' | 'ABSHER' | 'CCHI' | 'M365' | 'BGCHECK' | 'ASSESSMENT';
 export async function external(ctx: Ctx, system: ExternalSystem, method: string, resource: string, summary: string, status = 200) {
   await log(ctx, system, 'OUT', method, resource, status, summary, jitter(300, 1800));
 }

@@ -910,6 +910,39 @@ CREATE TABLE layer.pay_lines (
 );
 CREATE INDEX ON layer.pay_lines (run_id);
 
+-- The client's chart of accounts and the map from pay elements and provisions to it (design/payroll-addendum.md §21).
+CREATE TABLE layer.gl_accounts (
+  code     text PRIMARY KEY,
+  name     text NOT NULL,
+  name_ar  text NOT NULL,
+  type     text NOT NULL,                       -- EXPENSE | LIABILITY | ASSET | PROVISION
+  by_cost_centre boolean NOT NULL DEFAULT false
+);
+CREATE TABLE layer.account_map (
+  id           serial PRIMARY KEY,
+  code         text NOT NULL,                   -- a pay element (BASIC, REMOTE_SITE, …) or a platform code (NET_PAY, EOS_EXPENSE, …)
+  cost_centre  text,                            -- null: every cost centre
+  account      text NOT NULL,
+  status       text NOT NULL DEFAULT 'APPROVED', -- PROPOSED | APPROVED
+  proposed_by  text, proposed_at timestamptz, reason text,
+  approved_by  text, approved_at timestamptz
+);
+-- One journal of a paid month: accrual, provisions, payment or provision use (FIN-04).
+CREATE TABLE layer.journals (
+  id           serial PRIMARY KEY,
+  period_name  text NOT NULL,
+  kind         text NOT NULL,                   -- ACCRUAL | PROVISIONS | PAYMENT | PROVISION_USE
+  request_id   int,                             -- the WF-34 case
+  lines        jsonb NOT NULL DEFAULT '[]',     -- account, cost centre, combination, debit, credit, description
+  debit        numeric(14,2) NOT NULL DEFAULT 0,
+  credit       numeric(14,2) NOT NULL DEFAULT 0,
+  unmapped     jsonb NOT NULL DEFAULT '[]',     -- lines with no account: code, name, amount
+  state        text NOT NULL DEFAULT 'BUILT',   -- BUILT | BLOCKED | APPROVED | POSTED
+  approved_by  text, approved_at timestamptz,
+  posted_at    timestamptz, import_ref text, import_status text,
+  UNIQUE (period_name, kind)
+);
+
 -- One file sent to the bank for a run, followed until WPS and Mudad accept it (design/payroll-addendum.md §20, WF-33).
 CREATE TABLE layer.payments (
   id            serial PRIMARY KEY,

@@ -15,6 +15,7 @@ import { monthView } from '../payroll/inputs.js';
 import { currentRun, frozenRows } from '../payroll/runs.js';
 import { payingBank, paymentFiles, valueDateFor } from '../payroll/payments.js';
 import { bankByCode } from '../domain/banks.js';
+import { journalFile } from '../payroll/journals.js';
 import { explain } from '../payroll/differences.js';
 import { tasamaTrail } from '../tasama/service.js';
 import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
@@ -415,4 +416,61 @@ payroll.get('/payroll/payments/:client/:id/file/:which', async (req, res) => {
   res.setHeader('content-type', `${file.format.type === 'CSV' ? 'text/csv' : 'text/plain'}; charset=utf-8`);
   res.setHeader('content-disposition', `attachment; filename="${file.name}"`);
   res.send(file.text);
+});
+
+/* ------------------------------------------------------------------ Journals (§21, WF-34) */
+
+/** Every client's paid months and their four journals: balanced, waiting or posted, and how much is mapped. */
+payroll.get('/payroll/journals', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const rows = await forEachClient(async (key) => {
+    const c = clientByKey(key)!;
+    const js = (await pool.query(`SELECT period_name, kind, debit, credit, state, unmapped, request_id FROM layer.journals ORDER BY period_name DESC, id`)).rows;
+    const periods = [...new Set(js.map((j: any) => j.period_name))].slice(0, 6).reverse();
+    const cases = (await pool.query(`SELECT ref, status, payload->>'period' period FROM layer.requests WHERE workflow_id='WF-34' AND status IN ('WAITING','ESCALATED')`)).rows;
+    return { key, short: c.short, name_ar: c.name_ar, ledger: c.finance,
+      months: periods.map((pn) => {
+        const m = js.filter((j: any) => j.period_name === pn);
+        const un = m.reduce((s: number, j: any) => s + (j.unmapped as any[]).reduce((a, u) => a + Number(u.amount), 0), 0);
+        const debit = m.reduce((s: number, j: any) => s + Number(j.debit), 0), credit = m.reduce((s: number, j: any) => s + Number(j.credit), 0);
+        return { period: pn, debit, credit, mapped: credit ? Math.max(0, Math.min(1, (credit - un) / credit)) : 1, unmapped: un,
+          state: m.every((j: any) => j.state === 'POSTED') ? 'POSTED' : m.some((j: any) => j.state === 'BLOCKED') ? 'BLOCKED' : 'WAITING', journals: m.length, case: cases.find((k: any) => k.period === pn)?.ref ?? null };
+      }) };
+  });
+  res.json({ clients: rows });
+});
+
+/** One month's journals, their lines, Qaid's proposals and the ledger file. */
+payroll.get('/payroll/journals/:client/:period', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const out = await withClient(c.key, async () => {
+    const js = (await pool.query(`SELECT j.*, r.ref, r.status case_status FROM layer.journals j LEFT JOIN layer.requests r ON r.id=j.request_id WHERE j.period_name=$1 ORDER BY j.id`, [req.params.period])).rows;
+    if (!js.length) return null;
+    const accounts = new Map((await pool.query(`SELECT code, name, name_ar FROM layer.gl_accounts`)).rows.map((a: any) => [a.code, a]));
+    const props = (await pool.query(`SELECT m.*, a.name account_name, a.name_ar account_name_ar FROM layer.account_map m LEFT JOIN layer.gl_accounts a ON a.code=m.account WHERE m.status='PROPOSED'`)).rows;
+    const f = await journalFile(pool, req.params.period);
+    return {
+      journals: js.map((j: any) => ({ kind: j.kind, state: j.state, debit: Number(j.debit), credit: Number(j.credit), unmapped: j.unmapped, ref: j.ref, case_status: j.case_status, approved_by: j.approved_by, approved_at: j.approved_at, posted_at: j.posted_at, import_status: j.import_status, import_ref: j.import_ref,
+        lines: (j.lines as any[]).map((l) => ({ ...l, name: accounts.get(l.account)?.name ?? l.description, name_ar: accounts.get(l.account)?.name_ar ?? l.description })) })),
+      proposals: props.map((m: any) => ({ code: m.code, account: m.account, account_name: m.account_name, account_name_ar: m.account_name_ar, reason: m.reason })),
+      file: { name: f.name, layout: f.layout, illustrative: f.illustrative, rows: f.rows, preview: f.preview },
+    };
+  });
+  if (!out) return res.status(404).json({ error: 'No journals for this month' });
+  res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, ledger: c.finance }, period: req.params.period, ...out });
+});
+
+payroll.get('/payroll/journals/:client/:period/file', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const f = await withClient(c.key, () => journalFile(pool, req.params.period));
+  res.setHeader('content-type', f.type);
+  res.setHeader('content-disposition', `attachment; filename="${f.name}"`);
+  res.send(f.body);
 });

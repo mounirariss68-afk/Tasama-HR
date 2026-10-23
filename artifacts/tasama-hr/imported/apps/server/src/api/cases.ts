@@ -152,6 +152,8 @@ cases.post('/requests/:ref/decide', async (req, res) => {
     if (old === iban) return res.status(400).json({ error: 'This is the IBAN the bank returned.' });
     req.body.edits = { ...(req.body.edits ?? {}), new_iban: iban };
   }
+  // WF-34 (§21): the approver of the accounts and the journals is on the record.
+  if (r.workflow_id === 'WF-34' && r.current_step === 'approve' && req.body.decision === 'APPROVED') req.body.edits = { ...(req.body.edits ?? {}), approved_by_name: p.display_name };
   // WF-33 (§20): a file with a failing release check is not sent; the sender is on the record.
   if (r.workflow_id === 'WF-33' && r.current_step === 'send' && req.body.decision === 'APPROVED') {
     const pay = (await pool.query(`SELECT checks FROM layer.payments WHERE id=$1`, [r.payload?.payment_id])).rows[0];

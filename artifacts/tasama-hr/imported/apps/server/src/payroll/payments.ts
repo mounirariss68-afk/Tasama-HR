@@ -224,6 +224,9 @@ export async function bankFeedback(c: PoolClient, id: number, fail: number[] = [
         finding_ar: `أُعيد راتب ${l.name} على ملف الإفادة من ${bank.name_ar}: الحساب لدى ${lb?.name_ar ?? 'بنك المستفيد'} مغلق.` } });
     asked.push(k.ref);
   }
+  // Once the month's payment is paid in full, Qaid's journals follow (§21, WF-34).
+  const reg = (await c.query(`SELECT state FROM layer.payments WHERE period_name=$1 AND kind='REGULAR' ORDER BY id DESC LIMIT 1`, [pay.period_name])).rows[0];
+  if (reg?.state === 'PAID') { const { startJournals } = await import('./journals.js'); await startJournals(c, pay.period_name, pp.payroll ?? 0); }
   return { paid: pay.lines - fail.length, failed: fail.length, asked };
 }
 

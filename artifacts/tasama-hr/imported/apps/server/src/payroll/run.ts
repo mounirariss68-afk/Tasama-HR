@@ -61,6 +61,8 @@ export async function engineInputs(c: Q, period: { start_date: any; end_date: an
       earnings: [
         ...es.filter((e: any) => e.element_code === 'OVERTIME').map((e: any) => ({ code: 'overtime', label: 'Overtime', amount: Number(e.amount) })),
         ...es.filter((e: any) => e.element_code === 'BACK_PAY').map((e: any) => ({ code: 'back_pay', label: e.reference ?? 'Back pay', amount: Number(e.amount) })),
+        // A site allowance outside the GOSI wage (design/payroll-addendum.md §21, edge 11).
+        ...es.filter((e: any) => e.element_code === 'REMOTE_SITE').map((e: any) => ({ code: 'remote_site', label: 'Remote-site allowance', amount: Number(e.amount) })),
       ],
       deductions: [
         ...es.filter((e: any) => e.element_code === 'ADVANCE_REC').map((e: any) => ({ code: 'advance', label: 'Advance recovery', amount: Number(e.amount), kind: 'ADVANCE' as const })),

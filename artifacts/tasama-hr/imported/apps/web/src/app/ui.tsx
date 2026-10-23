@@ -27,7 +27,7 @@ export const AUTONOMY: Record<string, AgentAutonomy> = { A0: 'observe', A1: 'rec
 export const AGENT_NAMES: Record<string, [string, string]> = {
   rafeeq: ['Rafeeq', 'رفيق'], murshid: ['Murshid', 'مرشد'], saeed: ['Saeed', 'سعيد'], hessa: ['Hessa', 'حصة'], tamkeen: ['Tamkeen', 'تمكين'], dalil: ['Dalil', 'دليل'],
   ajaza: ['Ajaza', 'إجازة'], wathiqa: ['Wathiqa', 'وثيقة'], mezan: ['Mezan', 'ميزان'], tarqiya: ['Tarqiya', 'ترقية'], hisab: ['Hisab', 'حساب'], nizam: ['Nizam', 'نظام'], sanad: ['Sanad', 'سند'], wadaa: ['Wadaa', 'وداع'], amin: ['Amin', 'أمين'],
-  raqeeb: ['Raqeeb', 'رقيب'], fatoora: ['Fatoora', 'فاتورة'], tawzee: ['Tawzee', 'توزيع'], intiqal: ['Intiqal', 'انتقال'], basira: ['Basira', 'بصيرة'], hudoor: ['Hudoor', 'حضور'], wared: ['Wared', 'وارد'], aqd: ['Aqd', 'عقد'], tamin: ['Tamin', 'تأمين'], mutabaqa: ['Mutabaqa', 'مطابقة'], tahweel: ['Tahweel', 'تحويل'],
+  raqeeb: ['Raqeeb', 'رقيب'], fatoora: ['Fatoora', 'فاتورة'], tawzee: ['Tawzee', 'توزيع'], intiqal: ['Intiqal', 'انتقال'], basira: ['Basira', 'بصيرة'], hudoor: ['Hudoor', 'حضور'], wared: ['Wared', 'وارد'], aqd: ['Aqd', 'عقد'], tamin: ['Tamin', 'تأمين'], mutabaqa: ['Mutabaqa', 'مطابقة'], tahweel: ['Tahweel', 'تحويل'], qaid: ['Qaid', 'قيد'],
 };
 
 const STATUS: Record<string, { tone: string; en: string }> = {

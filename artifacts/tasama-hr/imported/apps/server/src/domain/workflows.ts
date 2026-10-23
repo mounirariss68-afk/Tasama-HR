@@ -249,6 +249,12 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('send', 'HUMAN', 'TASAMA_PAYROLL_LEAD', 'The payroll lead sends the file to the bank', 'قائدة الرواتب ترسل الملف إلى البنك', 'The files and their checks', 'The file sent, or held with a reason', 'Send to the bank'),
       S('upload', 'SYSTEM', 'bank', 'The file reaches the client\'s bank portal for its finance team to approve', 'يصل الملف إلى بوابة البنك لدى العميل ليعتمده فريق المالية', 'The bank file', 'The file in the portal, waiting for the client\'s approvals', 'None'),
     ] },
+  { id: 'WF-34', num: 34, name: 'Journals', name_ar: 'القيود المحاسبية', stage: 'Pay', coverage: 'implemented', trigger: 'The month\'s payment is paid', agents: ['qaid'], decision_by: 'Tasama\'s payroll lead approves the accounts and the journals',
+    steps: [
+      S('build', 'AGENT', 'qaid', 'Build the four journals and propose accounts for unmapped lines', 'إعداد القيود الأربعة واقتراح حسابات للبنود غير المربوطة', 'The paid run, the provisions, the payments, the account map', 'Four journals, each balanced or blocked, and proposed accounts', 'Whether every line has an account and every journal balances'),
+      S('approve', 'HUMAN', 'TASAMA_PAYROLL_LEAD', 'The payroll lead approves the accounts and the journals', 'قائدة الرواتب تعتمد الحسابات والقيود', 'The journals and Qaid\'s proposals', 'Accounts added to the map; journals approved for posting', 'Approve and post'),
+      S('post', 'SYSTEM', 'ledger', 'Post the journals to the client\'s ledger and read back the import status', 'ترحيل القيود إلى دفتر العميل وقراءة حالة الاستيراد', 'The approved journals', 'The import file posted; the import status', 'None'),
+    ] },
   { id: 'WF-35', num: 35, name: 'Back pay and off-cycle', name_ar: 'الفروقات والدفعات خارج الدورة', stage: 'Pay', coverage: 'implemented', trigger: 'A change dated in a closed month, or an off-cycle request', agents: ['hisab'], decision_by: 'Payroll specialist adds it to the open run; the run is validated and approved as usual',
     steps: [
       S('calc', 'AGENT', 'hisab', 'Recalculate each closed month under the change', 'إعادة احتساب كل شهر مغلق بالتغيير', 'The change, what was paid each month, the policy', 'Back pay per month, GOSI on it, and the provisions re-measured', 'Which months the change reaches'),

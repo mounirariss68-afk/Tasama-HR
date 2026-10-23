@@ -360,6 +360,8 @@ async function resetPayment() {
       if (d7?.person && d7?.iban) await x.query(`UPDATE hcm.persons SET iban=$2, iban_masked=$3, bank_name=$4 WHERE id=$1`, [d7.person, d7.iban, `${d7.iban.slice(0, 4)} •••• •••• •••• ${d7.iban.slice(-4)}`, d7.bank]);
       await x.query(`DELETE FROM layer.meta WHERE key='d7'`);
       await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE ((workflow_id='WF-33' AND payload->>'period'=$1) OR (workflow_id='WF-36' AND payload->>'kind'='PAYMENT_RETURNED')) AND status IN ('WAITING','RUNNING','ESCALATED')`, [per]);
+      await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE workflow_id='WF-34' AND payload->>'period'=$1 AND status IN ('WAITING','RUNNING','ESCALATED')`, [per]);
+      await x.query(`DELETE FROM layer.journals WHERE period_name=$1`, [per]);
       await x.query(`DELETE FROM layer.payments WHERE period_name=$1`, [per]);
       await x.query(`UPDATE hcm.payroll_results pr SET wps_status='PENDING' FROM hcm.payroll_periods p WHERE p.id=pr.period_id AND p.period_name=$1`, [per]);
       const req = (await x.query(`SELECT requester_person_id FROM layer.requests WHERE id=$1`, [run.request_id])).rows[0];

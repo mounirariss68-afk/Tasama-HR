@@ -26,6 +26,7 @@ import { external } from '../hcm/connector.js';
 import { addDays, pol } from '../domain/rules.js';
 import { buildPayment, paymentFiles, markSent, financeApprover, startPayment } from '../payroll/payments.js';
 import { bankByCode } from '../domain/banks.js';
+import { buildJournals, proposeAccounts, approveJournals, postJournals, KIND_NAME, sar as jsar } from '../payroll/journals.js';
 
 type H = (h: HCtx) => Promise<StepOutcome>;
 type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; personId: number } | null>;
@@ -165,6 +166,34 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     const fin = await financeApprover(h.c);
     await h.trail({ act: 'WRITE', summary: `${p.file_name} is in ${bank.name}'s portal, sent by ${who}. ${fin} approves the payment there; the bank reports the approvals, the feedback file and the signed WPS file back to Payments.`, actor_type: 'SYSTEM', actor_name: bank.name, autonomy: null });
     return { status: 'DONE', decision: 'In the bank portal' };
+  },
+
+  // ---------------------------------------------------------- WF-34 journals (§21)
+  'WF-34:build': async (h) => {
+    const period = h.req.payload.period;
+    const js = await buildJournals(h.c, period, h.req.id);
+    const props = await proposeAccounts(h.c, period);
+    const blocked = js.filter((j) => j.state === 'BLOCKED');
+    const month = new Date(`${period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+    await h.setResult({ journals: js.map((j) => ({ kind: j.kind, debit: j.debit, credit: j.credit, lines: j.lines.length, state: j.state, unmapped: j.unmapped })), proposals: props, ledger: client().finance });
+    const short = (n: number) => jsar(n);
+    await h.trail({ act: 'PREPARE', summary: `Built ${month}'s ${js.length} journals from the paid run, the provisions and the payments: ${js.map((j) => `${KIND_NAME[j.kind][0].toLowerCase()} ${short(j.debit)} debit against ${short(j.credit)} credit${j.state === 'BLOCKED' ? ' (does not balance)' : ''}`).join('; ')}.${props.length ? ` ${props.map((p) => `${p.name} (${short(p.amount)}) has no account; proposed ${p.account} ${p.account_name}`).join('; ')}.` : ''}`,
+      summary_ar: `أُعدت ${js.length} قيود لشهر ${month}.` });
+    return { status: 'DONE', decision: blocked.length ? `${blocked.length} blocked` : 'Balanced', outputs: { blocked: blocked.length, proposals: props.length },
+      recommend: props.length ? { verdict: 'APPROVE', summary: `approve ${props.map((p) => `${p.account} ${p.account_name} for the ${p.name.toLowerCase()}`).join(', ')}; then every journal balances and can be posted`, summary_ar: `اعتمد ${props.map((p) => `${p.account} ${p.account_name_ar}`).join('، ')}؛ فتتوازن جميع القيود وتُرحّل` }
+        : blocked.length ? { verdict: 'REVIEW', summary: 'hold the journals: one does not balance', summary_ar: 'احتجز القيود: أحدها غير متوازن' }
+        : { verdict: 'APPROVE', summary: 'post them: every journal balances and every line has its account', summary_ar: 'رحّلها: جميع القيود متوازنة ولكل بند حسابه' } };
+  },
+  'WF-34:post': async (h) => {
+    const period = h.req.payload.period;
+    const who = h.req.payload.approved_by_name ?? 'Sharifa AlMousa';
+    const js = await approveJournals(h.c, period, who, h.req.id);
+    const ledger = client().finance === 'ORACLE_FIN' ? 'Oracle Finance' : 'Odoo Accounting';
+    const r = await postJournals(h.c, period);
+    await external(h.conn, client().finance === 'ORACLE_FIN' ? 'ORACLE_FIN' : 'ODOO_ACC', 'POST', client().finance === 'ORACLE_FIN' ? '/fscmRestApi/resources/latest/erpintegrations' : '/json/2/account.move', `Load ${r.file} and import the journals`);
+    await h.setResult({ posted: { ...r, journals: js.length } });
+    await h.trail({ act: 'WRITE', summary: `Posted ${js.length} journals, ${r.lines} lines, to ${client().short}'s ${ledger} as ${r.file}. Import status: ${r.status}.`, actor_type: 'SYSTEM', actor_name: ledger, autonomy: null });
+    return { status: 'DONE', decision: r.status };
   },
 
   // ---------------------------------------------------------- WF-35 back pay (§18)

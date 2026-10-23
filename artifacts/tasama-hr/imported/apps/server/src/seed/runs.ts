@@ -43,7 +43,22 @@ export async function replayClosedMonths(c: PoolClient) {
   }
 }
 
+/**
+ * Edge 11 (§21): ROSHN pays its site staff a remote-site allowance from its last closed month. Its finance
+ * has no account for it, so that month's journal cannot balance until one is approved.
+ */
+async function seedRemoteSite(c: PoolClient) {
+  const last = (await c.query(`SELECT to_char(start_date,'YYYY-MM-DD') s FROM hcm.payroll_periods WHERE status='CLOSED' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+  if (!last) return;
+  await c.query(`INSERT INTO hcm.element_types (code, name, name_ar, classification, recurring) VALUES ('REMOTE_SITE','Remote-site allowance','بدل العمل في المواقع النائية','EARNING',true) ON CONFLICT DO NOTHING`);
+  const staff = (await c.query(`SELECT p.id FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id AND wr.worker_type='E' AND wr.end_date IS NULL
+      JOIN LATERAL (SELECT department_id FROM hcm.assignments a WHERE a.person_id=p.id ORDER BY a.effective_start DESC LIMIT 1) a ON true JOIN hcm.departments d ON d.id=a.department_id
+     WHERE d.name IN ('Development and Projects','Project Controls') ORDER BY p.person_number LIMIT 14`)).rows;
+  for (const p of staff) await c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, source, reference) VALUES ($1,$2,'REMOTE_SITE',1500,$3,'ORACLE_HCM','Remote-site allowance, Al Widyan site')`, [`RSA-${p.id}`, p.id, last.s]);
+}
+
 export async function seedRuns(c: PoolClient, base: BaseResult, cl: ClientConfig) {
+  if (cl.key === 'roshn') await seedRemoteSite(c);
   await replayClosedMonths(c);
   if (!['riyadhair', 'redsea'].includes(cl.key)) return;
   const per = (await c.query(`SELECT period_name, to_char(start_date,'YYYY-MM-DD') s, to_char(end_date,'YYYY-MM-DD') e, to_char(cutoff_date,'YYYY-MM-DD') co FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];

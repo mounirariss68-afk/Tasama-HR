@@ -14,13 +14,14 @@ import { seedAttendance } from './attendance.js';
 import { seedInputs } from './inputs.js';
 import { seedRuns } from './runs.js';
 import { fillBankDetails, seedPaymentHistory } from '../payroll/payments.js';
+import { seedJournalHistory, startJournals } from '../payroll/journals.js';
 import { seedHistory } from './history.js';
 import { seedTasama } from './tasama.js';
 import { seedIssues } from './issues.js';
 import { basiraScan } from '../tasama/basira.js';
 
 /** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
-export const SEED_VERSION = 10;
+export const SEED_VERSION = 11;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
@@ -61,6 +62,10 @@ export async function reseed(log: (s: string) => void = console.log) {
             await seedInputs(c, base, cl);
             await seedRuns(c, base, cl);
             await seedPaymentHistory(c);
+            // Edge 11: ROSHN's last month is paid and its journals wait on the payroll lead (§21).
+            const lastClosed = (await c.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='CLOSED' ORDER BY start_date DESC LIMIT 1`)).rows[0]?.period_name ?? null;
+            await seedJournalHistory(c, cl.key === 'roshn' ? lastClosed : null);
+            if (cl.key === 'roshn' && lastClosed) await startJournals(c, lastClosed, base.persona.payroll);
             await seedIssues(c, cl, anchor);
             await scan(c, iso(new Date()));
             await c.query(`DELETE FROM layer.integration_log WHERE id NOT IN (SELECT id FROM layer.integration_log ORDER BY at DESC LIMIT 4000)`);

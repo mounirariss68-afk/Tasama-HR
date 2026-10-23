@@ -1117,3 +1117,64 @@ Phase 5b is done.
   Starting D7 undoes an earlier play: it restores the employee's IBAN and rebuilds the file from the approved run, so D7 plays again without a Reset.
 
 **Effort:** two Claude sessions, as planned. Phase 6 is done.
+
+## 21. Phase 7: each paid month becomes four balanced journals in the client's ledger, mapped once
+
+*Added 23 October 2026, at the start of phase 7. It fills in sections 1, 3, 4, 6, 7, 8 and 9 for finance, and FIN-01 to FIN-12 in the requirements.*
+
+### The chart and the map are per client
+
+- **Chart of accounts** (`layer.gl_accounts`, FIN-01). Tasama has not shared its clients' charts. Each client gets the same illustrative chart, labelled "illustrative chart" on the screen. Account combinations have four segments:
+
+  | Segment | Holds | Example |
+  |---|---|---|
+  | Entity | The legal employer | `110` |
+  | Cost centre | The employee's department cost centre for expenses, `0000` for balance-sheet accounts | `4100` |
+  | Account | The GL account | `610100` Basic salaries |
+  | Project | `0000` until a project field exists (FIN-09) | `0000` |
+
+- **Account map** (`layer.account_map`, FIN-02). It maps each pay element and each provision to an account. A row may be narrowed to one cost centre. Each row records who proposed it and who approved it.
+- **Qaid** (the 27th agent, A2) proposes an account for anything not yet mapped. There is no past mapping spreadsheet in the prototype (FIN-03), so it matches the element's name against the chart's account names, and its proposal says so. The payroll lead approves the proposal.
+
+### Four journals a month (FIN-04)
+
+| Journal | Debit | Credit |
+|---|---|---|
+| Payroll accrual | Each earning by cost centre; GOSI employer share | Salaries payable (net pay, less what the settlement journal carries); GOSI payable; advances receivable; other deductions |
+| Provisions | End-of-service and leave expense by cost centre (a negative month credits the expense) | End-of-service and leave provisions |
+| Payment | Salaries payable | The paying bank account, from the month's payments |
+| Provision use | End-of-service and leave provisions, for the gratuity and leave encashment paid to leavers | Salaries payable |
+
+- **Rules:**
+  - The provision-use journal is only made in a month with a final settlement.
+  - A person whose deductions exceed their pay has a negative net. The bank pays nothing, so the accrual debits it to "amounts due from employees" (130600) instead of reducing salaries payable. Salaries payable then equals exactly what the bank pays.
+  - A journal that does not balance, or that has a line with no account, is never posted.
+- **Ledger files:**
+  - Oracle Finance clients (ROSHN, Riyadh Air, Red Sea Global) get Oracle's journal import file: `GlInterface.csv` in a zip, in the GL_INTERFACE layout (FIN-05).
+  - Odoo clients (SEVEN, Saudi Coffee, and a client taken on from Excel) get the same lines as an Odoo journal-entry CSV. It is **illustrative** until Tasama confirms their ledgers (FIN-12).
+  - Posting to the ledger is simulated through `external()`, and the import status is read back.
+
+### WF-34 Journals, one case per paid month
+
+| Step | Who | What happens |
+|---|---|---|
+| build | Qaid | Builds the four journals, checks each balances, proposes accounts for unmapped lines |
+| approve | Payroll lead | Approves any proposed accounts and the journals for posting |
+| post | Ledger (simulated) | Writes the import file, posts it, reads back the import status |
+
+- **When the case opens.** It opens when the month's payment is paid, including any follow-up. The payment journal needs the payment.
+- **History.** Every closed month of every client has its four journals posted, except ROSHN's last month.
+- **Edge 11.** ROSHN added a remote-site allowance for its site staff from September. The allowance has no account, so September's accrual cannot balance. On the demo day ROSHN's September journals wait on Sharifa, with Qaid's proposed account. The allowance is a new element (`REMOTE_SITE`) that the run treats as an earning outside the GOSI wage. This is a seed change.
+
+### The Journals screen (Payroll lens)
+
+- **Hero:** journals waiting to post.
+- **The one visual:** one bullet per client and month, showing debit against credit, with how much of the month is mapped.
+- **A month's record** shows the four journals as tabs: lines by account and cost centre, totals, the import file to download, and the import status.
+
+### Built in this phase's second session
+
+- **D8 on the Stage**, from edge 11.
+- **The Payroll costs lens for the client's finance controller** (section 3): Payroll reports, Provisions and Journals.
+
+**Effort:** two Claude sessions, as planned.

@@ -72,7 +72,7 @@ async function main() {
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
   await check('API: seventeen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 17, `${d.length}`]; });
-  await check('API: twenty-six agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 26 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
+  await check('API: twenty-seven agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 27 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
   await check('API: the server refuses a decision that is not yours', async () => {
@@ -223,6 +223,33 @@ async function main() {
     const bad = good.slice(0, 10) + String((Number(good[10]) + 1) % 10) + good.slice(11);
     return [ibanValid(good) && !ibanValid(bad), `${good} passes; one digit changed fails`];
   });
+  // Journals (§21): every posted journal balances, and the payroll owed is exactly what the bank paid.
+  await check('Journals: every posted journal balances to the halala, for every client and month (§21)', async () => {
+    let n0 = 0; const bad: string[] = [];
+    for (const k of clients) for (const j of (await pool.query(`SELECT period_name, kind, debit, credit FROM layer_${k}.journals WHERE state='POSTED'`)).rows) { n0++; if (Math.abs(Number(j.debit) - Number(j.credit)) > 0.005) bad.push(`${k} ${j.period_name} ${j.kind}`); }
+    return [n0 >= 100 && !bad.length, `${n0} posted journals; ${bad.length ? 'off: ' + bad.slice(0, 3).join(', ') : 'all balance'}`];
+  });
+  await check('Journals: salaries payable credited by the accrual equals what the payment journal pays out (§21)', async () => {
+    let months = 0; const bad: string[] = [];
+    for (const k of clients) {
+      const rows = (await pool.query(`SELECT period_name, kind, lines FROM layer_${k}.journals WHERE state='POSTED'`)).rows;
+      for (const pn of [...new Set(rows.map((r: any) => r.period_name))]) {
+        months++;
+        const sum = (kind: string, side: 'debit' | 'credit') => rows.filter((r: any) => r.period_name === pn && r.kind === kind).flatMap((r: any) => r.lines).filter((l: any) => l.account === '220100').reduce((a: number, l: any) => a + l[side], 0);
+        const owed = sum('ACCRUAL', 'credit') + sum('PROVISION_USE', 'credit'), paid = sum('PAYMENT', 'debit');
+        if (Math.abs(owed - paid) > 0.005) bad.push(`${k} ${pn}`);
+      }
+    }
+    return [months >= 30 && !bad.length, `${months} months; ${bad.length ? 'differ: ' + bad.slice(0, 3).join(', ') : 'owed equals paid'}`];
+  });
+  await check('Journals: ROSHN\'s last month waits on the payroll lead, short by the remote-site allowance Qaid proposes an account for (D8)', async () => {
+    const j = await one(`SELECT debit, credit, state, unmapped FROM layer_roshn.journals WHERE kind='ACCRUAL' ORDER BY period_name DESC LIMIT 1`);
+    const k = await one(`SELECT status, current_step, waiting_on_role FROM layer_roshn.requests WHERE workflow_id='WF-34' ORDER BY id DESC LIMIT 1`);
+    const m = await one(`SELECT account, status FROM layer_roshn.account_map WHERE code='REMOTE_SITE'`);
+    const short = Number(j?.credit) - Number(j?.debit), un = (j?.unmapped ?? []).reduce((a: number, u: any) => a + Number(u.amount), 0);
+    return [j?.state === 'BLOCKED' && Math.abs(short - un) < 0.005 && un > 0 && k?.current_step === 'approve' && k?.waiting_on_role === 'TASAMA_PAYROLL_LEAD' && m?.account === '610450' && m?.status === 'PROPOSED', `${j?.state}, short ${short.toFixed(2)} = unmapped ${un.toFixed(2)}; case ${k?.status}/${k?.current_step}; proposed ${m?.account} ${m?.status}`];
+  });
+
   await check('Onboarding: Intiqal reads Soudah\'s files into the seven lanes, with section 19\'s fifteen issues (§13, §19)', async () => {
     const exp = JSON.parse(readFileSync(new URL('./new-client/expected.json', import.meta.url), 'utf8'));
     const H = { 'x-persona': 'tasama-lead', 'content-type': 'application/json' };
