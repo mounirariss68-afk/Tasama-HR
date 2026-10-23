@@ -51,3 +51,7 @@ html.presenting #root { zoom: 1.08; }
 html.presenting.on-stage #root { zoom: 1; } /* the Stage is dense and sized to the viewport; it is not enlarged */
 .present-overlay .eyebrow { color: hsl(var(--hero-muted-foreground)); }
 .stage-pane-body { max-height: calc(100dvh - 200px); }
+/* Add a payroll client: a lane's files light up as they are read. */
+@keyframes onb-read { 0%, 100% { opacity: 0.18; } 50% { opacity: 1; } }
+.onb-read { animation: onb-read 1.2s ease-in-out infinite both; }
+@media (prefers-reduced-motion: reduce) { .onb-read { animation: none; opacity: 0.6; } }

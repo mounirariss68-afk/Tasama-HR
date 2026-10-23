@@ -30,7 +30,7 @@ export const SOUDAH_PAY: PayrollPolicy = {
   graceMin: 10, latenessMethod: 'TABLE', roundMin: 0,
   overtimeWho: 'site and guest staff', overtimeWho_ar: 'موظفو الموقع والضيافة', overtimeCap: 30, holidayMultiple: 0, timeOffInstead: false,
   dayRate: 'D30', extra: [],
-  housingAdvance: 'MONTHLY', educationSchedule: 'NONE', bonusTiming: 'paid in April', bonusTiming_ar: 'تُصرف في أبريل',
+  housingAdvance: 'MONTHLY', educationSchedule: 'NONE', bonusTiming: 'paid in March', bonusTiming_ar: 'تُصرف في مارس',
   merit: [0, 0, 3, 5, 7], eos: 'FIXED', gosiAbsorb: null, finalPay: 'LEGAL',
 };
 /** The generator's run-time registration; after go-live the client registry does the same from tasama.clients. */

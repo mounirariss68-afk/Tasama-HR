@@ -35,10 +35,11 @@ export function HrHiring() {
         <Funnel stages={PHASES.map((ph, i) => ({ label: t(({ NEW: 'Applied', SCREENING: 'Screening', SHORTLISTED: 'Shortlisted', INTERVIEW: 'Interview', ASSESSMENT: 'Assessment', OFFER: 'Offer', HIRED: 'Hired' } as any)[ph]), value: totals.slice(i).reduce((a, b) => a + b, 0) }))} />
       </Panel>
       <Panel icon={<Briefcase size={16} />} title="Requisitions">
-        <Table><thead><tr><th>{t('Role')}</th><th>{t('Hiring manager')}</th><th>{t('Recruiter')}</th><th className="text-end">{t('Applicants')}</th><th className="text-end">{t('Saudi')}</th><th>{t('Saudi priority')}</th><th>{t('Status')}</th><th></th></tr></thead>
+        <Table><thead><tr><th>{t('Role')}</th><th>{t('Hiring manager')}</th><th>{t('Recruiter')}</th><th className="text-end">{t('Applicants')}</th><th className="text-end">{t('Saudi')}</th><th>{t('Saudi priority')}</th><th>{t('Status')}</th><th>{t('Waiting')}</th></tr></thead>
           <tbody>{data.requisitions.map((r: any) => {
             const n = Object.values(r.funnel ?? {}).reduce((a: number, b: any) => a + Number(b), 0) as number;
-            return <tr key={r.id} className="clickable" onClick={() => setReq(r.id)}><td>{bi(r.title, r.title_ar)}<span className="block text-xs text-muted-foreground">{r.department} · {r.grade}</span></td><td className="text-sm">{r.hiring_manager}</td><td className="text-sm">{r.recruiter}</td><td className="text-end tabular-nums">{n}</td><td className="text-end tabular-nums">{r.saudi_applicants}</td><td>{r.saudi_priority ? <Chip tone="success">{t('Yes')}</Chip> : null}</td><td><StatusChip status={r.status} /></td><td>{r.open_case ? <Btn small kind="primary" onClick={() => openCase(r.open_case)}>{t('Open case')}</Btn> : null}</td></tr>;
+            // A requisition with a decision waiting opens that decision; the others open their applicants.
+            return <tr key={r.id} className="clickable" onClick={() => (r.open_case ? openCase(r.open_case) : setReq(r.id))}><td>{bi(r.title, r.title_ar)}<span className="block text-xs text-muted-foreground">{r.department} · {r.grade}</span></td><td className="text-sm">{r.hiring_manager}</td><td className="text-sm">{r.recruiter}</td><td className="text-end tabular-nums">{n}</td><td className="text-end tabular-nums">{r.saudi_applicants}</td><td>{r.saudi_priority ? <Chip tone="success">{t('Yes')}</Chip> : null}</td><td><StatusChip status={r.status} /></td><td>{r.open_case ? <Chip tone="warn">{t(r.open_case_type === 'OFFER' ? 'Offer to approve' : 'Shortlist to agree')}</Chip> : null}</td></tr>;
           })}</tbody></Table>
       </Panel>
       {req && detail.data ? (

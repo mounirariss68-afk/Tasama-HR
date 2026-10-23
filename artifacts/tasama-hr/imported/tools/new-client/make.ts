@@ -20,6 +20,8 @@ import { truthRules } from '../../apps/server/src/domain/payroll-policy.js';
 import { policiesFor } from '../../apps/server/src/domain/policies.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+/** The logo the prototype owner supplied (public/brands/SOURCES.md). */
+const LOGO = join(ROOT, 'apps', 'web', 'public', 'brands', 'soudah-wordmark.png');
 const OUT = join(ROOT, 'demo-files', 'soudah');
 const FIXED = new Date('2026-10-20T09:00:00Z');
 const MONTHS = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'];
@@ -72,7 +74,7 @@ for (const m of MONTHS) {
 
 /* ------------------------------------------------------------------ workbooks */
 
-const HEAD = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B4636' } } } as const;
+const HEAD = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF321E1E' } } } as const;
 function book() {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Soudah Development HR'; wb.lastModifiedBy = 'Soudah Development HR'; wb.created = FIXED; wb.modified = FIXED;
@@ -116,6 +118,13 @@ async function masterData() {
       p.basic, p.masterHousing, p.transport, 0, p.bank, p.masterIban, xdate(p.masterGosi), p.leave.entitlement, edu(p), project(p)];
   });
   sheet(wb, 'Master Data', cols, rows as any);
+  // Who left this year: the payroll sheets still carry them, the master data does not.
+  sheet(wb, 'Leavers 2026', [['Employee No', 12], ['Employee Name (English)', 26], ['Employee Name (Arabic)', 24], ['National ID / Iqama', 14], ['Organisation', 30], ['Position', 30], ['Hire Date', 12, DATE], ['Last Working Day', 14, DATE], ['Reason', 14]],
+    [[leaver.no, leaver.en, leaver.ar, leaver.nationalId, leaver.dept.name, leaver.title, xdate(leaver.hire), xdate(leaver.lastDay), 'Resignation']] as any);
+  const co = wb.addWorksheet('Company');
+  co.columns = [{ width: 32 }, { width: 44 }];
+  for (const r of [['Legal name (English)', 'Soudah Development Company'], ['Legal name (Arabic)', 'شركة السودة للتطوير'], ['Trading name', SOUDAH.name], ['Commercial registration', '1010000000'], ['GOSI establishment number', '500000000'], ['Main bank', SOUDAH.bank[0]], ['Head office', 'King Fahd Road, Riyadh'], ['Sites', 'Soudah, Asir']]) co.addRow(r);
+  co.getColumn(1).font = { bold: true };
   await save(wb, 'Soudah - Master Data.xlsx');
 }
 
@@ -171,7 +180,8 @@ function pdf(path: string, title: string, draw: (d: PDFKit.PDFDocument) => void)
   });
 }
 const letterhead = (d: PDFKit.PDFDocument) => {
-  d.font('Helvetica-Bold').fontSize(14).fillColor('#5B4636').text('Soudah Development', { continued: false });
+  d.image(LOGO, d.page.margins.left, d.page.margins.top, { width: 120 });
+  d.y = d.page.margins.top + 44;
   d.font('Helvetica').fontSize(8).fillColor('#666').text('A PIF company · Soudah, Asir, and King Fahd Road, Riyadh · CR 1010000000 (fictional)').moveDown(1.5).fillColor('#000');
 };
 const field = (d: PDFKit.PDFDocument, k: string, v: string) => { d.font('Helvetica-Bold').fontSize(10).text(`${k}: `, { continued: true }).font('Helvetica').text(v); };
@@ -191,7 +201,7 @@ function handbook() {
     for (const p of policies) d.text(`${p.id}  ${p.title}`);
     for (const p of policies) {
       d.addPage();
-      d.font('Helvetica-Bold').fontSize(15).fillColor('#5B4636').text(`${p.id}  ${p.title}`).fillColor('#000').moveDown(0.2);
+      d.font('Helvetica-Bold').fontSize(15).fillColor('#321E1E').text(`${p.id}  ${p.title}`).fillColor('#000').moveDown(0.2);
       d.font('Helvetica').fontSize(8).fillColor('#666').text(`Policy owner: ${p.owner} · Version ${p.version}`).fillColor('#000').moveDown(0.8);
       for (const k of p.clauses) {
         d.font('Helvetica-Bold').fontSize(10).text(`${k.ref}  ${k.heading}`).moveDown(0.15);

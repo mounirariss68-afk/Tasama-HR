@@ -8,6 +8,7 @@ Original logos downloaded from the public official sites for the user's requeste
 - ROSHN Group, full logo with the English and Arabic wordmark (`roshn-wordmark.png`): supplied by the prototype owner on 22 October 2026; used in the title bar, the assistant rail and the demo letters.
 - Red Sea Global, full logo with the wordmark (`redsea-wordmark.png`): supplied by the prototype owner on 22 October 2026; used in the title bar, the assistant rail and the demo letters.
 - Riyadh Air, full logo with the English and Arabic wordmark (`riyadhair-wordmark.png`), SEVEN (`seven-wordmark.png`) and Saudi Coffee Company (`saudicoffee-wordmark.png`): supplied by the prototype owner on 22 October 2026, margins trimmed; used in the title bar, the assistant rail and the demo letters.
+- Soudah Development, logo with the Arabic and English wordmark (`soudah-wordmark.png`): supplied by the prototype owner on 23 October 2026, the white background made transparent (the logo's colour kept); used in the title bar once the client goes live, the assistant rail and the letterhead of the generated demo files.
 - SEVEN, earlier file: https://seven-media.seven.sa/1/2023/03/Seven_Logo_English_RGB.png (official seven.sa media host)
 - Saudi Coffee Company: original inline SVG in the `main_logo` link on https://www.saudicoffee.com/home/
 - Tasama: original blue logo from the user's uploaded Tasama finance reference presentation.

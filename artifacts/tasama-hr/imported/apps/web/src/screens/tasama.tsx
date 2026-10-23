@@ -75,7 +75,7 @@ export function TasamaPortfolio() {
   const T = data.totals;
   return (
     <Screen hero={<Hero landing eyebrow={EYEBROW} title={`${T.slaMet} ${t('of')} ${T.slaScored} ${t('service levels met last month')}`} lede={`${num(T.clients)} ${t('client accounts')} · ${num(T.employees)} ${t('employees served')}, ${t('two on their own Oracle HCM, three held in Tasama HR.')}`}
-      media={<ClientStrip clients={data.clients} />} />}>
+      media={<ClientStrip clients={data.clients} />} actions={<Btn small onClick={() => go('payroll-add-client')}>{t('Add a payroll client')}</Btn>} />}>
       <RouteTabs items={[{ id: 'tasama-portfolio', label: 'Portfolio' }, { id: 'tasama-sla', label: 'Service levels' }]} />
       <StatRow>
         <StatTile label="Employees served" value={num(T.employees)} trend={{ direction: 'flat', label: `${num(T.cases30d)} ${t('cases in 30 days')}` }} />
@@ -238,13 +238,12 @@ export function TasamaEscalations() {
       <Panel icon={<AlertTriangle size={16} />} title="Open escalations" action={<AgentTag id="raqeeb" />}>
         {open.length ? <Table><thead><tr><th>{t('Case')}</th><th>{t('Service level')}</th><th>{t('Waiting on')}</th><th>{t('Due')}</th><th className="text-end">{t('Action')}</th></tr></thead>
           <tbody>{open.map((e) => (
-            <tr key={e.id}>
+            <tr key={e.id} className="clickable" onClick={() => openIn(e)}>
               <td className="min-w-[14rem]"><span className="block text-sm font-semibold">{bi(e.short, e.client_ar)}</span><span className="block text-xs text-muted-foreground">{bi(e.title, e.title_ar)}</span></td>
               <td><StatusChip status={e.kind} />{e.status !== 'OPEN' ? <span className="mt-1 block text-[11px] text-muted-foreground">{plain(e.action) || t(e.status === 'NUDGED' ? 'Reminded' : 'Assigned')}</span> : null}</td>
               <td className="whitespace-nowrap text-xs">{e.waiting_on ?? e.waiting_on_role}</td>
               <td className="min-w-[8rem] whitespace-nowrap text-xs">{e.due_at ? <>{dateTime(e.due_at, lang)}<div className="mt-1"><ClockBar compact start={e.detected_at ?? e.due_at} due={e.due_at} /></div></> : '—'}</td>
-              <td><div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                <Btn small onClick={() => openIn(e)}>{t('Open case')}</Btn>
+              <td onClick={(ev) => ev.stopPropagation()}><div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                 {e.status === 'OPEN' ? <Btn small onClick={() => act(e.id, 'nudge')} disabled={!!busy}>{t('Remind')}</Btn> : null}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild><button type="button" className="pill-btn pill-btn-ghost px-2.5 py-1.5 text-xs" aria-label={t('More')}><MoreHorizontal className="h-4 w-4" /></button></DropdownMenuTrigger>

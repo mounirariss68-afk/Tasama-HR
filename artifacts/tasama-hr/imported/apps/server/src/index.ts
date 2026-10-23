@@ -20,6 +20,7 @@ import { control } from './api/control.js';
 import { assistant } from './assistant/index.js';
 import { director } from './api/director.js';
 import { payroll } from './api/payroll.js';
+import { onboarding } from './api/onboarding.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WEB = resolve(here, '../../web/dist');
@@ -39,7 +40,7 @@ app.get('/api/health', async (_req, res) => {
 // While the demo data is being built, everything but /health answers 503 and the web app waits.
 let seeding = false;
 app.use('/api', (req, res, next) => (seeding && req.path !== '/health' ? res.status(503).json({ error: 'The demo data is being prepared. This takes about a minute.', seeding: true }) : next()));
-app.use('/api', me, cases, hr, control, assistant, tasama, director, payroll);
+app.use('/api', me, cases, hr, control, assistant, tasama, director, payroll, onboarding);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[api]', err);

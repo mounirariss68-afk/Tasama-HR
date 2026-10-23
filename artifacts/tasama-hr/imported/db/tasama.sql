@@ -202,3 +202,32 @@ CREATE TABLE tasama.meta (
   key    text PRIMARY KEY,
   value  jsonb NOT NULL
 );
+
+-- Taking on a new client from its files (design/payroll-addendum.md §13, §19, WF-24). Nothing here
+-- reaches a client master until the payroll lead approves; the lanes fill this staging area.
+CREATE TABLE tasama.onboarding (
+  id           serial PRIMARY KEY,
+  client_key   text,                                  -- set once the Client lane has read the client
+  name         text,
+  state        text NOT NULL DEFAULT 'DRAFT',         -- DRAFT | READING | STAGED | LIVE | RETURNED
+  column_map   jsonb NOT NULL DEFAULT '{}',           -- master data column -> platform field
+  lanes        jsonb NOT NULL DEFAULT '{}',           -- each lane's state, counts and summary
+  staged       jsonb NOT NULL DEFAULT '{}',           -- the client, roster, policy, contracts, letters, history, leave
+  issues       jsonb NOT NULL DEFAULT '[]',
+  request_ref  text,                                  -- the WF-24 decision
+  created_by   text,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  read_at      timestamptz,
+  live_at      timestamptz
+);
+
+CREATE TABLE tasama.onboarding_files (
+  id             serial PRIMARY KEY,
+  onboarding_id  int NOT NULL REFERENCES tasama.onboarding(id) ON DELETE CASCADE,
+  path           text NOT NULL,                       -- as dropped: "Contracts/SDH-1001 James Clarke.pdf"
+  size           int NOT NULL,
+  kind           text,                                -- MASTER | PAYROLL | PROVISIONS | LEAVE | POLICY | CONTRACT | LETTER | OTHER
+  content        bytea NOT NULL,
+  added_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (onboarding_id, path)
+);

@@ -73,7 +73,8 @@ hr.get('/hiring', async (_req, res) => {
     SELECT r.*, d.name AS department, d.division, g.code AS grade, hm.display_name AS hiring_manager, rc.display_name AS recruiter,
            (SELECT json_object_agg(phase, n) FROM (SELECT phase, COUNT(*)::int n FROM hcm.applications a WHERE a.requisition_id=r.id GROUP BY phase) x) AS funnel,
            (SELECT COUNT(*)::int FROM hcm.applications a JOIN hcm.candidates c ON c.id=a.candidate_id WHERE a.requisition_id=r.id AND c.is_saudi) AS saudi_applicants,
-           (SELECT ref FROM layer.requests lr WHERE lr.payload->>'requisition_id' = r.id::text AND lr.status IN ('WAITING','ESCALATED') LIMIT 1) AS open_case
+           (SELECT ref FROM layer.requests lr WHERE lr.payload->>'requisition_id' = r.id::text AND lr.status IN ('WAITING','ESCALATED') LIMIT 1) AS open_case,
+           (SELECT type FROM layer.requests lr WHERE lr.payload->>'requisition_id' = r.id::text AND lr.status IN ('WAITING','ESCALATED') LIMIT 1) AS open_case_type
       FROM hcm.requisitions r JOIN hcm.positions pos ON pos.id=r.position_id JOIN hcm.departments d ON d.id=pos.department_id JOIN hcm.grades g ON g.id=pos.grade_id
       JOIN hcm.persons hm ON hm.id=r.hiring_manager_id JOIN hcm.persons rc ON rc.id=r.recruiter_id
      ORDER BY r.status = 'OPEN' DESC, r.opened_date DESC`)).rows);

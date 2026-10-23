@@ -81,7 +81,8 @@ export function PayrollMonths() {
     <Screen hero={<Hero tone="surface" landing eyebrow="Payroll"
       title={`${passed} ${t('of')} ${rows.length} ${t('clients are past their cut-off this month')}${next ? `; ${bi(next.short, next.name_ar)} ${t('closes')} ${date(next.cutoff, lang)}` : ''}`}
       lede={t('Every client\'s month on one calendar: when its inputs close, when the run is checked and approved, and when its people are paid.')}
-      feature={<HeroFeature label="Waiting on the payroll team" value={num(waiting)} support={<Btn small onClick={() => go('payroll-inbox')}>{t('Open the inbox')}</Btn>} />} />}>
+      feature={<HeroFeature label="Waiting on the payroll team" value={num(waiting)} support={<Btn small onClick={() => go('payroll-inbox')}>{t('Open the inbox')}</Btn>} />}
+      actions={<Btn small onClick={() => go('payroll-add-client')}>{t('Add a payroll client')}</Btn>} />}>
       <Panel icon={<CalendarRange size={16} />} title="This month, client by client">
         <MonthStrip rows={rows} today={data.today} />
       </Panel>

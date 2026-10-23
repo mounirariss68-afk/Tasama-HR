@@ -26,6 +26,8 @@ export const SKINS: Record<string, Skin> = {
   redsea: { key: 'redsea', tile: '#FFFFFF', logo: 'redsea-wordmark.png', light: '36 55% 30%', dark: '38 48% 62%' },
   seven: { key: 'seven', tile: '#FFFFFF', logo: 'seven-wordmark.png', light: '214 100% 24%', dark: '212 70% 72%' },
   saudicoffee: { key: 'saudicoffee', tile: '#FFFFFF', logo: 'saudicoffee-wordmark.png', light: '158 42% 25%', dark: '150 32% 64%' },
+  // Taken on in D10 (§13); its skin appears once it goes live. The primary is the logo's own colour, #321E1E, lifted slightly for buttons.
+  soudah: { key: 'soudah', tile: '#FFFFFF', logo: 'soudah-wordmark.png', light: '0 25% 22%', dark: '6 24% 72%' },
 };
 
 /** Tasama staff persona keys all start with "tasama". */

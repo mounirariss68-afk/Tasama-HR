@@ -931,9 +931,35 @@ Two salary differences between a contract and the master data are explained by p
 - Contracts and letters are one-page PDFs, also in English. Each contract carries the employee's real number, so the duplicate number in the master data can be told apart.
 - Soudah's payroll terms are a sixth entry in `PAYROLL_POLICY`, added by the generator at run time and, after go-live, by the client registry from `tasama.clients`. The terms follow the standard clause wordings, so the offline resolver recognises them.
 
+### Staging and the seven lanes, as built in the second session
+
+- **Where it is kept.** `tasama.onboarding` holds the staged client, the lanes and the issues; `tasama.onboarding_files` holds the dropped files. Both are dropped by Reset with the rest of the `tasama` schema (`SEED_VERSION` 8).
+- **How the files are read.** `apps/server/src/onboarding/`:
+  - `read.ts` reads the workbooks and the PDFs' text;
+  - `terms.ts` splits the handbook back into clauses and reads Soudah's terms from the standard wordings, then writes the handbook again from those terms. Every clause that does not come back word for word is listed; for Soudah only the two planted clauses differ;
+  - `lanes.ts` runs the seven lanes in order and raises the issues;
+  - `store.ts` keeps the staging area.
+- **The master data sheet gains two tabs.** The client's legal names, registration, GOSI establishment number and main bank come from a Company tab. Leavers come from a Leavers 2026 tab, so the August overpayment can be found from the files alone.
+- **One number used twice.** The contract decides which row is wrong: the contract carrying another number is held, with that number proposed to the client.
+- **The history is recalculated, not compared.** Each month is recalculated by the engine from the staged roster, with the promotion letters' dates and amounts, and compared with the net paid. Only the three planted differences remain.
+- **The screen.** Add a payroll client opens from Payroll › Months and Tasama Services › Overview. It shows one row per lane: a square for each file, filling while the lane reads, then the lane's claim and its issue count. The issues are split into what the client settles and what Tasama settles.
+- **Arabic.** The screen's own words are in Arabic. The lanes' and issues' sentences come from the server in English for now; their Arabic is written with go-live.
+- **Soudah's brand.** The logo the prototype owner supplied is the Soudah skin's logo and the letterhead of the generated files. The skin's colour is taken from the logo.
+
+### Two changes outside payroll, asked for on 23 October 2026
+
+- **No "Open case" buttons.** Clicking the row is enough. On HR Workspace › Hiring, a requisition with a decision waiting opens that decision, and its status says which one ("Offer to approve", "Shortlist to agree"). The other requisitions open their applicants. Tasama's escalations open their case from the row.
+- **Noted for after payroll.** The offer decision should show:
+  - who the candidate is;
+  - why they fit the role;
+  - the interviews held and what each found;
+  - why the hiring manager wants them.
+
+  The synthetic candidate data for this does not exist yet. It is added once the payroll phases are done.
+
 **Effort:** still three Claude sessions:
 
 1. the files;
 2. staging and the lanes;
-3. go-live, the screen and D10.
+3. go-live, the decision card, the Arabic sentences and D10.
 

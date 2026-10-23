@@ -5,6 +5,7 @@
  * It reads only; it never writes.
  */
 import pg from 'pg';
+import { readFileSync } from 'node:fs';
 import { CLIENTS } from '../apps/server/src/domain/clients.ts';
 import { policiesFor } from '../apps/server/src/domain/policies.ts';
 import { readRules, truthRules } from '../apps/server/src/domain/payroll-policy.ts';
@@ -182,6 +183,27 @@ async function main() {
     const adds = Math.abs(dx.lastNet + sum - dx.thisNet) < 1 && Math.abs(dx.thisNet - rs.draft.totals.net) < 1 && !dx.unexplained;
     return [ra.run?.state === 'APPROVED' && ra.run.preparer !== ra.run.validator && written[0].n === ra.run.people && ra.run.payslips === ra.run.people && rs.run?.state === 'DRAFT' && adds,
       `riyadhair ${ra.run?.state}, ${written[0].n} written, ${ra.run?.payslips} payslips; redsea ${rs.run?.state}; causes ${Math.round(sum)} vs change ${Math.round(dx.thisNet - dx.lastNet)}`];
+  });
+
+  await check('Onboarding: Intiqal reads Soudah\'s files into the seven lanes, with section 19\'s fifteen issues (§13, §19)', async () => {
+    const exp = JSON.parse(readFileSync(new URL('./new-client/expected.json', import.meta.url), 'utf8'));
+    const H = { 'x-persona': 'tasama-lead', 'content-type': 'application/json' };
+    const { id } = await (await fetch(`${BASE}/api/onboarding`, { method: 'POST', headers: H })).json();
+    try {
+      await fetch(`${BASE}/api/onboarding/${id}/demo-files`, { method: 'POST', headers: H });
+      const o = await (await fetch(`${BASE}/api/onboarding/${id}/read`, { method: 'POST', headers: H, body: JSON.stringify({ wait: true }) })).json();
+      const lane = (k: string) => o.lanes.find((l: any) => l.key === k)?.headline ?? '';
+      const codes = o.issues.map((i: any) => i.code).sort().join();
+      const want = exp.issues.map((i: any) => i.key).sort().join();
+      const people = (c: string) => o.issues.filter((i: any) => i.code === c).flatMap((i: any) => i.people.map((p: any) => p.no)).sort().join();
+      const ok = o.state === 'STAGED' && codes === want && o.counts.client === 7 && lane('roster') === `64 employees: 61 ready, 3 held`
+        && lane('contracts') === '62 matched, 3 differences (2 explained), 2 missing, 1 expired' && /^27 dimensions read, 2 rules refused/.test(lane('policy'))
+        && lane('history') === '6 months recalculated, 3 differences' && people('IBAN_CHECK') === [...exp.plants.badIban].sort().join() && people('NO_CONTRACT') === [...exp.plants.noContract].sort().join()
+        && people('HOUSING_NOT_PAID') === exp.plants.mayJoiner && people('GOSI_RATE') === exp.plants.gosiLow && people('PAID_AFTER_LEAVING') === exp.plants.leaver;
+      return [ok, `${o.state}; ${o.counts.issues} issues, ${o.counts.client} for the client; ${lane('roster')}; ${lane('history')}`];
+    } finally {
+      await fetch(`${BASE}/api/onboarding/${id}`, { method: 'DELETE', headers: H });
+    }
   });
 
   await pool.end();
