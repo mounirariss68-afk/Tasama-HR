@@ -5,6 +5,7 @@
  */
 import { Router } from 'express';
 import { pool, withClient, tx } from '../db.js';
+import { client } from '../domain/rules.js';
 import { CLIENTS, allClients, clientByKey } from '../domain/clients.js';
 import { DIMENSIONS } from '../domain/payroll-policy.js';
 import { startCase } from '../engine/core.js';
@@ -470,6 +471,32 @@ payroll.get('/payroll/journals/:client/:period/file', async (req, res) => {
   const c = clientByKey(req.params.client);
   if (!c) return res.status(404).json({ error: 'No such client' });
   const f = await withClient(c.key, () => journalFile(pool, req.params.period));
+  res.setHeader('content-type', f.type);
+  res.setHeader('content-disposition', `attachment; filename="${f.name}"`);
+  res.send(f.body);
+});
+
+/* ------------------------------------------------------------------ Payroll costs, the client's finance controller (§3, §21) */
+
+const financeView = (p: Persona) => p.lenses.includes('fin') || isTasama(p) || isPayrollTeam(p);
+
+/** Net pay and employer cost by month, the provisions owed, and the journals posted to the ledger. Read only. */
+payroll.get('/costs', async (req, res) => {
+  const p = await personaOf(req);
+  if (!financeView(p)) return res.status(403).json({ error: 'The client\'s finance controller only.' });
+  const months = (await pool.query(`SELECT pp.period_name, pp.status, COUNT(r.*)::int people, COALESCE(SUM(r.gross),0)::float gross, COALESCE(SUM(r.net),0)::float net, COALESCE(SUM(r.employer_contributions),0)::float employer,
+      COALESCE((SELECT SUM(v.eos_accrued) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float eos, COALESCE((SELECT SUM(v.leave_accrued) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float leave,
+      COALESCE((SELECT SUM(v.eos_month) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float eos_month, COALESCE((SELECT SUM(v.leave_month) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float leave_month
+      FROM hcm.payroll_periods pp JOIN hcm.payroll_results r ON r.period_id=pp.id GROUP BY pp.id, pp.period_name, pp.status, pp.start_date ORDER BY pp.start_date`)).rows.slice(-7);
+  const journals = (await pool.query(`SELECT period_name, kind, debit, state, to_char(posted_at,'YYYY-MM-DD') posted, import_status FROM layer.journals ORDER BY period_name, id`)).rows;
+  const c = client();
+  res.json({ client: { short: c.short, name_ar: c.name_ar, ledger: c.finance }, months,
+    journals: [...new Set(journals.map((j: any) => j.period_name))].map((pn) => ({ period: pn, journals: journals.filter((j: any) => j.period_name === pn).map((j: any) => ({ kind: j.kind, amount: Number(j.debit), state: j.state, posted: j.posted, status: j.import_status })) })).slice(-6) });
+});
+payroll.get('/costs/journals/:period/file', async (req, res) => {
+  const p = await personaOf(req);
+  if (!financeView(p)) return res.status(403).json({ error: 'The client\'s finance controller only.' });
+  const f = await journalFile(pool, req.params.period);
   res.setHeader('content-type', f.type);
   res.setHeader('content-disposition', `attachment; filename="${f.name}"`);
   res.send(f.body);

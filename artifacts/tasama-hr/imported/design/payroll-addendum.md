@@ -1172,9 +1172,25 @@ Phase 5b is done.
 - **The one visual:** one bullet per client and month, showing debit against credit, with how much of the month is mapped.
 - **A month's record** shows the four journals as tabs: lines by account and cost centre, totals, the import file to download, and the import status.
 
-### Built in this phase's second session
+### D8 and the Payroll costs lens, as built in the second session
 
-- **D8 on the Stage**, from edge 11.
-- **The Payroll costs lens for the client's finance controller** (section 3): Payroll reports, Provisions and Journals.
+- **D8, The journal lands in Oracle** (ROSHN, six steps):
+  1. September is paid, and its accrual is short by the remote-site allowance.
+  2. Qaid proposes 610450 "Site and field allowances".
+  3. Sharifa approves it, and the journals balance and post.
+  4. Oracle's import reads every line.
+  5. October's draft pays the allowance again, and it maps without asking anyone.
+  6. ROSHN's finance controller sees September posted.
 
-**Effort:** two Claude sessions, as planned.
+  Starting D8 removes the learned account and rebuilds September's journals, so it replays without a Reset.
+- **Payroll costs lens** (`fin`, the client's finance controller, read only). It is the controller's landing lens.
+
+  | Item | Hero | The one visual |
+  |---|---|---|
+  | Payroll reports | Last month's cost to the company and its change | Columns by month (net pay, deductions, employer contributions), each with its change |
+  | Provisions | End of service owed and its growth | Slope of end of service and leave owed across the months |
+  | Journals | Months posted and any waiting | Each month's journals as bars, with the import file to download |
+
+- **Seen once journals ran on every client:** a person whose deductions exceed their pay has a negative net. That amount is a receivable from the employee (130600), not less salaries payable. This was found by the check that salaries payable equals what the bank paid.
+
+**Effort:** two Claude sessions, as planned. Phase 7 is done.

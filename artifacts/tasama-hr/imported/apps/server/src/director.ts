@@ -29,6 +29,7 @@ import { deviceExport, proposeMap, ingest, justify as justifyDay } from './atten
 import * as Onb from './onboarding/store.js';
 import { dropClient } from './onboarding/golive.js';
 import * as Pay from './payroll/payments.js';
+import { startJournals } from './payroll/journals.js';
 import { currentRun } from './payroll/runs.js';
 import { syntheticIban, bankByCode, bankByIban, BANKS } from './domain/banks.js';
 
@@ -349,6 +350,39 @@ async function paymentRecord(c: Ctx): Promise<Rec | null> {
   ] };
 }
 
+/** D8: the month's journal batch as ROSHN's Oracle Finance would hold it. */
+async function journalRecord(c: Ctx): Promise<Rec | null> {
+  const k = c.refs.jr ? await caseOf(c.refs.jr) : null;
+  const pn = k?.payload?.period;
+  if (!pn) return null;
+  const js = (await pool.query(`SELECT kind, debit, credit, state, import_status, lines FROM layer.journals WHERE period_name=$1 ORDER BY id`, [pn])).rows;
+  const map = (await pool.query(`SELECT account, status FROM layer.account_map WHERE code='REMOTE_SITE'`)).rows[0];
+  const posted = js.every((j: any) => j.state === 'POSTED');
+  const NAME: Record<string, string> = { ACCRUAL: 'Payroll accrual', PROVISIONS: 'Provisions', PAYMENT: 'Payment', PROVISION_USE: 'Provision use' };
+  return { system: 'Oracle Fusion Financials (simulated)', title: 'Journal batch', fields: [
+    ['Batch', `RSN Payroll ${pn}`], ['Source and category', 'Tasama Payroll · Payroll'],
+    ...js.map((j: any) => [NAME[j.kind], `${sar(Number(j.debit))} Dr / ${sar(Number(j.credit))} Cr${j.state === 'POSTED' ? '' : Math.abs(Number(j.debit) - Number(j.credit)) > 0.005 ? ' · does not balance' : ''}`] as [string, string]),
+    ['Remote-site allowance account', map ? `${map.account} Site and field allowances${map.status === 'PROPOSED' ? ' (proposed)' : ''}` : 'None'],
+    ['Import status', posted ? js[0].import_status : 'Not imported'],
+    ['Lines', String(js.reduce((n: number, j: any) => n + (j.lines?.length ?? 0), 0))],
+  ].slice(0, 10) as [string, string][] };
+}
+
+/** D8 starts from ROSHN's last month paid and its journals short by the unmapped allowance; an earlier play is undone. */
+async function resetJournals() {
+  await withClient('roshn', async () => {
+    const pn = (await pool.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='CLOSED' ORDER BY start_date DESC LIMIT 1`)).rows[0]?.period_name;
+    if (!pn) return;
+    await tx(async (x) => {
+      await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE workflow_id='WF-34' AND payload->>'period'=$1 AND status IN ('WAITING','RUNNING','ESCALATED')`, [pn]);
+      await x.query(`DELETE FROM layer.journals WHERE period_name=$1`, [pn]);
+      await x.query(`DELETE FROM layer.account_map WHERE code='REMOTE_SITE'`);
+      const pp = (await x.query(`SELECT value FROM layer.meta WHERE key='people'`)).rows[0]?.value?.persona ?? {};
+      await startJournals(x, pn, pp.payroll ?? 0);
+    });
+  });
+}
+
 /** D7 starts from Riyadh Air's approved run with its file built and not sent; an earlier play is undone. */
 async function resetPayment() {
   await withClient('riyadhair', async () => {
@@ -373,6 +407,11 @@ async function resetPayment() {
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
 
 const STARTERS = {
+  journals: async (_c: Ctx) => {
+    const k = (await pool.query(`SELECT ref FROM layer.requests WHERE workflow_id='WF-34' AND status='WAITING' ORDER BY id DESC LIMIT 1`)).rows[0];
+    if (!k) throw new Error('No journals are waiting on the payroll lead');
+    return k.ref as string;
+  },
   payment: async (_c: Ctx) => {
     const k = (await pool.query(`SELECT ref FROM layer.requests WHERE workflow_id='WF-33' AND type='PAYMENT' AND status='WAITING' ORDER BY id DESC LIMIT 1`)).rows[0];
     if (!k) throw new Error('No bank file is waiting to be sent');
@@ -758,6 +797,28 @@ export const SCRIPTS: Scenario[] = [
         (c) => `The follow-up is paid. The bank's signed WPS file lists ${c.out.wps ? c.out.wps.paid - 1 : 'every other'} salaries paid and one returned, which matches what was paid; the follow-up has its own. Both went to Mudad, which acknowledged them. Every Riyadh Air employee is paid for the month.`, undefined,
         { focus: { fact: 'Every salary paid, the WPS file matching the bank, Mudad acknowledged: the month closes without chasing.' } }),
     ] },
+  { key: 'ledger-loop', level: 'tasama', client: 'roshn', shape: 'The loop', shape_ar: 'الحلقة', title: 'The journal lands in Oracle', title_ar: 'القيد يصل إلى أوراكل',
+    summary: 'ROSHN\'s September is paid. Qaid builds its journals from ROSHN\'s account map, but a new remote-site allowance has no account, so the accrual cannot balance. Qaid proposes one; Sharifa approves it; the journals balance and land in Oracle Finance. From October the allowance is mapped already: finance no longer needs the mapping spreadsheet.',
+    summary_ar: 'صُرفت رواتب سبتمبر لروشن. يعدّ قيد القيود من خريطة حسابات روشن، لكن بدل المواقع النائية الجديد بلا حساب فلا يتوازن الاستحقاق. يقترح قيد حسابًا وتعتمده شريفة فتتوازن القيود وتصل إلى أوراكل المالية. ومن أكتوبر يصبح البدل مربوطًا: لم تعد المالية بحاجة إلى جدول الربط.',
+    record: async (c) => journalRecord(c),
+    steps: [
+      S('j1', 'September is paid; its accrual is short', 'صُرف سبتمبر والاستحقاق ناقص', 'Payment paid (WF-34)', 'tasama-lead', 'payroll-journals', { kind: 'start', starter: 'journals', as: 'jr' },
+        async (c) => { const k = await caseOf(c.refs.jr); const pr = (k?.result?.proposals ?? [])[0]; const a = (k?.result?.journals ?? []).find((j: any) => j.kind === 'ACCRUAL'); return `Qaid built September's journals from ROSHN's account map. The accrual has ${sar(Number(a?.debit ?? 0))} of debits against ${sar(Number(a?.credit ?? 0))} of credits: ${pr ? `the ${pr.name.toLowerCase()}, ${sar(pr.amount)}, has no account` : 'every line has an account'}. It is not posted.`; }, 'case:jr',
+        { chat: async (c) => { const k = await caseOf(c.refs.jr); const pr = (k?.result?.proposals ?? [])[0]; const n = Number((await pool.query(`SELECT count(DISTINCT person_id) n FROM hcm.element_entries WHERE element_code='REMOTE_SITE'`)).rows[0].n); return [system('Oracle HCM', `Remote-site allowance paid to ${n} site staff from September.`, 'HRMS element'), agent('Qaid', pr ? `September's accrual is short by ${sar(pr.amount)}: the remote-site allowance has no account in ROSHN's map.` : 'September\'s journals balance.', 'To Tasama payroll')]; },
+          focus: { fact: 'A journal that does not balance is never posted, and a line with no account never reaches the ledger.' } }),
+      S('j2', 'Qaid proposes the account', 'قيد يقترح الحساب', 'Qaid, against ROSHN\'s chart', 'tasama-lead', 'payroll-journals', SHOW,
+        async (c) => { const k = await caseOf(c.refs.jr); const pr = (k?.result?.proposals ?? [])[0]; return pr ? `Qaid proposes ${pr.account} ${pr.account_name}: ${pr.why}` : 'Nothing to propose.'; }, 'case:jr'),
+      S('j3', 'Sharifa approves it, and the journals post', 'شريفة تعتمده فتُرحّل القيود', 'Human step: Payroll lead', 'tasama-lead', 'payroll-journals', { kind: 'decide', ref: 'jr', decision: 'APPROVED', reason: 'Site allowances belong with field pay' },
+        async (c) => { const k = await caseOf(c.refs.jr); const r = k?.result?.posted; return `Sharifa approved the account (${by(c, 'jr')}). It is in ROSHN's map from now on. All ${r?.journals ?? 3} journals balance and were posted to Oracle Finance as ${r?.file ?? 'the journal import file'}: ${r?.status ?? 'imported'}.`; }, 'case:jr'),
+      S('j4', 'The journals land in Oracle', 'القيود تصل إلى أوراكل', 'Oracle Finance import', 'tasama-lead', 'payroll-journals', SHOW,
+        () => 'Oracle\'s journal import read every line: the accrual, the provisions and the payment, each balanced to the halala, every expense on its cost centre. Nobody shaped a spreadsheet for the upload.', undefined,
+        { focus: { fact: 'Every journal is built from the approved run and posted without a mapping spreadsheet.' } }),
+      S('j5', 'October is mapped already', 'أكتوبر مربوط مسبقًا', 'ROSHN\'s October draft run', 'tasama-lead', 'payroll-runs', SHOW,
+        async () => { const d = await draftRun(pool); const n = d ? d.rows.filter((r: any) => (r.lines ?? []).some((l: any) => l.code === 'remote_site')).length : 0; const m = (await pool.query(`SELECT account FROM layer.account_map WHERE code='REMOTE_SITE' AND status='APPROVED'`)).rows[0]; return `October's draft pays the allowance to ${n} people again. ${m ? `It maps to ${m.account} without asking anyone: the account was learned once.` : 'It still has no account.'}`; }, undefined,
+        { focus: { fact: 'The mapping is learned once: next month\'s allowance goes straight to its account.' } }),
+      S('j6', 'ROSHN\'s finance sees it posted', 'المالية في روشن ترى الترحيل', 'Payroll costs › Journals', 'finance', 'costs-journals', SHOW,
+        () => 'ROSHN\'s finance controller sees September posted next to the months before it, and downloads the import file Oracle loaded. Read only: finance approves nothing here, and needs nothing from Tasama to reconcile.', undefined),
+    ] },
   { key: 'backpay-leaver', level: 'tasama', client: 'roshn', shape: 'Exception', shape_ar: 'استثناء', title: 'Back pay and a leaver', title_ar: 'الفروقات وموظف مغادر',
     summary: 'ROSHN enters a raise dated three months back, before tomorrow\'s cut-off. Hisab recalculates the three closed months and adds the back pay, with its GOSI, to this month\'s run; both provisions are re-measured. A colleague resigns after about seven years: the final settlement pays two thirds of the award, the unused leave and recovers the advance still owed. No closed month is reopened.', summary_ar: 'تُدخل روشن زيادة بأثر رجعي ثلاثة أشهر فيعيد حساب الأشهر المغلقة ويضيف الفروقات إلى رواتب هذا الشهر؛ ويستقيل زميل بعد سبع سنوات فتُدفع له ثلثا المكافأة والإجازة ويُسترد رصيد السلفة.',
     record: async (c) => backpayRecord(c),
@@ -1079,6 +1140,7 @@ export async function startScenario(key: string, clientKey: string) {
   // D10 starts before Soudah is a client: the client and any earlier drop are removed, so it plays again without a Reset.
   if (key === 'client-transition') { if (clientByKey(D10_KEY)) await dropClient(D10_KEY); await pool.query(`DELETE FROM tasama.onboarding`); }
   if (key === 'bank-file') await resetPayment();
+  if (key === 'ledger-loop') await resetJournals();
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }
   const run = (await pool.query(`INSERT INTO tasama.director_runs (key, client_key) VALUES ($1,$2) RETURNING *`, [key, client])).rows[0];
   return { run: run.id, client, scenario: outline(s) };

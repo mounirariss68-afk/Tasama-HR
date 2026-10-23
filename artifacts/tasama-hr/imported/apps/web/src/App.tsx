@@ -24,6 +24,7 @@ import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFin
 import { ClientPolicies, PayrollAttendance, PayrollInbox, PayrollInputs, PayrollMonths, PayrollRuns } from './screens/payroll';
 import { PayrollPayments } from './screens/payments';
 import { PayrollJournals } from './screens/journals';
+import { CostsReports, CostsProvisions, CostsJournals } from './screens/costs';
 import { DirectorBar } from './app/director';
 import { PresentBar, PresentOverlay, usePresent } from './app/present';
 import { ClientTile, TitleBrand } from './app/brand';
@@ -59,6 +60,12 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'payroll-payments', label: 'Payments', icon: I(<Landmark size={14} />) },
     { id: 'payroll-journals', label: 'Journals', icon: I(<BookOpenCheck size={14} />) },
     { id: 'payroll-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
+  ],
+  // The client's finance controller, view only (design/payroll-addendum.md §3, §21).
+  fin: [
+    { id: 'costs-reports', label: 'Payroll reports', icon: I(<Wallet size={14} />) },
+    { id: 'costs-provisions', label: 'Provisions', icon: I(<Coins size={14} />) },
+    { id: 'costs-journals', label: 'Journals', icon: I(<BookOpenCheck size={14} />) },
   ],
   tasama: [
     { id: 'tasama-portfolio', label: 'Overview', icon: I(<LayoutGrid size={14} />) },
@@ -102,14 +109,14 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'value', label: 'Value', icon: I(<LineChart size={14} />) },
   ],
 };
-const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'payroll', label: 'Payroll' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'control', label: 'How it works' }];
+const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'payroll', label: 'Payroll' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'fin', label: 'Payroll costs' }, { id: 'control', label: 'How it works' }];
 /** Which menu item a screen that is not in the menu lights up. */
 const NAV_OF: Record<string, string> = { 'payroll-add-client': 'payroll-months', 'tasama-account': 'tasama-portfolio', 'tasama-sla': 'tasama-portfolio', person: 'hr-workforce', connector: 'evidence' };
 
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
   'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <ClientPolicies />,
-  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-payments': () => <PayrollPayments />, 'payroll-journals': () => <PayrollJournals />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-inputs': () => <PayrollInputs />, 'payroll-policies': () => <ClientPolicies />, 'payroll-add-client': () => <AddPayrollClient />,
+  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-payments': () => <PayrollPayments />, 'payroll-journals': () => <PayrollJournals />, 'costs-reports': () => <CostsReports />, 'costs-provisions': () => <CostsProvisions />, 'costs-journals': () => <CostsJournals />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-inputs': () => <PayrollInputs />, 'payroll-policies': () => <ClientPolicies />, 'payroll-add-client': () => <AddPayrollClient />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
   'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-overview': () => <ChroOverview />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,

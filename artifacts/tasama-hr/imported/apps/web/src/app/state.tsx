@@ -13,7 +13,7 @@ export type PersonaInfo = {
 export type ClientInfo = { key: string; code: string; name: string; name_ar: string; short: string; sector: string; sector_ar: string; hrms: 'ORACLE' | 'ODOO' | 'PLATFORM'; hrmsLabel: string; bank?: [string, string]; services?: string[] };
 export type Session = { persona: PersonaInfo; personas: PersonaInfo[]; client: ClientInfo; clients: ClientInfo[]; ai: { mode: 'claude' | 'offline'; model: string; via?: string }; today: string };
 
-export type LensId = 'tasama' | 'my' | 'team' | 'hr' | 'control' | 'payroll';
+export type LensId = 'tasama' | 'my' | 'team' | 'hr' | 'control' | 'payroll' | 'fin';
 export const LENS_OF: Record<string, LensId> = {
   'my-home': 'my', 'my-requests': 'my', 'my-leave': 'my', 'my-pay': 'my', 'my-growth': 'my', 'my-onboarding': 'my',
   team: 'team', 'team-approvals': 'team', 'team-hiring': 'team', 'team-performance': 'team',
@@ -21,14 +21,15 @@ export const LENS_OF: Record<string, LensId> = {
   'tasama-portfolio': 'tasama', 'tasama-account': 'tasama', 'tasama-sla': 'tasama', 'tasama-escalations': 'tasama', 'tasama-finance': 'tasama', 'tasama-delivery': 'tasama', 'tasama-policies': 'tasama', 'tasama-patterns': 'tasama',
   agents: 'control', workflows: 'control', connector: 'control', evidence: 'control', policies: 'control', value: 'control',
   'payroll-months': 'payroll', 'payroll-inbox': 'payroll', 'payroll-runs': 'payroll', 'payroll-payments': 'payroll', 'payroll-journals': 'payroll', 'payroll-attendance': 'payroll', 'payroll-inputs': 'payroll', 'payroll-policies': 'payroll', 'payroll-add-client': 'payroll',
+  'costs-reports': 'fin', 'costs-provisions': 'fin', 'costs-journals': 'fin',
 };
 /** The rig: reached from the Demo control by every persona, in no lens. */
 export const RIG = new Set(['scenarios', 'settings', 'present']);
-export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents', payroll: 'payroll-months' };
+export const LENS_HOME: Record<LensId, string> = { tasama: 'tasama-portfolio', my: 'my-home', team: 'team-approvals', hr: 'hr-inbox', control: 'agents', payroll: 'payroll-months', fin: 'costs-reports' };
 /** A lens's landing for this persona: the joiner starts on Onboarding, the CHRO on the Overview. */
 export const lensHome = (l: LensId, p?: { key: string } | null): string => (l === 'my' && p?.key === 'joiner' ? 'my-onboarding' : l === 'hr' && p?.key === 'chro' ? 'hr-overview' : l === 'payroll' && p?.key === 'tasama-specialist' ? 'payroll-inbox' : LENS_HOME[l]);
 /** Where a persona lands. */
-export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('payroll') ? 'payroll' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : 'my');
+export const homeLens = (p: { lenses: string[] }): LensId => (p.lenses.includes('tasama') ? 'tasama' : p.lenses.includes('payroll') ? 'payroll' : p.lenses.includes('hr') ? 'hr' : p.lenses.includes('team') ? 'team' : p.lenses.includes('fin') ? 'fin' : 'my');
 /** Where a persona lands. */
 export const homeScreen = (p: { key: string; lenses: string[] }): string => lensHome(homeLens(p), p);
 
