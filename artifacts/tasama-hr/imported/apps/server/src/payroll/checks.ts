@@ -193,6 +193,13 @@ export async function applyAnswer(c: PoolClient, req: { id: number; payload: any
     const note = (await c.query(`SELECT reason FROM layer.approvals WHERE request_id=$1 AND decision='APPROVED' ORDER BY decided_at DESC LIMIT 1`, [req.id])).rows[0]?.reason;
     return `${approverName} answered Tasama on ${p.person_name}${note ? `: ${note}` : '.'}`;
   }
+  // A salary the bank returned (design/payroll-addendum.md §20): the new IBAN goes on the record and the line is paid again.
+  if (p.kind === 'PAYMENT_RETURNED') {
+    const { correctIban } = await import('./payments.js');
+    const r = await correctIban(c, p, approverName);
+    await c.query(`UPDATE layer.requests SET result = result || $2::jsonb WHERE id=$1`, [req.id, JSON.stringify({ followon: r.ref })]);
+    return `${approverName} gave ${p.person_name}'s new IBAN at ${r.bank}; Tahweel opened the follow-up payment for SAR ${fmt(Number(p.amount))}.`;
+  }
   const per = (await c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
   const ps = d10(per.start_date);
   if (p.kind === 'GOSI_REGISTRATION') {

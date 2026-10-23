@@ -243,6 +243,12 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('write', 'SYSTEM', 'connector', 'Write the approved run to the master', 'كتابة الرواتب المعتمدة في السجل الرئيسي', 'The approved run', 'Payroll results in Oracle HCM or Tasama HR', 'None'),
       S('payslips', 'AGENT', 'wathiqa', 'Issue every payslip', 'إصدار قسائم الرواتب', 'The written run', 'A payslip for each person, and a notification', 'None'),
     ] },
+  { id: 'WF-33', num: 33, name: 'Bank file, WPS and Mudad', name_ar: 'ملف البنك وحماية الأجور ومدد', stage: 'Pay', coverage: 'implemented', trigger: 'The client\'s CHRO approved the run', agents: ['tahweel'], decision_by: 'Tasama\'s payroll lead sends the file; the client\'s finance approves the payment in the bank',
+    steps: [
+      S('build', 'AGENT', 'tahweel', 'Write the bank file and the WPS file and check them before release', 'إعداد ملف البنك وملف حماية الأجور وفحصهما قبل الإرسال', 'The approved run, the paying bank and its format', 'The bank file, the WPS file, and the release checks', 'Whether anything stops the file'),
+      S('send', 'HUMAN', 'TASAMA_PAYROLL_LEAD', 'The payroll lead sends the file to the bank', 'قائدة الرواتب ترسل الملف إلى البنك', 'The files and their checks', 'The file sent, or held with a reason', 'Send to the bank'),
+      S('upload', 'SYSTEM', 'bank', 'The file reaches the client\'s bank portal for its finance team to approve', 'يصل الملف إلى بوابة البنك لدى العميل ليعتمده فريق المالية', 'The bank file', 'The file in the portal, waiting for the client\'s approvals', 'None'),
+    ] },
   { id: 'WF-35', num: 35, name: 'Back pay and off-cycle', name_ar: 'الفروقات والدفعات خارج الدورة', stage: 'Pay', coverage: 'implemented', trigger: 'A change dated in a closed month, or an off-cycle request', agents: ['hisab'], decision_by: 'Payroll specialist adds it to the open run; the run is validated and approved as usual',
     steps: [
       S('calc', 'AGENT', 'hisab', 'Recalculate each closed month under the change', 'إعادة احتساب كل شهر مغلق بالتغيير', 'The change, what was paid each month, the policy', 'Back pay per month, GOSI on it, and the provisions re-measured', 'Which months the change reaches'),

@@ -145,7 +145,7 @@ async function writeMaster(c: PoolClient, cfg: ClientConfig, st: any, anchor: Da
       work_email: x.email || `${f.toLowerCase()}.${x.no.toLowerCase()}@${cfg.key}.example`, mobile: x.mobile || '—',
       national_id_masked: `${String(x.nationalId).slice(0, 1) || 'X'}XXXXXX${String(x.nationalId).slice(-3)}`, national_id_expiry: x.idExpiry ?? d10(new Date(anchor.getTime() + 730 * DAY)),
       passport_masked: x.passport ? `${String(x.passport).slice(0, 1)}XXXX${String(x.passport).slice(-3)}` : 'X', passport_expiry: x.passportExpiry ?? x.idExpiry ?? d10(new Date(anchor.getTime() + 1460 * DAY)),
-      iqama_expiry: x.isSaudi ? null : x.idExpiry, bank_name: x.bank || '—', iban_masked: x.iban ? mask(x.iban, x.held !== 'IBAN_CHECK') : '—', photo_seed: seed(x.no),
+      iqama_expiry: x.isSaudi ? null : x.idExpiry, bank_name: x.bank || '—', iban_masked: x.iban ? mask(x.iban, x.held !== 'IBAN_CHECK') : '—', photo_seed: seed(x.no), iban: String(x.iban ?? '').replace(/\s/g, '') || null, national_id: String(x.nationalId ?? '') || null,
     };
   });
   const ids = await insertMany(c, 'hcm.persons', personRows, 'id');

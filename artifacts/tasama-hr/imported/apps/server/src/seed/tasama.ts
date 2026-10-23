@@ -5,6 +5,7 @@
  * the clients' own data. Illustrative and deterministic.
  */
 import { pool, withClient, insertMany } from '../db.js';
+import { BANKS, FORMATS, CLIENT_BANKS, bankByCode, formatByKey, syntheticIban } from '../domain/banks.js';
 import { CLIENTS, slasFor } from '../domain/clients.js';
 import { rng } from '../domain/rng.js';
 import { addDays, addMonths, iso, monthStart, parse, round2 } from '../domain/rules.js';
@@ -26,6 +27,11 @@ export const STAFF: [string, string, string, string, string[], number, [string, 
   ['Sara Al Otaibi', 'سارة العتيبي', 'Recruitment Administrator', 'منسقة توظيف', ['RECRUITMENT'], 19000, [['roshn', 0.3], ['riyadhair', 0.3]]],
   ['Khalid Mansour', 'خالد منصور', 'Recruitment Administrator', 'منسق توظيف', ['RECRUITMENT'], 18500, [['riyadhair', 0.4], ['seven', 0.3]]],
 ];
+
+function withClientSync(key: string) {
+  const set = CLIENT_BANKS[key]; const bank = bankByCode(set.bank)!;
+  return { bank, format: formatByKey(set.format), debitIban: syntheticIban(`${key}:payroll-account`, bank.name, '0001') };
+}
 
 export async function seedTasama(log: (s: string) => void = console.log) {
   const today = new Date();
@@ -92,6 +98,10 @@ export async function seedTasama(log: (s: string) => void = console.log) {
     void invoiceLines;
   }
   setClock(null);
+  // The bank registry, the formats and each client's paying bank (§20).
+  await insertMany(pool, 'tasama.banks', BANKS.map((b) => ({ code: b.code, name: b.name, name_ar: b.name_ar, sarie: b.sarie, iban_code: b.ibanCode, channel: b.channel })));
+  await insertMany(pool, 'tasama.bank_formats', FORMATS.map((f) => ({ key: f.key, name: f.name, name_ar: f.name_ar, basis: f.basis, illustrative: f.illustrative, definition: JSON.stringify({ type: f.type, encoding: f.encoding, extension: f.extension, headerRow: f.headerRow ?? false, header: f.header, line: f.line, footer: f.footer }) })));
+  await insertMany(pool, 'tasama.client_banks', CLIENTS.map((c) => { const b = withClientSync(c.key); return { client_key: c.key, bank_code: b.bank.code, format_key: b.format.key, debit_iban: b.debitIban, from_period: '2000-01' }; }));
   const found = await raqeebScan();
   await pool.query(`INSERT INTO tasama.meta (key, value) VALUES ('seeded_at', $1)`, [JSON.stringify(new Date().toISOString())]);
   log(`tasama seeded: ${CLIENTS.length} clients, ${STAFF.length} delivery staff, ${found.length} SLA escalations`);

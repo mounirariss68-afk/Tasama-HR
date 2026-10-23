@@ -71,8 +71,8 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: sixteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 16, `${d.length}`]; });
-  await check('API: twenty-five agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 25 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
+  await check('API: seventeen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 17, `${d.length}`]; });
+  await check('API: twenty-six agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 26 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
   await check('API: the server refuses a decision that is not yours', async () => {
@@ -185,6 +185,44 @@ async function main() {
       `riyadhair ${ra.run?.state}, ${written[0].n} written, ${ra.run?.payslips} payslips; redsea ${rs.run?.state}; causes ${Math.round(sum)} vs change ${Math.round(dx.thisNet - dx.lastNet)}`];
   });
 
+  // Payments (§20): the bank file is the approved net pay, the WPS file matches it, the release checks hold.
+  await check('Payments: every bank file total is the sum of its lines and the month\'s net pay, for every client and month (§20)', async () => {
+    const bad: string[] = []; let pays = 0;
+    for (const k of clients) {
+      const rows = (await pool.query(`SELECT p.id, p.period_name, p.total, p.kind, (SELECT COALESCE(sum(amount),0) FROM layer_${k}.payment_lines l WHERE l.payment_id=p.id) lines,
+          (SELECT COALESCE(sum(pr.net),0) FROM hcm_${k}.payroll_results pr JOIN hcm_${k}.payroll_periods per ON per.id=pr.period_id WHERE per.period_name=p.period_name AND pr.net > 0) net
+        FROM layer_${k}.payments p`)).rows;
+      for (const r of rows) { pays++; if (Math.abs(Number(r.total) - Number(r.lines)) > 0.005 || (r.kind === 'REGULAR' && Math.abs(Number(r.total) - Number(r.net)) > 0.005)) bad.push(`${k} ${r.period_name}`); }
+    }
+    return [pays >= 40 && !bad.length, `${pays} payments; ${bad.length ? 'off: ' + bad.slice(0, 4).join(', ') : 'all equal'}`];
+  });
+  await check('Payments: the WPS file matches the bank file line by line and in total, in every format (§20)', async () => {
+    const bad: string[] = []; let n0 = 0; const formats = new Set<string>();
+    for (const k of clients) {
+      const ids = (await pool.query(`SELECT id, format_key FROM layer_${k}.payments ORDER BY id DESC LIMIT 2`)).rows;
+      for (const r of ids) { n0++; formats.add(r.format_key); const d = await api(`/payroll/payments/${k}/${r.id}`, 'tasama-lead', k); if (!d.match.ok) bad.push(`${k}#${r.id}`); }
+    }
+    return [n0 >= 10 && formats.size === 3 && !bad.length, `${n0} payments in ${formats.size} formats; ${bad.length ? 'differ: ' + bad.join(', ') : 'all match'}`];
+  });
+  await check('Payments: every seeded employee has an IBAN that passes its check digits', async () => {
+    const { ibanValid } = await import('../apps/server/src/domain/banks.ts');
+    let bad = 0, all = 0;
+    for (const k of clients) for (const r of (await pool.query(`SELECT iban FROM hcm_${k}.persons WHERE iban IS NOT NULL`)).rows) { all++; if (!ibanValid(r.iban)) bad++; }
+    return [all > 800 && bad === 0, `${all} IBANs, ${bad} invalid`];
+  });
+  await check('Payments: Riyadh Air\'s approved run waits on the payroll lead to send its file, every release check passing (D7)', async () => {
+    const p = await one(`SELECT p.*, to_char(p.value_date,'YYYY-MM-DD') vd, to_char(p.pay_date,'YYYY-MM-DD') pd, r.status, r.current_step, r.waiting_on_role FROM layer_riyadhair.payments p JOIN layer_riyadhair.requests r ON r.id=p.request_id WHERE p.kind='REGULAR' ORDER BY p.id DESC LIMIT 1`);
+    const failing = (p?.checks ?? []).filter((x: any) => !x.ok).length;
+    const dow = new Date(`${p?.vd}T00:00:00Z`).getUTCDay();
+    return [p?.state === 'BUILT' && p?.current_step === 'send' && p?.waiting_on_role === 'TASAMA_PAYROLL_LEAD' && failing === 0 && ![5, 6].includes(dow) && p.vd <= p.pd, `${p?.state}, step ${p?.current_step}, ${failing} failing, value date ${p?.vd} for pay day ${p?.pd}`];
+  });
+
+  await check('Payments: a new IBAN is accepted only when its check digits pass (D7, §20)', async () => {
+    const { ibanValid, syntheticIban } = await import('../apps/server/src/domain/banks.ts');
+    const good = syntheticIban('check', 'Al Rajhi Bank', '4417');
+    const bad = good.slice(0, 10) + String((Number(good[10]) + 1) % 10) + good.slice(11);
+    return [ibanValid(good) && !ibanValid(bad), `${good} passes; one digit changed fails`];
+  });
   await check('Onboarding: Intiqal reads Soudah\'s files into the seven lanes, with section 19\'s fifteen issues (§13, §19)', async () => {
     const exp = JSON.parse(readFileSync(new URL('./new-client/expected.json', import.meta.url), 'utf8'));
     const H = { 'x-persona': 'tasama-lead', 'content-type': 'application/json' };

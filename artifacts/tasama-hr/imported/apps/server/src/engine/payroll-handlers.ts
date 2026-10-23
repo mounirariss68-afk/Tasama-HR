@@ -24,6 +24,8 @@ import { draftRun, engineInputs } from '../payroll/run.js';
 import { backPay, runPayroll } from '../domain/payroll/engine.js';
 import { external } from '../hcm/connector.js';
 import { addDays, pol } from '../domain/rules.js';
+import { buildPayment, paymentFiles, markSent, financeApprover, startPayment } from '../payroll/payments.js';
+import { bankByCode } from '../domain/banks.js';
 
 type H = (h: HCtx) => Promise<StepOutcome>;
 type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; personId: number } | null>;
@@ -132,7 +134,37 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     const n = await issuePayslips(h.c, h.req.id);
     await h.setResult({ payslips: n });
     await h.trail({ act: 'NOTIFY', summary: `Issued ${n} payslips; each employee was told, and My HR › Pay shows every line with the rule behind it.` });
+    // The approved run goes on to Tahweel for the bank file and the WPS file (§20).
+    const run = (await h.c.query(`SELECT id FROM layer.pay_runs WHERE request_id=$1`, [h.req.id])).rows[0];
+    await startPayment(h.c, h.req.payload.period, run?.id ?? null, h.req.requester_person_id);
     return { status: 'DONE', decision: `${n} payslips` };
+  },
+
+  // ---------------------------------------------------------- WF-33 bank file, WPS and Mudad (§20)
+  'WF-33:build': async (h) => {
+    const p = await buildPayment(h.c, { period: h.req.payload.period, runId: h.req.payload.run_id ?? null, requestId: h.req.id, by: 'Tahweel', kind: h.req.payload.kind, followUpOf: h.req.payload.follow_up_of, only: h.req.payload.only });
+    const f = (await paymentFiles(h.c, p.id))!;
+    const sar = (n: number) => `SAR ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const vd = new Date(`${p.valueDate}T00:00:00Z`).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+    // Sent two working days before the value date, so the client's finance can approve it in the bank (§20).
+    let due = new Date(`${p.valueDate}T09:00:00Z`); for (let n = 0; n < 2;) { due = new Date(due.getTime() - 864e5); if (![5, 6].includes(due.getUTCDay())) n++; }
+    await h.patch({ payment_id: p.id, file_ref: p.fileRef, due: due.toISOString() });
+    await h.setResult({ payment: { id: p.id, total: p.total, lines: p.lines, valueDate: p.valueDate, payDate: p.payDate, moved: p.moved, bank: p.bank.name, bank_ar: p.bank.name_ar, format: p.format.name, format_ar: p.format.name_ar, illustrative: p.format.illustrative, checks: p.checks, blocked: p.blocked, match: f.match.ok } });
+    await h.trail({ act: 'PREPARE', summary: `Wrote ${p.lines} lines, ${sar(p.total)}, as the ${p.format.name}${p.format.name.includes(p.bank.name) ? '' : ` for ${p.bank.name}`}, and the WPS file from the same lines; the two match ${f.match.ok ? 'line by line and in total' : 'except for ' + f.match.differ.length + ' lines'}. Value date ${vd}. ${p.blocked ? `${p.blocked} of ${p.checks.length} release checks fail.` : `All ${p.checks.length} release checks pass.`}`,
+      summary_ar: `أُعدّ ${p.lines} سطرًا بمبلغ ${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })} ريال بصيغة ${p.bank.name_ar}، وملف حماية الأجور من الأسطر نفسها.` });
+    return { status: 'DONE', decision: p.blocked ? `${p.blocked} checks fail` : 'Ready to send', outputs: { payment_id: p.id },
+      recommend: p.blocked ? { verdict: 'REVIEW', summary: `hold the file: ${p.checks.filter((k) => !k.ok).map((k) => k.text.charAt(0).toLowerCase() + k.text.slice(1)).join('; ')}`, summary_ar: 'احتجز الملف حتى تُعالج الفحوصات' }
+        : { verdict: 'APPROVE', summary: 'send it: every release check passes and the WPS file matches the bank file line by line', summary_ar: 'أرسله: تجتاز جميع فحوصات الإرسال ويتطابق ملف حماية الأجور مع ملف البنك سطرًا بسطر' } };
+  },
+  'WF-33:upload': async (h) => {
+    const p = (await h.c.query(`SELECT * FROM layer.payments WHERE id=$1`, [h.req.payload.payment_id])).rows[0];
+    const bank = bankByCode(p.bank_code)!;
+    await external(h.conn, 'BANK', 'POST', `/payroll/files/${p.file_ref}`, `Upload ${p.file_name} to ${bank.name}'s corporate portal`);
+    const who = h.req.payload.sent_by_name ?? 'Sharifa AlMousa';
+    await markSent(h.c, p.id, who);
+    const fin = await financeApprover(h.c);
+    await h.trail({ act: 'WRITE', summary: `${p.file_name} is in ${bank.name}'s portal, sent by ${who}. ${fin} approves the payment there; the bank reports the approvals, the feedback file and the signed WPS file back to Payments.`, actor_type: 'SYSTEM', actor_name: bank.name, autonomy: null });
+    return { status: 'DONE', decision: 'In the bank portal' };
   },
 
   // ---------------------------------------------------------- WF-35 back pay (§18)

@@ -3,6 +3,7 @@
  * Keyed `WF-xx:stepKey`. Human steps are resolved to a person by WHO.
  */
 import type { PoolClient } from 'pg';
+import { syntheticIban, maskIban } from '../domain/banks.js';
 import type { HCtx, Req, StepOutcome } from './core.js';
 import type { StepDef } from '../domain/workflows.js';
 import { atom, external, read, write } from '../hcm/connector.js';
@@ -668,7 +669,7 @@ export const HANDLERS: Record<string, H> = {
       });
       if (f.code === 'UNPAID_LEAVE_NOT_DEDUCTED') await write(h.conn, 'POST', 'elementEntries', `Unpaid leave deduction for ${f.person_number}`, async () => h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'UNPAID_LEAVE',$3,$4,$5,'RAFEEQ',$6)`, [`DEMO-EE-F${(await h.c.query(`SELECT nextval('hcm.misc_seq') n`)).rows[0].n}`, f.person_id, f.amount, per.start_date, per.end_date, h.req.ref]));
       if (f.code === 'DEDUCTION_CAP') await write(h.conn, 'PATCH', 'elementEntries', `Reschedule advance recovery for ${f.person_number}`, async () => h.c.query(`UPDATE hcm.element_entries SET amount = amount - $2, effective_end = (effective_end + interval '3 months')::date WHERE person_id=$1 AND element_code='ADVANCE_REC' AND effective_end >= $3`, [f.person_id, Math.ceil(f.amount / 50) * 50, per.start_date]));
-      if (f.code === 'MUDAD_IBAN') await h.c.query(`UPDATE hcm.persons SET iban_masked='SA03 •••• •••• •••• •••• 2210', bank_name=$2 WHERE id=$1`, [f.person_id, client().bank[0]]);
+      if (f.code === 'MUDAD_IBAN') { const iban = syntheticIban(`${client().key}:verified:${f.person_id}`, client().bank[0], '2210'); await h.c.query(`UPDATE hcm.persons SET iban_masked=$3, iban=$4, bank_name=$2 WHERE id=$1`, [f.person_id, client().bank[0], maskIban(iban), iban]); }
     }
     const unresolved = findings.filter((x) => ['BLOCKER', 'HIGH'].includes(x.severity) && !fixes.includes(x.id) && !(h.req.payload.accepted ?? {})[x.id]);
     if (unresolved.length) {

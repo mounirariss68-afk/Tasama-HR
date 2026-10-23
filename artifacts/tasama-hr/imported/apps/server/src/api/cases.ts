@@ -1,5 +1,6 @@
 /** Cases: create, read, decide; the inbox; the lifecycle board. */
 import { Router } from 'express';
+import { ibanValid, bankByIban } from '../domain/banks.js';
 import { pool, tx, currentClient } from '../db.js';
 import { startCase, decide, type StartIn } from '../engine/core.js';
 import { recordIssue } from '../tasama/basira.js';
@@ -141,6 +142,22 @@ cases.post('/requests/:ref/decide', async (req, res) => {
       if (r.payload?.prepared_by === p.key) return res.status(403).json({ error: `${p.display_name} prepared this run, so someone else validates it.` });
       req.body.edits = { ...(req.body.edits ?? {}), validated_by_name: p.display_name };
     }
+  }
+  // WF-36, a returned salary (§20): the new IBAN must pass its check digits and differ from the one returned.
+  if (r.workflow_id === 'WF-36' && r.payload?.kind === 'PAYMENT_RETURNED' && req.body.decision === 'APPROVED') {
+    const iban = String(req.body.edits?.new_iban ?? '').replace(/\s/g, '').toUpperCase();
+    if (!ibanValid(iban)) return res.status(400).json({ error: 'The new IBAN does not pass its check digits.' });
+    if (!bankByIban(iban)) return res.status(400).json({ error: 'The new IBAN names a bank that is not in the registry.' });
+    const old = (await pool.query(`SELECT iban FROM hcm.persons WHERE id=$1`, [r.payload.person_id])).rows[0]?.iban;
+    if (old === iban) return res.status(400).json({ error: 'This is the IBAN the bank returned.' });
+    req.body.edits = { ...(req.body.edits ?? {}), new_iban: iban };
+  }
+  // WF-33 (§20): a file with a failing release check is not sent; the sender is on the record.
+  if (r.workflow_id === 'WF-33' && r.current_step === 'send' && req.body.decision === 'APPROVED') {
+    const pay = (await pool.query(`SELECT checks FROM layer.payments WHERE id=$1`, [r.payload?.payment_id])).rows[0];
+    const bad = (pay?.checks ?? []).filter((k: any) => !k.ok);
+    if (bad.length) return res.status(400).json({ error: `${bad.length} release ${bad.length === 1 ? 'check fails' : 'checks fail'}: ${bad[0].text}.` });
+    req.body.edits = { ...(req.body.edits ?? {}), sent_by_name: p.display_name };
   }
   const behalfName = onBehalf ? (await pool.query('SELECT display_name FROM hcm.persons WHERE id=$1', [r.waiting_on_person_id])).rows[0]?.display_name ?? r.waiting_on_role : '';
   try {

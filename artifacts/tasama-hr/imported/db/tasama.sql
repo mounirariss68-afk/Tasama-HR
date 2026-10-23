@@ -238,3 +238,30 @@ CREATE TABLE tasama.onboarding_files (
   added_at       timestamptz NOT NULL DEFAULT now(),
   UNIQUE (onboarding_id, path)
 );
+
+-- The bank registry and the file formats, as data (design/payroll-addendum.md §20, PAY-01 to PAY-03).
+CREATE TABLE tasama.banks (
+  code       text PRIMARY KEY,
+  name       text NOT NULL,
+  name_ar    text NOT NULL,
+  sarie      text NOT NULL,           -- SARIE / SWIFT id, to confirm with the bank
+  iban_code  text NOT NULL,           -- the two digits after the check digits in a Saudi IBAN
+  channel    text NOT NULL
+);
+CREATE TABLE tasama.bank_formats (
+  key          text PRIMARY KEY,
+  name         text NOT NULL,
+  name_ar      text NOT NULL,
+  basis        text NOT NULL,         -- where the layout comes from
+  illustrative boolean NOT NULL DEFAULT false,
+  definition   jsonb NOT NULL         -- type, encoding, header, line and footer fields
+);
+-- Each client's paying bank and format; a change applies from the next run (PAY-04).
+CREATE TABLE tasama.client_banks (
+  client_key   text NOT NULL,
+  bank_code    text NOT NULL,
+  format_key   text NOT NULL,
+  debit_iban   text NOT NULL,
+  from_period  text NOT NULL,
+  PRIMARY KEY (client_key, from_period)
+);

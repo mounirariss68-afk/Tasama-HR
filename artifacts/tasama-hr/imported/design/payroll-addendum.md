@@ -999,3 +999,121 @@ Two salary differences between a contract and the master data are explained by p
 
 Phase 5b is done.
 
+
+## 20. Phase 6: every approved run leaves as the paying bank's file and a WPS file that match to the halala
+
+*Added 23 October 2026, at the start of phase 6. It fills in sections 3, 4, 6, 7, 8 and 9 for payments, and PAY-01 to PAY-13 in the requirements.*
+
+### Banks and formats are data
+
+- **The bank registry** (`tasama.banks`) holds the eleven banks in the requirements. For each bank it holds:
+  - its name in both languages;
+  - its SARIE id;
+  - the two digits that identify it inside an IBAN;
+  - its upload channel.
+
+  The codes are the published ones and are marked "to confirm with the bank".
+- **A format** (`tasama.bank_formats`) is a definition, not code. It lists:
+  - the file type (tab-separated, CSV or fixed-width);
+  - the encoding;
+  - the header, line and footer fields, each with its source, width, padding and number or date format.
+
+  One builder writes every format. Three formats ship:
+
+  | Format | Where it comes from |
+  |---|---|
+  | WPS wages file | The Ministry's public specification: tab-separated UTF-8, a header with the totals, one line per employee |
+  | Tasama bank sheet | The Bank File sheet of the July 2025 template: employee, ID, IBAN, bank, basic, housing, other earnings, deductions, net |
+  | Saudi National Bank payroll upload | Fixed-width. **Illustrative** until Tasama supplies the bank's template, and labelled so on the screen |
+
+- **Each client has a paying bank and a format** (`tasama.client_banks`, PAY-04). A change applies from the next run.
+
+  | Client | Paying bank | Format |
+  |---|---|---|
+  | ROSHN | Al Rajhi Bank | Tasama bank sheet |
+  | Riyadh Air | Saudi National Bank | Saudi National Bank payroll upload |
+  | Red Sea Global | Riyad Bank | Tasama bank sheet |
+  | SEVEN | Alinma Bank | WPS wages file |
+  | Saudi Coffee | Bank Albilad | WPS wages file |
+  | A client taken on from Excel | The main bank on its Company tab | WPS wages file |
+
+- **Employees need a full IBAN and ID number in the file.** `hcm.persons` gains `iban` and `national_id`. Both are synthetic and generated from the seed:
+  - each IBAN carries the employee's bank code and valid check digits;
+  - the screens keep showing only the masked forms.
+
+  `SEED_VERSION` goes to 10.
+
+### Tahweel builds, checks and follows each payment
+
+- **Tables.** `layer.payments` holds one row per file sent: run, kind (regular or follow-up), bank, format, file reference, value date, totals and the state of each stage. `layer.payment_lines` holds one row per employee: IBAN, bank, amount and status, with a reason when the line fails.
+- **Before release** (PAY-06), Tahweel checks that:
+  - the file total equals the sum of the lines and the run's net pay;
+  - the file reference has not been used before;
+  - every IBAN passes its check digits and names a bank in the registry;
+  - no IBAN is paid twice;
+  - the value date is a working day (Sunday to Thursday) on or before pay day.
+
+  A pay day on a Friday or Saturday moves the value date to the Thursday before, and the check says so. Riyadh Air's 31 October is a Saturday, so it pays on Thursday 29 October.
+- **The WPS file is built from the same lines** and compared with the bank file, per employee and in total (PAY-10).
+- **WF-33 Bank file, WPS and Mudad**, one case per payment:
+
+  | Step | Who | What happens |
+  |---|---|---|
+  | build | Tahweel | Builds the bank file and the WPS file and runs the release checks |
+  | send | Payroll lead | Sends the file to the bank |
+  | upload | Bank (simulated) | The file reaches the bank portal (`external()`) |
+
+  The client's finance team then approves in the bank portal, outside the platform (PAY-07). The bank's reports come back to the payment and move its stages:
+  - approved in the portal;
+  - the feedback file, with each line paid or failed;
+  - the signed WPS file;
+  - the Mudad acknowledgement.
+
+  In the demo the Director plays these reports.
+- **History.** Every closed month of every client gets its payment: paid, WPS accepted, Mudad acknowledged. On the demo day Riyadh Air's approved run has no payment yet.
+
+- **Tahweel is the 26th agent.** It is A2: it builds, checks and follows, and never sends or releases a payment.
+- **The bank is a new external system** in the integration log (`external()` gains `BANK`, shown as "Bank portals (simulated)").
+- **Sending is guarded on the server.** A file with a failing release check cannot be sent. Only the payroll lead sends. The case is due two working days before the value date, so the client's finance has time to approve it in the bank.
+
+### The Payments screen
+
+- **Hero:** lines not yet paid this month, across clients.
+- **The one visual:** a funnel per client: sent, approved in the bank, paid, accepted in WPS.
+- **A payment's record** shows:
+  - the release checks;
+  - the bank file and the WPS file side by side, each downloadable;
+  - the lines, with any that failed at the top.
+
+### The returned salary, the follow-up and Mudad, as built in the second session
+
+- **The bank's reports are simulated and move the payment**, each dated no earlier than it could happen:
+  - the approval in the portal, with the client finance controller's name;
+  - the feedback file on the value date;
+  - the signed WPS file three days later;
+  - Mudad's acknowledgement the day after that.
+- **A returned salary is followed on its own** (edge 10). The bank's feedback file returns one Riyadh Air salary: the account at the employee's bank is closed. Then:
+  1. The line is marked returned, with the bank's reason. The other 218 are paid.
+  2. Tahweel asks the client's HR operations for the employee's new IBAN. It does this through WF-36, kind `PAYMENT_RETURNED`, the same kind of question as a GOSI date.
+  3. The new IBAN is refused if it fails its check digits, names a bank outside the registry, or is the IBAN that came back. The check runs on the server, before the case moves.
+  4. The answer updates the employee record and opens a follow-up WF-33 for that one line. Its value date is the first working day after the original file's value date.
+  5. The payroll lead sends it and the client approves it in the bank like any payment. Once it is paid, the original line shows "Paid in the follow-up".
+- **The signed WPS file** lists 218 salaries paid and one returned, which matches what was paid. The follow-up has its own WPS file. Both go to Mudad.
+- **Amin** raises two alerts:
+  - a returned salary not yet paid again (for HR operations);
+  - a paid month Mudad has not acknowledged.
+
+  The open month's "due through Mudad" alert clears once Mudad acknowledges the month.
+- **The Payments record** gains a strip that shows when each stage happened and who acted. A month with a returned salary opens on its lines, the returned one first.
+- **D7, Bank file, WPS and Mudad** (Riyadh Air), seven steps:
+  1. Tahweel's file is ready and every release check passes.
+  2. Sharifa sends it.
+  3. The client's finance approves it in the bank.
+  4. The feedback file: one salary comes back.
+  5. HR operations gives the new IBAN.
+  6. Sharifa sends the follow-up.
+  7. Paid, matched in WPS, acknowledged by Mudad.
+
+  Starting D7 undoes an earlier play: it restores the employee's IBAN and rebuilds the file from the approved run, so D7 plays again without a Reset.
+
+**Effort:** two Claude sessions, as planned. Phase 6 is done.

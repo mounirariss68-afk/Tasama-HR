@@ -13,6 +13,8 @@ import { draftRun, provisionHistory } from '../payroll/run.js';
 import { runChecks, reschedule, ask } from '../payroll/checks.js';
 import { monthView } from '../payroll/inputs.js';
 import { currentRun, frozenRows } from '../payroll/runs.js';
+import { payingBank, paymentFiles, valueDateFor } from '../payroll/payments.js';
+import { bankByCode } from '../domain/banks.js';
 import { explain } from '../payroll/differences.js';
 import { tasamaTrail } from '../tasama/service.js';
 import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
@@ -345,4 +347,72 @@ payroll.get('/attendance/mine', async (req, res) => {
 payroll.post('/attendance/mine/justify', async (req, res) => {
   const p = await personaOf(req);
   try { res.json(await justify(pool, p.person_id, String(req.body?.day), String(req.body?.text ?? '').slice(0, 500))); } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/* ------------------------------------------------------------------ Payments (§20, WF-33) */
+
+/** Every client's month from approved run to WPS: what is sent, approved in the bank, paid and accepted. */
+payroll.get('/payroll/payments', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const rows = await forEachClient(async (key) => {
+    const c = clientByKey(key)!;
+    const per = (await pool.query(`SELECT period_name, to_char(pay_date,'YYYY-MM-DD') pay FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const run = await currentRun(pool);
+    const pb = await payingBank(per?.period_name ?? '9999-12', key);
+    const pays = (await pool.query(`SELECT p.*, to_char(p.value_date,'YYYY-MM-DD') vd, r.ref, r.status case_status, r.current_step,
+        (SELECT count(*)::int FROM layer.payment_lines l WHERE l.payment_id=p.id AND l.status='PAID') paid,
+        (SELECT count(*)::int FROM layer.payment_lines l WHERE l.payment_id=p.id AND l.status='FAILED') failed
+      FROM layer.payments p LEFT JOIN layer.requests r ON r.id=p.request_id WHERE p.period_name=$1 ORDER BY p.id`, [per?.period_name])).rows;
+    const history = (await pool.query(`SELECT period_name, state, wps_state, mudad_state, lines, total, to_char(value_date,'YYYY-MM-DD') vd FROM layer.payments WHERE period_name < $1 AND kind='REGULAR' ORDER BY period_name DESC LIMIT 6`, [per?.period_name ?? '9999'])).rows;
+    const approved = run && run.state === 'APPROVED' ? { people: run.people, net: Number(run.totals?.net ?? 0) } : null;
+    const v = per ? valueDateFor(per.pay) : null;
+    return { key, short: c.short, name_ar: c.name_ar, period: per?.period_name ?? null, pay: per?.pay ?? null, valueDate: v?.valueDate ?? null, moved: v?.moved ?? false,
+      bank: { name: pb.bank.name, name_ar: pb.bank.name_ar }, format: { name: pb.format.name, name_ar: pb.format.name_ar, illustrative: pb.format.illustrative },
+      run: run ? { state: run.state, people: run.people, net: Number(run.totals?.net ?? 0) } : null, approved,
+      payments: pays.map((x: any) => ({ id: x.id, kind: x.kind, ref: x.ref, case_status: x.case_status, step: x.current_step, state: x.state, wps: x.wps_state, mudad: x.mudad_state, lines: x.lines, total: Number(x.total), paid: x.paid, failed: x.failed, valueDate: x.vd, blocked: (x.checks ?? []).filter((k: any) => !k.ok).length })),
+      history: history.map((h: any) => ({ period: h.period_name, state: h.state, wps: h.wps_state, mudad: h.mudad_state, lines: h.lines, total: Number(h.total), valueDate: h.vd })) };
+  });
+  res.json({ clients: rows });
+});
+
+/** One payment: its checks, its lines (failed first) and the two files side by side. */
+payroll.get('/payroll/payments/:client/:id', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const out = await withClient(c.key, async () => {
+    const f = await paymentFiles(pool, Number(req.params.id));
+    if (!f) return null;
+    const lines = (await pool.query(`SELECT l.*, p.display_name_ar FROM layer.payment_lines l LEFT JOIN hcm.persons p ON p.id=l.person_id WHERE l.payment_id=$1 ORDER BY (l.status IN ('FAILED','REPAID')) DESC, l.employee_no`, [f.payment.id])).rows;
+    const head = (t: string, n = 6) => t.split(/\r?\n/).slice(0, n).join('\n');
+    const followUps = (await pool.query(`SELECT p.id, p.state, p.lines, p.total, to_char(p.value_date,'YYYY-MM-DD') vd, p.wps_state, p.mudad_state, r.ref, r.status FROM layer.payments p LEFT JOIN layer.requests r ON r.id=p.request_id WHERE p.follow_up_of=$1 ORDER BY p.id`, [f.payment.id])).rows
+      .map((x: any) => ({ id: x.id, state: x.state, lines: x.lines, total: Number(x.total), valueDate: x.vd, wps: x.wps_state, mudad: x.mudad_state, ref: x.ref, case_status: x.status }));
+    const counts = (await pool.query(`SELECT count(*) FILTER (WHERE status='PAID')::int paid, count(*) FILTER (WHERE status='FAILED')::int failed, count(*) FILTER (WHERE status='REPAID')::int repaid FROM layer.payment_lines WHERE payment_id=$1`, [f.payment.id])).rows[0];
+    const req0 = f.payment.request_id ? (await pool.query(`SELECT ref, status, current_step FROM layer.requests WHERE id=$1`, [f.payment.request_id])).rows[0] : null;
+    return {
+      payment: { ...f.payment, total: Number(f.payment.total), value_date: f.payment.vd, case: req0 }, followUps, counts,
+      bank: { name: f.bank.name, format: f.bank.format.name, format_ar: f.bank.format.name_ar, basis: f.bank.format.basis, illustrative: f.bank.format.illustrative, preview: head(f.bank.text), lines: f.bank.text.split(/\r?\n/).filter(Boolean).length },
+      wps: { name: f.wps.name, format: f.wps.format.name, format_ar: f.wps.format.name_ar, basis: f.wps.format.basis, preview: head(f.wps.text), lines: f.wps.text.split(/\r?\n/).filter(Boolean).length },
+      match: f.match,
+      lines: lines.map((l: any) => ({ person_id: l.person_id, no: l.employee_no, name: l.name, name_ar: l.display_name_ar, iban: `${String(l.iban).slice(0, 4)} •••• ${String(l.iban).slice(-4)}`, bank: bankByCode(l.bank_code)?.name ?? '—', bank_ar: bankByCode(l.bank_code)?.name_ar ?? '—', amount: Number(l.amount), status: l.status, reason: l.reason, reason_ar: l.reason_ar })),
+    };
+  });
+  if (!out) return res.status(404).json({ error: 'No such payment' });
+  res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar }, ...out });
+});
+
+/** Downloads the bank file or the WPS file of a payment, written from its lines. */
+payroll.get('/payroll/payments/:client/:id/file/:which', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const f = await withClient(c.key, () => paymentFiles(pool, Number(req.params.id)));
+  if (!f) return res.status(404).json({ error: 'No such payment' });
+  const file = req.params.which === 'wps' ? f.wps : f.bank;
+  res.setHeader('content-type', `${file.format.type === 'CSV' ? 'text/csv' : 'text/plain'}; charset=utf-8`);
+  res.setHeader('content-disposition', `attachment; filename="${file.name}"`);
+  res.send(file.text);
 });

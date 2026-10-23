@@ -28,6 +28,9 @@ import { explain } from './payroll/differences.js';
 import { deviceExport, proposeMap, ingest, justify as justifyDay } from './attendance/service.js';
 import * as Onb from './onboarding/store.js';
 import { dropClient } from './onboarding/golive.js';
+import * as Pay from './payroll/payments.js';
+import { currentRun } from './payroll/runs.js';
+import { syntheticIban, bankByCode, bankByIban, BANKS } from './domain/banks.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
 type Text = string | ((c: Ctx) => Promise<string> | string);
@@ -45,7 +48,9 @@ type Action =
   | { kind: 'approve_invoice' }
   | { kind: 'onboard_drop' }
   | { kind: 'onboard_reveal'; upto: number | null }
-  | { kind: 'onboard_decide' };
+  | { kind: 'onboard_decide' }
+  | { kind: 'bank'; event: 'approved' | 'feedback' | 'paid'; ref: string }
+  | { kind: 'new_iban'; ref: string; as: string };
 /** One line in pane 01 of the Stage: what the person asking said, or what reached them. */
 export type Line = { by: 'person' | 'agent' | 'system'; who: string; via?: string; text: string };
 /** A record as the client's HRMS (or Tasama's own system) holds it, for pane 03. A representative screen. */
@@ -323,9 +328,54 @@ async function clearChecks(c: Ctx): Promise<string[]> {
   return done;
 }
 
+/** D7: the payment as the paying bank's portal shows it, and its follow-up. */
+async function paymentOf(ref: string | undefined) {
+  const k = ref ? await caseOf(ref) : null;
+  return k?.payload?.payment_id ? (await pool.query(`SELECT *, to_char(value_date,'YYYY-MM-DD') vd FROM layer.payments WHERE id=$1`, [k.payload.payment_id])).rows[0] : null;
+}
+async function paymentRecord(c: Ctx): Promise<Rec | null> {
+  const p = await paymentOf(c.refs.pay);
+  if (!p) return null;
+  const n = (await pool.query(`SELECT count(*) FILTER (WHERE status='PAID')::int paid, count(*) FILTER (WHERE status='FAILED')::int failed, count(*) FILTER (WHERE status='REPAID')::int repaid FROM layer.payment_lines WHERE payment_id=$1`, [p.id])).rows[0];
+  const fu = await paymentOf(c.refs.fu);
+  const bank = bankByCode(p.bank_code)!;
+  const STATE: Record<string, string> = { BUILT: 'Not sent', SENT: 'Waiting for the client\'s approvals', APPROVED: 'Approved; paying on the value date', PAID: 'Paid', PART_FAILED: 'Paid, with returned lines' };
+  return { system: `${bank.name} corporate portal (simulated)`, title: 'Payroll file', fields: [
+    ['File', p.file_name], ['Lines and total', `${p.lines} · ${sar(Number(p.total))}`], ['Value date', fmtDate(p.vd)], ['Status', STATE[p.state] ?? p.state],
+    ['Approved in the portal by', p.approved_by ?? '—'],
+    ['Feedback file', p.feedback_at ? `${n.paid + n.repaid} paid, ${n.failed + n.repaid} returned${n.repaid ? `, ${n.repaid} paid again` : ''}` : 'Not yet'],
+    ['Follow-up file', fu ? `${fu.lines} line, ${sar(Number(fu.total))} · ${STATE[fu.state] ?? fu.state}` : '—'],
+    ['Signed WPS file', p.wps_state === 'ACCEPTED' ? 'Returned and accepted' : 'Not yet'], ['Mudad', p.mudad_state === 'ACKNOWLEDGED' ? `Acknowledged, ${p.mudad_ref}` : 'Not uploaded'],
+  ] };
+}
+
+/** D7 starts from Riyadh Air's approved run with its file built and not sent; an earlier play is undone. */
+async function resetPayment() {
+  await withClient('riyadhair', async () => {
+    const per = (await pool.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0]?.period_name;
+    const run = await currentRun(pool);
+    if (!per || !run || run.state !== 'APPROVED') return;
+    await tx(async (x) => {
+      const d7 = (await x.query(`SELECT value FROM layer.meta WHERE key='d7'`)).rows[0]?.value;
+      if (d7?.person && d7?.iban) await x.query(`UPDATE hcm.persons SET iban=$2, iban_masked=$3, bank_name=$4 WHERE id=$1`, [d7.person, d7.iban, `${d7.iban.slice(0, 4)} •••• •••• •••• ${d7.iban.slice(-4)}`, d7.bank]);
+      await x.query(`DELETE FROM layer.meta WHERE key='d7'`);
+      await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE ((workflow_id='WF-33' AND payload->>'period'=$1) OR (workflow_id='WF-36' AND payload->>'kind'='PAYMENT_RETURNED')) AND status IN ('WAITING','RUNNING','ESCALATED')`, [per]);
+      await x.query(`DELETE FROM layer.payments WHERE period_name=$1`, [per]);
+      await x.query(`UPDATE hcm.payroll_results pr SET wps_status='PENDING' FROM hcm.payroll_periods p WHERE p.id=pr.period_id AND p.period_name=$1`, [per]);
+      const req = (await x.query(`SELECT requester_person_id FROM layer.requests WHERE id=$1`, [run.request_id])).rows[0];
+      await Pay.startPayment(x, per, run.id, req?.requester_person_id ?? 0);
+    });
+  });
+}
+
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
 
 const STARTERS = {
+  payment: async (_c: Ctx) => {
+    const k = (await pool.query(`SELECT ref FROM layer.requests WHERE workflow_id='WF-33' AND type='PAYMENT' AND status='WAITING' ORDER BY id DESC LIMIT 1`)).rows[0];
+    if (!k) throw new Error('No bank file is waiting to be sent');
+    return k.ref as string;
+  },
   attendance: async (c: Ctx) => {
     const f = await deviceExport(pool);
     if (!f) throw new Error('No device export for this client');
@@ -680,6 +730,32 @@ export const SCRIPTS: Scenario[] = [
       S('r5', 'Every employee has a payslip', 'لكل موظف قسيمة راتب', 'My HR › Pay', 'employee', 'my-pay', SHOW,
         () => 'The employee opens My HR › Pay: this month\'s payslip, every line with the rule behind it. Prepared by one person, validated by another, approved by the client.', undefined),
     ] },
+  { key: 'bank-file', level: 'tasama', client: 'riyadhair', shape: 'Failure handled', shape_ar: 'معالجة التعثر', title: 'Bank file, WPS and Mudad', title_ar: 'ملف البنك وحماية الأجور ومدد',
+    summary: 'Riyadh Air\'s CHRO approved the October run. Tahweel wrote it in Saudi National Bank\'s format and as a WPS file, checked both, and moved the value date off a Saturday. Sharifa sends it; the client\'s finance approves it in the bank. One salary comes back: the account is closed. HR operations gives the new IBAN, a follow-up file pays it, and the signed WPS file and Mudad close the month.',
+    summary_ar: 'اعتمد الرئيس التنفيذي للموارد البشرية في طيران الرياض رواتب أكتوبر. أعدّ تحويل الملف بصيغة البنك الأهلي السعودي وكملف لحماية الأجور وفحصهما. ترسل شريفة الملف ويعتمده فريق المالية في البنك. يعود راتب واحد لأن الحساب مغلق، فتعطي عمليات الموارد البشرية رقم الآيبان الجديد وتصرفه دفعة استكمالية، ثم يُغلق الشهر بملف حماية الأجور الموقّع ومدد.',
+    record: async (c) => paymentRecord(c),
+    steps: [
+      S('k1', 'The file is ready, and every check passes', 'الملف جاهز ويجتاز كل الفحوصات', 'Run approved by the client (WF-33)', 'tasama-lead', 'payroll-payments', { kind: 'start', starter: 'payment', as: 'pay' },
+        async (c) => { const p = await paymentOf(c.refs.pay); const ck = (p?.checks ?? []) as any[]; return `Tahweel wrote ${p?.lines ?? ''} lines, ${sar(Number(p?.total ?? 0))}, in Saudi National Bank's format and as a WPS file from the same lines. ${ck.filter((x) => x.ok).length} of ${ck.length} release checks pass: ${ck.find((x) => x.key === 'date')?.text ?? ''}.`; }, 'case:pay',
+        { chat: async () => [agent('Tahweel', 'Riyadh Air\'s file for the month is ready. The WPS file matches the bank file line by line, and every release check passes.', 'To Tasama payroll')],
+          focus: { fact: 'The bank file, the WPS file and the approved run agree to the halala before anything leaves.' } }),
+      S('k2', 'Sharifa sends it to the bank', 'شريفة ترسله إلى البنك', 'Human step: Payroll lead', 'tasama-lead', 'payroll-payments', { kind: 'decide', ref: 'pay', decision: 'APPROVED', reason: 'Checks pass; WPS file matches' },
+        async (c) => `Sharifa sent the file (${by(c, 'pay')}). It is in Saudi National Bank's portal. Tasama initiates; only the client's finance can approve a payment from Riyadh Air's account.`, 'case:pay'),
+      S('k3', 'The client\'s finance approves it in the bank', 'مالية العميل تعتمده في البنك', 'Saudi National Bank portal', 'tasama-lead', 'payroll-payments', { kind: 'bank', event: 'approved', ref: 'pay' },
+        (c) => `${c.out.approver ?? 'Riyadh Air\'s finance controller'} approved the payment in the bank portal, outside the platform. The bank reported the approval back to Payments.`, undefined,
+        { chat: (c) => [system('Saudi National Bank', `Payroll file approved by ${c.out.approver ?? 'the client\'s finance'}.`, 'Bank report')] }),
+      S('k4', 'One salary comes back', 'يعود راتب واحد', 'The bank\'s feedback file', 'tasama-lead', 'payroll-payments', { kind: 'bank', event: 'feedback', ref: 'pay' },
+        (c) => `The feedback file: every salary paid but one. ${c.out.returned?.name ?? 'One employee'}'s ${sar(c.out.returned?.amount ?? 0)} came back because the account at ${c.out.returned?.bank ?? 'their bank'} is closed. Tahweel asked Riyadh Air's HR operations for the new IBAN; nothing else is held.`, 'case:q',
+        { chat: (c) => [system('Saudi National Bank', `Feedback file: ${c.out.returned?.paid ?? 'all but one'} credited, 1 returned (account closed at ${c.out.returned?.bank ?? 'the beneficiary bank'}).`, 'Bank report'), agent('Tahweel', `${c.out.returned?.name ?? 'One salary'} came back. I have asked HR operations for the new IBAN.`, 'To Riyadh Air HR operations')],
+          focus: { fact: 'One failed line is followed on its own; the 218 paid salaries are not touched.' } }),
+      S('k5', 'HR operations gives the new IBAN', 'عمليات الموارد البشرية تعطي الآيبان الجديد', 'Human step: the client\'s HR operations', 'payroll', 'hr-inbox', { kind: 'new_iban', ref: 'q', as: 'fu' },
+        (c) => `Riyadh Air's HR operations gave ${c.out.returned?.name ?? 'the employee'}'s new IBAN${c.out.newBank ? ` at ${c.out.newBank}` : ''} from the bank letter (${by(c, 'q')}). Its check digits pass; Tahweel built a follow-up file for the one salary.`, 'case:q'),
+      S('k6', 'Sharifa sends the follow-up', 'شريفة ترسل الدفعة الاستكمالية', 'Human step: Payroll lead', 'tasama-lead', 'payroll-payments', { kind: 'decide', ref: 'fu', decision: 'APPROVED', reason: 'One line, new IBAN verified' },
+        async (c) => { const f = await paymentOf(c.refs.fu); return `Sharifa sent the follow-up (${by(c, 'fu')}): one line, ${sar(Number(f?.total ?? 0))}, value date ${fmtDate(f?.vd)}. The client approves it in the bank like any payment.`; }, 'case:fu'),
+      S('k7', 'Paid, matched in WPS, acknowledged by Mudad', 'صُرف وتطابق في حماية الأجور وأكّدته مدد', 'Bank, WPS and Mudad', 'tasama-lead', 'payroll-payments', { kind: 'bank', event: 'paid', ref: 'pay' },
+        (c) => `The follow-up is paid. The bank's signed WPS file lists ${c.out.wps ? c.out.wps.paid - 1 : 'every other'} salaries paid and one returned, which matches what was paid; the follow-up has its own. Both went to Mudad, which acknowledged them. Every Riyadh Air employee is paid for the month.`, undefined,
+        { focus: { fact: 'Every salary paid, the WPS file matching the bank, Mudad acknowledged: the month closes without chasing.' } }),
+    ] },
   { key: 'backpay-leaver', level: 'tasama', client: 'roshn', shape: 'Exception', shape_ar: 'استثناء', title: 'Back pay and a leaver', title_ar: 'الفروقات وموظف مغادر',
     summary: 'ROSHN enters a raise dated three months back, before tomorrow\'s cut-off. Hisab recalculates the three closed months and adds the back pay, with its GOSI, to this month\'s run; both provisions are re-measured. A colleague resigns after about seven years: the final settlement pays two thirds of the award, the unused leave and recovers the advance still owed. No closed month is reopened.', summary_ar: 'تُدخل روشن زيادة بأثر رجعي ثلاثة أشهر فيعيد حساب الأشهر المغلقة ويضيف الفروقات إلى رواتب هذا الشهر؛ ويستقيل زميل بعد سبع سنوات فتُدفع له ثلثا المكافأة والإجازة ويُسترد رصيد السلفة.',
     record: async (c) => backpayRecord(c),
@@ -834,6 +910,40 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
       return `${D2_HOURS} h entered for ${who.redsea.name} and ${who.saudicoffee.name}`;
     }
     case 'start': { const ref = await STARTERS[a.starter](c); c.refs[a.as] = ref; return `Opened ${ref}`; }
+    case 'bank': {
+      const p = await paymentOf(c.refs[a.ref]);
+      if (!p) return 'No file for the bank yet';
+      if (a.event === 'approved') { if (p.state !== 'SENT') return 'Already approved in the bank'; const who = await tx((x) => Pay.bankApproved(x, p.id)); c.out.approver = who; return `Approved in the portal by ${who}`; }
+      if (a.event === 'feedback') {
+        if (p.feedback_at) return 'The feedback file is in';
+        const l = await Pay.returnedLine(pool, p.id);
+        const old = (await pool.query(`SELECT iban, bank_name FROM hcm.persons WHERE id=$1`, [l.person_id])).rows[0];
+        await pool.query(`INSERT INTO layer.meta (key, value) VALUES ('d7', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify({ person: l.person_id, iban: old.iban, bank: old.bank_name })]);
+        const r = await tx((x) => Pay.bankFeedback(x, p.id, [l.person_id]));
+        c.refs.q = r.asked[0]; c.out.returned = { name: l.name, amount: Number(l.amount), bank: bankByCode(l.bank_code)?.name ?? '', paid: r.paid };
+        return `${r.paid} paid, ${r.failed} returned`;
+      }
+      // paid: the follow-up is approved and paid; the signed WPS files come back and Mudad acknowledges both.
+      const fu = await paymentOf(c.refs.fu);
+      if (fu && fu.state === 'SENT') await tx(async (x) => { await Pay.bankApproved(x, fu.id); await Pay.bankFeedback(x, fu.id, []); });
+      const w = await tx((x) => Pay.wpsAndMudad(x, p.id));
+      if (fu) await tx((x) => Pay.wpsAndMudad(x, fu.id));
+      c.out.wps = w;
+      return 'Paid; WPS accepted; Mudad acknowledged';
+    }
+    case 'new_iban': {
+      const k = await caseOf(c.refs[a.ref]);
+      if (k && (hand || k.status !== 'WAITING')) { c.out[`hand_${a.ref}`] = true; await capture(c, k.id, { followon: a.as }); return 'Answered in the room'; }
+      if (!k) return 'No question for HR operations';
+      const now0 = (await pool.query(`SELECT iban, bank_name FROM hcm.persons WHERE id=$1`, [k.payload.person_id])).rows[0];
+      const was = bankByIban(now0.iban);
+      const to = BANKS.find((b) => b.code === (was?.code === 'RJHI' ? 'INMA' : 'RJHI'))!;
+      const iban = syntheticIban(`riyadhair:new:${k.payload.person_id}`, to.name, '4417');
+      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: 'APPROVED', reason: 'New IBAN from the employee\'s bank letter (decided by the scenario)', edits: { new_iban: iban } }));
+      await capture(c, k.id, { followon: a.as });
+      c.out.newBank = to.name;
+      return `New IBAN at ${to.name}`;
+    }
     case 'decide': {
       const k = await caseOf(c.refs[a.ref]);
       // Decided on screen before → was pressed: the room's decision stands and the story moves on.
@@ -966,6 +1076,7 @@ export async function startScenario(key: string, clientKey: string) {
   if (key === 'overtime-two-clients') for (const k of D2_CLIENTS) await withClient(k, async () => { await pool.query(`DELETE FROM hcm.element_entries WHERE reference=$1`, [D2_REF]); });
   // D10 starts before Soudah is a client: the client and any earlier drop are removed, so it plays again without a Reset.
   if (key === 'client-transition') { if (clientByKey(D10_KEY)) await dropClient(D10_KEY); await pool.query(`DELETE FROM tasama.onboarding`); }
+  if (key === 'bank-file') await resetPayment();
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }
   const run = (await pool.query(`INSERT INTO tasama.director_runs (key, client_key) VALUES ($1,$2) RETURNING *`, [key, client])).rows[0];
   return { run: run.id, client, scenario: outline(s) };

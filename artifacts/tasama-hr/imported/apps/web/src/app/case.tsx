@@ -203,7 +203,7 @@ function useEditor(c: any) {
     else if (c?.workflow_id === 'WF-26' && c.current_step === 'review' && c.result?.reading) setEdits({ readings: Object.fromEntries(c.result.reading.flagged.filter((f: any) => f.flag === 'UNCLEAR' && f.recommended).map((f: any) => [f.key, f.recommended.code])) });
     else if (c?.workflow_id === 'WF-27' && c.type === 'MONTH') setEdits({ values: {}, drop: [] });
     else if (c?.workflow_id === 'WF-28' && c.current_step === 'send') setEdits({ start_date_new: c.payload?.start_date });
-    else if (c?.workflow_id === 'WF-36') setEdits(c.payload?.kind === 'OVERTIME_HELD' ? { pay_held: true } : { registered_on: '' });
+    else if (c?.workflow_id === 'WF-36') setEdits(c.payload?.kind === 'OVERTIME_HELD' ? { pay_held: true } : c.payload?.kind === 'PAYMENT_RETURNED' ? { new_iban: '' } : { registered_on: '' });
     else setEdits({});
   }, [c?.ref, c?.status]);
   return [edits, setEdits] as const;
@@ -246,6 +246,15 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
     );
   }
   if (c.workflow_id === 'WF-36' && c.current_step === 'answer') {
+    if (c.payload?.kind === 'PAYMENT_RETURNED') return (
+      <ReaderSection label={t('Your answer')}>
+        <label className="block text-sm">
+          <span className="text-muted-foreground">{t('The employee’s new IBAN')}</span>
+          <input dir="ltr" className="input mt-1 h-10 w-full max-w-sm font-mono text-sm" placeholder="SA00 0000 0000 0000 0000 0000" value={edits.new_iban ?? ''} onChange={(e) => setEdits({ ...edits, new_iban: e.target.value })} />
+        </label>
+        <p className="mt-2 text-xs text-muted-foreground">{t('Tahweel checks the check digits and the bank before the follow-up file is built.')}</p>
+      </ReaderSection>
+    );
     return c.payload?.kind === 'GOSI_REGISTRATION' ? (
       <ReaderSection label={t('Your answer')}>
         <label className="block text-sm">
@@ -526,13 +535,14 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
   const question = ['WF-36', 'WF-27', 'WF-28', 'WF-30', 'WF-35'].includes(c.workflow_id);
   const late = c.workflow_id === 'WF-27' && c.type === 'LATE_CHANGE';
   const nextMonthName = c.payload?.next ? new Date(`${c.payload.next}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
-  const approveLabel = escalated ? t('Resume the case') : c.workflow_id === 'WF-30' ? t(c.current_step === 'prepare' ? 'Send for validation' : c.current_step === 'validate' ? 'Validate' : 'Approve the run') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t('Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
-  const declineLabel = escalated ? t('Close the case') : c.workflow_id === 'WF-30' ? t('Return to Tasama') : late ? t('Ask Tasama for an off-cycle payment') : c.workflow_id === 'WF-28' ? t('Return to Tasama') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : t('Decline');
+  const approveLabel = escalated ? t('Resume the case') : c.workflow_id === 'WF-30' ? t(c.current_step === 'prepare' ? 'Send for validation' : c.current_step === 'validate' ? 'Validate' : 'Approve the run') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t('Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : c.payload?.kind === 'PAYMENT_RETURNED' ? 'Send the new IBAN' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
+  const declineLabel = escalated ? t('Close the case') : c.workflow_id === 'WF-30' ? t('Return to Tasama') : late ? t('Ask Tasama for an off-cycle payment') : c.workflow_id === 'WF-28' ? t('Return to Tasama') : c.workflow_id === 'WF-33' ? t('Hold the file') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : question && c.payload?.kind === 'PAYMENT_RETURNED' ? t('No new IBAN yet') : t('Decline');
   const needsReason = (d: 'APPROVED' | 'REJECTED') => onBehalf || (d === 'APPROVED' && rec?.verdict === 'DECLINE') || (d === 'REJECTED' && (rec?.verdict === 'APPROVE' || !escalated));
   const decide = async (decision: 'APPROVED' | 'REJECTED') => {
     if (needsReason(decision) && asking !== decision) { setAsking(decision); setErr(null); return; }
     if (decision === 'REJECTED' && !escalated && !question && !reasonCode) { setErr(t('Choose a reason.')); return; }
     if (decision === 'APPROVED' && question && c.payload?.kind === 'GOSI_REGISTRATION' && !edits.registered_on) { setErr(t('Give the registration date.')); return; }
+    if (decision === 'APPROVED' && question && c.payload?.kind === 'PAYMENT_RETURNED' && !String(edits.new_iban ?? '').trim()) { setErr(t('Give the new IBAN.')); return; }
     const text = reason.trim() || (decision === 'REJECTED' ? bi(...((REJECT_REASONS.find((r) => r[0] === reasonCode) ?? ['', '', '']).slice(1) as [string, string])) : '');
     if (needsReason(decision) && !text && !question) { setErr(t('Give a reason.')); return; }
     if (decision === 'REJECTED' && c.workflow_id === 'WF-30' && !text) { setErr(t('Say what Tasama should change.')); return; }
@@ -558,7 +568,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
         <span className="ms-auto">{open && c.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
       <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : ['WF-27', 'WF-28', 'WF-30'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${c.canDecide ? t('now with you') : `${t('now with')} ${holder}`}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by === 'Tahweel' ? bi('Tahweel', 'تحويل') : c.payload?.asked_by ?? ''}${t(', Tasama,')} ${t('on')}` : ['WF-27', 'WF-28', 'WF-30', 'WF-33'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${c.canDecide ? t('now with you') : `${t('now with')} ${holder}`}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
     </div>
   );
 

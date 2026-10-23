@@ -123,6 +123,8 @@ CREATE TABLE hcm.persons (
   iqama_expiry date,                    -- null for UAE nationals
   bank_name          text NOT NULL,
   iban_masked        text NOT NULL,
+  iban               text,                       -- full synthetic IBAN for the bank file (§20); screens show iban_masked
+  national_id        text,                       -- full synthetic ID number for the WPS file (§20)
   photo_seed         int NOT NULL DEFAULT 0
 );
 ALTER TABLE hcm.departments
@@ -907,6 +909,55 @@ CREATE TABLE layer.pay_lines (
   row       jsonb NOT NULL
 );
 CREATE INDEX ON layer.pay_lines (run_id);
+
+-- One file sent to the bank for a run, followed until WPS and Mudad accept it (design/payroll-addendum.md §20, WF-33).
+CREATE TABLE layer.payments (
+  id            serial PRIMARY KEY,
+  period_name   text NOT NULL,
+  run_id        int,                                -- layer.pay_runs; null for months paid before the platform's runs
+  request_id    int,                                -- the WF-33 case
+  kind          text NOT NULL DEFAULT 'REGULAR',    -- REGULAR | FOLLOW_UP
+  follow_up_of  int,                                -- the payment whose failed lines this one pays
+  bank_code     text NOT NULL,                      -- tasama.banks
+  format_key    text NOT NULL,                      -- tasama.bank_formats
+  debit_iban    text NOT NULL,
+  file_ref      text NOT NULL UNIQUE,
+  file_name     text NOT NULL,
+  value_date    date NOT NULL,
+  pay_date      date NOT NULL,
+  lines         int NOT NULL,
+  total         numeric(14,2) NOT NULL,
+  checks        jsonb NOT NULL DEFAULT '[]',        -- the release checks and what each found
+  state         text NOT NULL DEFAULT 'BUILT',      -- BUILT | SENT | APPROVED | PAID | PART_FAILED
+  wps_state     text NOT NULL DEFAULT 'WAITING',    -- WAITING | ACCEPTED | DIFFERS
+  mudad_state   text NOT NULL DEFAULT 'WAITING',    -- WAITING | UPLOADED | ACKNOWLEDGED
+  built_by      text, built_at timestamptz,
+  sent_by       text, sent_at  timestamptz,
+  approved_by   text, approved_at timestamptz,      -- the client's finance approvals in the bank portal, as the bank reports them
+  feedback_at   timestamptz,
+  wps_at        timestamptz,
+  mudad_at      timestamptz, mudad_ref text
+);
+-- One employee's line in a payment, with what the bank's feedback file said about it.
+CREATE TABLE layer.payment_lines (
+  id            bigserial PRIMARY KEY,
+  payment_id    int NOT NULL REFERENCES layer.payments(id) ON DELETE CASCADE,
+  person_id     int NOT NULL,
+  employee_no   text NOT NULL,
+  name          text NOT NULL,
+  iban          text NOT NULL,
+  bank_code     text,
+  national_id   text,
+  basic         numeric(12,2) NOT NULL DEFAULT 0,
+  housing       numeric(12,2) NOT NULL DEFAULT 0,
+  other         numeric(12,2) NOT NULL DEFAULT 0,
+  deductions    numeric(12,2) NOT NULL DEFAULT 0,
+  amount        numeric(12,2) NOT NULL,
+  status        text NOT NULL DEFAULT 'PENDING',    -- PENDING | PAID | FAILED | REPAID
+  reason        text, reason_ar text,
+  return_code   text
+);
+CREATE INDEX ON layer.payment_lines (payment_id);
 
 -- The month's changes per employee, listed by Wared before the cut-off (design/payroll-addendum.md §17).
 CREATE TABLE layer.pay_inputs (

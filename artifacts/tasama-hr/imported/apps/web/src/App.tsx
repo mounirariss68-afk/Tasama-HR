@@ -22,12 +22,13 @@ import { useApp, type LensId, lensHome } from './app/state';
 import { DemoControl } from './app/demo-control';
 import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFinance, TasamaDelivery, TasamaPatterns } from './screens/tasama';
 import { ClientPolicies, PayrollAttendance, PayrollInbox, PayrollInputs, PayrollMonths, PayrollRuns } from './screens/payroll';
+import { PayrollPayments } from './screens/payments';
 import { DirectorBar } from './app/director';
 import { PresentBar, PresentOverlay, usePresent } from './app/present';
 import { ClientTile, TitleBrand } from './app/brand';
 import { applySkin, skinFor, SKINS } from './lib/brand';
 import { Stage } from './app/stage';
-import { Receipt, AlertTriangle, BookOpen, ListChecks } from 'lucide-react';
+import { Receipt, AlertTriangle, BookOpen, ListChecks, Landmark } from 'lucide-react';
 import { AssistantRail } from './app/assistant';
 import { CaseDrawer } from './app/case';
 import { plain } from './app/decision';
@@ -54,6 +55,7 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'payroll-inputs', label: 'Inputs', icon: I(<ListChecks size={14} />) },
     { id: 'payroll-attendance', label: 'Attendance', icon: I(<ClipboardCheck size={14} />) },
     { id: 'payroll-runs', label: 'Runs', icon: I(<Wallet size={14} />) },
+    { id: 'payroll-payments', label: 'Payments', icon: I(<Landmark size={14} />) },
     { id: 'payroll-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
   ],
   tasama: [
@@ -105,7 +107,7 @@ const NAV_OF: Record<string, string> = { 'payroll-add-client': 'payroll-months',
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
   'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <ClientPolicies />,
-  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-inputs': () => <PayrollInputs />, 'payroll-policies': () => <ClientPolicies />, 'payroll-add-client': () => <AddPayrollClient />,
+  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-payments': () => <PayrollPayments />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-inputs': () => <PayrollInputs />, 'payroll-policies': () => <ClientPolicies />, 'payroll-add-client': () => <AddPayrollClient />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
   'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-overview': () => <ChroOverview />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,

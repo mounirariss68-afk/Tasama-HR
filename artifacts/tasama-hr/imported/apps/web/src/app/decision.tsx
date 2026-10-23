@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-35': 'Back pay',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-35': 'Back pay',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -331,6 +331,23 @@ export function caseCard(c: any, x: T): Card {
         : ck.blocks ? `${month} ${t('payroll:')} ${ck.blocks} ${t(ck.blocks === 1 ? 'check stops it' : 'checks stop it')}` : `${month} ${t('payroll is ready to send for validation')}`;
       return { kind, headline, facts, rec: recOf(c) };
     }
+    case 'WF-33': {
+      const pm = r.payment ?? {};
+      const month = p.period ? new Date(`${p.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+      const failing = (pm.checks ?? []).filter((k: any) => !k.ok);
+      const done = c.status === 'COMPLETED';
+      const facts: Fact[] = [
+        { k: t('To pay'), v: aed(pm.total ?? 0, lang), note: `${pm.lines ?? '—'} ${t('employees')}` },
+        { k: t('Value date'), v: pm.valueDate ? date(pm.valueDate, lang) : '—', note: pm.moved ? `${t('Pay day,')} ${date(pm.payDate, lang)}${t(', is a weekend')}` : t('Pay day') },
+        { k: t('Bank and format'), v: bi(pm.bank, pm.bank_ar), note: `${bi(pm.format, pm.format_ar)}${pm.illustrative ? ` · ${t('illustrative layout')}` : ''}` },
+        { k: t('Release checks'), v: failing.length ? `${failing.length} ${t(failing.length === 1 ? 'fails' : 'fail')}` : `${(pm.checks ?? []).length} ${t('of')} ${(pm.checks ?? []).length} ${t('pass')}`, tone: failing.length ? 'danger' : 'success',
+          note: failing.length ? bi(failing[0].text, failing[0].text_ar) : pm.match ? t('The WPS file matches the bank file line by line') : t('The WPS file differs from the bank file') },
+      ];
+      const headline = done ? `${month}${t('’s bank file is in')} ${bi(pm.bank, pm.bank_ar)}${t('’s portal for the client’s finance to approve')}`
+        : failing.length ? `${month}${t('’s bank file is held:')} ${failing.length} ${t(failing.length === 1 ? 'release check fails' : 'release checks fail')}`
+        : `${month}${t('’s bank file passes every release check and is ready to send')}`;
+      return { kind, headline, facts, rec: recOf(c) };
+    }
     case 'WF-27': {
       const mon = (pn: string) => pn ? new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
       const done = c.status === 'COMPLETED';
@@ -371,6 +388,18 @@ export function caseCard(c: any, x: T): Card {
         const facts: Fact[] = [{ k: t('What Tasama needs'), v: bi(p.settle, p.settle_ar), wide: true }];
         if (c.status === 'COMPLETED' && r.answered) facts.push({ k: t('Answer'), v: plain(r.answered), wide: true });
         return { kind: t('Taking Tasama on'), headline: bi(p.finding, p.finding_ar), facts, rec: null };
+      }
+      // A salary the bank returned (design/payroll-addendum.md §20, edge 10).
+      if (p.kind === 'PAYMENT_RETURNED') {
+        const done = c.status === 'COMPLETED';
+        const facts: Fact[] = [
+          { k: t('Returned'), v: aed(p.amount ?? 0, lang), tone: done ? undefined : 'danger', note: `${month} ${t('salary')} · ${t('the account at')} ${bi(p.old_bank, p.old_bank_ar)} ${t('is closed')}` },
+          { k: t('What you do'), v: t('Give the employee’s new IBAN'), note: t('From the employee’s bank letter; Tahweel pays the salary again in a follow-up file.') },
+          { k: t('The rest of the month'), v: t('Paid'), tone: 'success', note: t('Only this salary came back; the WPS file records it as returned.') },
+        ];
+        if (done && r.answered) facts.push({ k: t('Answer'), v: plain(r.answered), wide: true });
+        const nm = bi(p.person_name, p.person_name_ar);
+        return { kind, headline: done ? `${nm}${t('’s salary is paid again from the new IBAN')}` : `${nm}${t('’s')} ${month} ${t('salary came back: the bank needs a new IBAN')}`, facts, rec: null };
       }
       const gosi = p.kind === 'GOSI_REGISTRATION';
       const done = c.status === 'COMPLETED';
