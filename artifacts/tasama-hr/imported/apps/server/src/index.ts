@@ -21,6 +21,7 @@ import { assistant } from './assistant/index.js';
 import { director } from './api/director.js';
 import { payroll } from './api/payroll.js';
 import { onboarding } from './api/onboarding.js';
+import { restoreOnboarded } from './onboarding/golive.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WEB = resolve(here, '../../web/dist');
@@ -63,7 +64,7 @@ async function main() {
     seeding = true;
     console.log('Building the synthetic Tasama client accounts (about a minute); the app answers once this is done...');
     try { await reseed(); } finally { seeding = false; }
-  } else await restoreCalendar();
+  } else { await restoreCalendar(); await restoreOnboarded(); }
 }
 main().catch((e) => { console.error(e); process.exit(1); });
 

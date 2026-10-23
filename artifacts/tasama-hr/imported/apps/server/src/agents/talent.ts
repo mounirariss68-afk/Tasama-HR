@@ -99,6 +99,8 @@ export async function assessmentSpread(ctx: Ctx, centreId: number) {
 // ------------------------------------------------------------------ Mezan
 
 export async function calibration(ctx: Ctx, period: string, division?: string) {
+  // A client taken on without a review cycle (Soudah) has no period yet: nothing to calibrate.
+  period = period ?? '';
   const rows = await read(ctx, 'performanceDocuments', `q=ReviewPeriod=${period}${division ? `;Division=${division}` : ''}`, 'Ratings for calibration', async () =>
     (await ctx.c.query(`SELECT pd.*, p.display_name, p.display_name_ar, p.gender, p.person_number, d.name AS department, d.division, m.display_name AS manager_name, m.display_name_ar AS manager_name_ar,
                                (SELECT ROUND(AVG(progress)) FROM hcm.goals g WHERE g.person_id=pd.person_id AND g.year = $2) AS goal_progress
@@ -107,7 +109,7 @@ export async function calibration(ctx: Ctx, period: string, division?: string) {
                           JOIN hcm.departments d ON d.id=a.department_id
                           LEFT JOIN hcm.persons m ON m.id=pd.manager_id
                          WHERE pd.review_period=$1 AND pd.manager_rating IS NOT NULL ${division ? 'AND d.division=$3' : ''}
-                         ORDER BY d.name, p.display_name`, division ? [period, Number(period.slice(2)), division] : [period, Number(period.slice(2))])).rows);
+                         ORDER BY d.name, p.display_name`, division ? [period, Number(period.slice(2)) || 0, division] : [period, Number(period.slice(2)) || 0])).rows);
   const n = rows.length;
   const dist = [1, 2, 3, 4, 5].map((r) => ({ rating: r, count: rows.filter((x: any) => (x.calibrated_rating ?? x.manager_rating) === r).length }));
   const avg = n ? rows.reduce((s: number, r: any) => s + r.manager_rating, 0) / n : 0;

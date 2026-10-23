@@ -19,7 +19,7 @@ import { seedIssues } from './issues.js';
 import { basiraScan } from '../tasama/basira.js';
 
 /** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
-export const SEED_VERSION = 8;
+export const SEED_VERSION = 9;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
@@ -31,7 +31,7 @@ const SCHEMA = resolve(here, '../../../../db/schema.sql');
 const TASAMA = resolve(here, '../../../../db/tasama.sql');
 
 /** The client schema script with hcm/layer renamed to this client's schemas. */
-const schemaFor = (key: string) => readFileSync(SCHEMA, 'utf8').replace(/\b(hcm|layer)\b(?=[.;\s(])/g, (_m, s) => `${s}_${key}`);
+export const schemaFor = (key: string) => readFileSync(SCHEMA, 'utf8').replace(/\b(hcm|layer)\b(?=[.;\s(])/g, (_m, s) => `${s}_${key}`);
 
 let running: Promise<unknown> | null = null;
 

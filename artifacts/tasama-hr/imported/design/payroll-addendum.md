@@ -957,9 +957,45 @@ Two salary differences between a contract and the master data are explained by p
 
   The synthetic candidate data for this does not exist yet. It is added once the payroll phases are done.
 
-**Effort:** still three Claude sessions:
+### Go-live, the decision and D10, as built in the third session (23 October 2026)
+
+- **The decision is on the staging record.** WF-24 has no client to hold a case until it is approved, so the decision sits on `tasama.onboarding`. It uses the shared decision card (`onboardingCard` in `decision.tsx`) with four facts: employees ready, questions for the client, issues Tasama settles, and the first month. Only the payroll lead decides; anyone else sees who it is waiting on. Returning the client needs a reason.
+- **What go-live writes** (`onboarding/golive.ts`), in one go, dropped again on any error:
+
+  | Written | From |
+  |---|---|
+  | Legal employer, departments, grades, jobs, positions, persons, assignments, salaries | the master data; promoted people keep their row from before the promotion |
+  | Six closed months as paid, September's provisions, leave balances | the payroll sheets, the provisions sheet and the leave tracker |
+  | The policy version, active from the first month | Nizam's reading of the manual, activated by the payroll lead at go-live, with the two refused rules recorded |
+  | Back pay and GOSI arrears | element entries in the first month |
+  | Personas | the master data's own positions (HR, payroll, CHRO, finance, a manager, an employee) |
+
+- **The three held people are written and paid.** They are held from changes, not from pay, until the client answers.
+- **The first month is the next one.** The files run to September. October is paid by the client's current payroll, so November 2026 opens, with its cut-off on day 18.
+- **The client's 7 issues become questions to its HR operations** (WF-36, kind `ONBOARDING_ISSUE`), due at the first cut-off. A WF-27 case opens November.
+- **The registry.** An onboarded client is added to the client lists (the session's clients, Payroll › Months, Tasama's portfolio) from `tasama.clients.config` and restored at start-up. Reset drops it (`SEED_VERSION` 9).
+- **The files gain Soudah's Nitaqat band.** It is on the Company tab (activity, band and required Saudi share). The CHRO's Saudization line needs it.
+- **Arabic.** Every lane headline, stat and issue now has its Arabic sentence from the server. The engine's recommendations gain their Arabic summaries; the case card showed them in English before, on every client.
+- **Demo files.** Demo control › Demo files downloads Soudah's folder as a zip, for the presenter to drop onto the screen.
+- **D10, Taking Soudah on.** Eight steps:
+  1. drop the folder;
+  2–6. the lanes read, two or three at a time;
+  7. Sharifa takes Soudah on;
+  8. Soudah's HR operations sees November open and the 7 questions.
+- **Fixed while checking Soudah's screens.** These apply to every client:
+  - The CHRO overview crashed for a client with no review cycle. It now says no critical roles are mapped, instead of claiming that each one has a successor.
+  - It also counted only BLOCKER findings when the payroll check holds a month on HIGH findings as well; it now counts both.
+  - Inbox rows removed the person's name from inside a sentence. The name now comes off only where it stands apart ("Resignation: Ravi Pillai").
+- **Seed and engine changes in this session are wording only:**
+  - the Arabic title of the WF-27 case now names its month (`seed/inputs.ts`);
+  - the Arabic recommendation summaries (`engine/handlers.ts`, `engine/payroll-handlers.ts`);
+  - calibration returns nothing when there is no review period (`agents/talent.ts`).
+
+**Effort:** three Claude sessions, as planned:
 
 1. the files;
 2. staging and the lanes;
 3. go-live, the decision card, the Arabic sentences and D10.
+
+Phase 5b is done.
 

@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@cognirise/atelier/components/ui/dropdown-menu';
 import { useTheme } from '@cognirise/atelier/layout';
-import { Building2, Check, Monitor, Moon, Play, Presentation, RotateCcw, SlidersHorizontal, Sun } from 'lucide-react';
+import { Building2, Check, FolderDown, Monitor, Moon, Play, Presentation, RotateCcw, SlidersHorizontal, Sun } from 'lucide-react';
 import { useApi, post, bump } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { initials } from '../lib/format';
@@ -47,7 +47,9 @@ export function DemoControl() {
             <DropdownMenuLabel>{t('A storyline: cards, three scenarios on the Stage, and the close')}</DropdownMenuLabel>
             {storylines.map((s) => <DropdownMenuItem key={s.id} onSelect={() => go('present', s.id)}><Presentation className="me-2 h-4 w-4 text-primary" />{t(s.name)}</DropdownMenuItem>)}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => go('settings')}>{t('Edit the storylines')}</DropdownMenuItem>
+            {/* The folder D10 drops, as one zip to unpack on the laptop and drag (design/payroll-addendum.md §13). */}
+        <DropdownMenuItem onSelect={() => { const a = document.createElement('a'); a.href = '/api/demo-files/soudah.zip'; a.download = 'Soudah Development.zip'; a.click(); }}><FolderDown className="me-2 h-4 w-4" />{t('Demo files: Soudah Development\'s folder')}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => go('settings')}>{t('Edit the storylines')}</DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSub>

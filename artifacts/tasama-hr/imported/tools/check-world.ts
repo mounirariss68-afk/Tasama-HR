@@ -71,7 +71,7 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: fifteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 15, `${d.length}`]; });
+  await check('API: sixteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 16, `${d.length}`]; });
   await check('API: twenty-five agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 25 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
@@ -203,6 +203,36 @@ async function main() {
       return [ok, `${o.state}; ${o.counts.issues} issues, ${o.counts.client} for the client; ${lane('roster')}; ${lane('history')}`];
     } finally {
       await fetch(`${BASE}/api/onboarding/${id}`, { method: 'DELETE', headers: H });
+    }
+  });
+
+  await check('Go-live: Sharifa takes Soudah on; its master, six months, policy, questions and first month are written (§13, §19)', async () => {
+    const exp = JSON.parse(readFileSync(new URL('./new-client/expected.json', import.meta.url), 'utf8'));
+    const H = { 'x-persona': 'tasama-lead', 'content-type': 'application/json' };
+    const { id } = await (await fetch(`${BASE}/api/onboarding`, { method: 'POST', headers: H })).json();
+    try {
+      await fetch(`${BASE}/api/onboarding/${id}/demo-files`, { method: 'POST', headers: H });
+      await fetch(`${BASE}/api/onboarding/${id}/read`, { method: 'POST', headers: H, body: JSON.stringify({ wait: true }) });
+      const refused = await fetch(`${BASE}/api/onboarding/${id}/decide`, { method: 'POST', headers: { ...H, 'x-persona': 'tasama-specialist' }, body: JSON.stringify({ decision: 'APPROVED' }) });
+      const r = await (await fetch(`${BASE}/api/onboarding/${id}/decide`, { method: 'POST', headers: H, body: JSON.stringify({ decision: 'APPROVED' }) })).json();
+      const q = async (sql: string) => Number((await pool.query(sql)).rows[0].n);
+      const persons = await q(`SELECT count(*)::int n FROM hcm_soudah.persons`);
+      const months = await q(`SELECT count(DISTINCT period_id)::int n FROM hcm_soudah.payroll_results`);
+      const questions = await q(`SELECT count(*)::int n FROM layer_soudah.requests WHERE workflow_id='WF-36' AND status='WAITING'`);
+      const month = await q(`SELECT count(*)::int n FROM layer_soudah.requests WHERE workflow_id='WF-27' AND type='MONTH'`);
+      const settled = await q(`SELECT count(*)::int n FROM hcm_soudah.element_entries WHERE element_code IN ('BACK_PAY','GOSI_ARREARS')`);
+      const refusedRules = await q(`SELECT count(*)::int n FROM layer_soudah.policy_rules r JOIN layer_soudah.policy_versions v ON v.id=r.version_id WHERE v.status='ACTIVE' AND r.flag='BELOW_LAW'`);
+      const paid = Number((await pool.query(`SELECT COALESCE(SUM(net),0)::float n FROM hcm_soudah.payroll_results`)).rows[0].n);
+      const want = Object.values(exp.history.net as Record<string, number>).reduce((a, b) => a + b, 0);
+      const run = await (await fetch(`${BASE}/api/payroll/runs/soudah`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'soudah' } })).json();
+      const session = await (await fetch(`${BASE}/api/session`, { headers: { 'x-persona': 'payroll', 'x-client': 'soudah' } })).json();
+      const ok = refused.status === 403 && r.state === 'LIVE' && persons === 65 && months === 6 && questions === 7 && month === 1 && settled === 2 && refusedRules === 2
+        && Math.abs(paid - want) < 1 && run.draft?.rows?.length === 64 && session.client?.key === 'soudah' && session.clients.length === 6;
+      return [ok, `${r.state}; ${persons} people, ${months} months (net ${Math.round(paid)} vs ${Math.round(want)}), ${questions} questions, ${settled} first-month lines, ${refusedRules} refused rules, ${run.draft?.rows?.length} in the draft run; specialist refused ${refused.status}`];
+    } finally {
+      // Starting D10 removes the client again, as the scenario does.
+      await fetch(`${BASE}/api/director/client-transition/start`, { method: 'POST', headers: { 'x-persona': 'tasama', 'content-type': 'application/json' }, body: '{}' });
+      await fetch(`${BASE}/api/director/stop`, { method: 'POST', headers: { 'x-persona': 'tasama' } });
     }
   });
 

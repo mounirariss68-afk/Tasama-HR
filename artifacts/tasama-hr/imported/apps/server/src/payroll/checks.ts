@@ -188,6 +188,11 @@ export async function ask(c: PoolClient, draft: { period: { name: string; start:
 /** WF-36 apply: the client's answer becomes entries in the open month. */
 export async function applyAnswer(c: PoolClient, req: { id: number; payload: any }, approverName: string) {
   const p = req.payload;
+  // An issue found when the client was taken on (design/payroll-addendum.md §19): the answer is recorded for Tasama.
+  if (p.kind === 'ONBOARDING_ISSUE') {
+    const note = (await c.query(`SELECT reason FROM layer.approvals WHERE request_id=$1 AND decision='APPROVED' ORDER BY decided_at DESC LIMIT 1`, [req.id])).rows[0]?.reason;
+    return `${approverName} answered Tasama on ${p.person_name}${note ? `: ${note}` : '.'}`;
+  }
   const per = (await c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
   const ps = d10(per.start_date);
   if (p.kind === 'GOSI_REGISTRATION') {

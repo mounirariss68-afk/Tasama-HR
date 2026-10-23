@@ -74,7 +74,7 @@ export function TasamaPortfolio() {
   if (!data) return null;
   const T = data.totals;
   return (
-    <Screen hero={<Hero landing eyebrow={EYEBROW} title={`${T.slaMet} ${t('of')} ${T.slaScored} ${t('service levels met last month')}`} lede={`${num(T.clients)} ${t('client accounts')} · ${num(T.employees)} ${t('employees served')}, ${t('two on their own Oracle HCM, three held in Tasama HR.')}`}
+    <Screen hero={<Hero landing eyebrow={EYEBROW} title={`${T.slaMet} ${t('of')} ${T.slaScored} ${t('service levels met last month')}`} lede={`${num(T.clients)} ${t('client accounts')} · ${num(T.employees)} ${t('employees served')}, ${data.clients.filter((c: any) => c.hrms === 'ORACLE').length} ${t('on their own Oracle HCM')}, ${data.clients.filter((c: any) => c.hrms === 'PLATFORM').length} ${t('held in Tasama HR')}.`}
       media={<ClientStrip clients={data.clients} />} actions={<Btn small onClick={() => go('payroll-add-client')}>{t('Add a payroll client')}</Btn>} />}>
       <RouteTabs items={[{ id: 'tasama-portfolio', label: 'Portfolio' }, { id: 'tasama-sla', label: 'Service levels' }]} />
       <StatRow>

@@ -284,7 +284,7 @@ export const HANDLERS: Record<string, H> = {
     await h.patch({ needs_chro: chk.needsChro, division: p.division ?? (await h.c.query('SELECT division FROM hcm.departments WHERE id=$1', [p.department_id])).rows[0].division, jd_en: chk.jd.en, jd_ar: chk.jd.ar });
     await h.trail({ act: 'CHECK', summary: `${chk.department}: ${chk.filled} of ${chk.positions} positions filled. ${p.budgeted !== false ? 'Budgeted line.' : 'Not in the budget.'} Grade ${chk.grade} range SAR ${sar(chk.grade_range[0])}–${sar(chk.grade_range[1])}; annual cost at midpoint ${money(chk.annual_cost_mid)}. ${saudization(chk)}${chk.needsChro ? 'CHRO approval required.' : ''}`.trim(), summary_ar: 'تحقق من الميزانية والدرجة والتوطين وأعد الوصف الوظيفي.', citation: 'HR-02 §2.1' });
     return { status: 'DONE', decision: chk.needsChro ? 'Needs CHRO' : 'HRBP only', outputs: chk, skip: chk.needsChro ? [] : ['chro'],
-      recommend: { verdict: p.budgeted === false ? 'REVIEW' : 'APPROVE', summary: p.budgeted === false ? 'Unbudgeted: Finance must confirm the funding source.' : `Budgeted; grade fits the job; job description drafted in English and Arabic.` } };
+      recommend: { verdict: p.budgeted === false ? 'REVIEW' : 'APPROVE', summary: p.budgeted === false ? 'Unbudgeted: Finance must confirm the funding source.' : `Budgeted; grade fits the job; job description drafted in English and Arabic.`, summary_ar: p.budgeted === false ? 'غير مدرجة في الميزانية: على المالية تأكيد مصدر التمويل.' : 'مدرجة في الميزانية، والدرجة تناسب الوظيفة، والوصف الوظيفي مُعدّ بالعربية والإنجليزية.' } };
   },
   'WF-01:post': async (h) => {
     const p = h.req.payload;
@@ -328,7 +328,7 @@ export const HANDLERS: Record<string, H> = {
     await ext(h, 'JADARAT', 'POST', '/jadarat/api/vacancies', `Draft vacancy for ${h.req.payload.title}`);
     await h.patch({ internal: matches });
     await h.trail({ act: 'RECOMMEND', summary: matches.length ? `${matches.length} internal colleagues match and are open to moves: ${matches.map((m: any) => m.display_name).join(', ')}. Suggest inviting them before external posting.` : 'No internal match with high potential in the job family. Draft vacancy prepared on Jadarat for Saudi candidates.', summary_ar: 'بحث في المواهب الداخلية وجدارات.', citation: 'HR-02 §2.3' });
-    return { status: 'DONE', decision: `${matches.length} internal matches`, outputs: { matches }, recommend: { verdict: 'APPROVE', summary: `Requisition and bilingual ad ready. ${matches.length} internal match${matches.length === 1 ? '' : 'es'} to invite first.` } };
+    return { status: 'DONE', decision: `${matches.length} internal matches`, outputs: { matches }, recommend: { verdict: 'APPROVE', summary: `Requisition and bilingual ad ready. ${matches.length} internal match${matches.length === 1 ? '' : 'es'} to invite first.`, summary_ar: `طلب التوظيف والإعلان بلغتين جاهزان. ${matches.length} مرشحين داخليين يُدعون أولًا.` } };
   },
   'WF-02:post': async (h) => {
     const p = h.req.payload;
@@ -366,7 +366,7 @@ export const HANDLERS: Record<string, H> = {
     }
     await h.trail({ act: 'PREPARE', summary: `Extracted evidence for ${apps.length} applications against ${req.criteria.length} criteria. ${allMust} show every must-have criterion. No score, no ranking, no rejection.`, summary_ar: `استخرج الأدلة لـ${apps.length} طلباً دون تقييم أو ترتيب أو رفض.`, citation: 'HR-02 §2.5' });
     return { status: refused ? 'REFUSED' : 'DONE', decision: refused ? 'Refused a discriminatory instruction; screened on stated criteria' : `${apps.length} screened`, outputs: { screened: apps.length, allMust, refused },
-      recommend: { verdict: 'REVIEW', summary: `${allMust} of ${apps.length} applicants show every must-have criterion. The recruiter decides the shortlist.` } };
+      recommend: { verdict: 'REVIEW', summary: `${allMust} of ${apps.length} applicants show every must-have criterion. The recruiter decides the shortlist.`, summary_ar: `${allMust} من ${apps.length} متقدمين يستوفون كل المعايير الأساسية. يقرر مسؤول التوظيف القائمة المختصرة.` } };
   },
   'WF-03:update': async (h) => {
     const ids: number[] = h.req.payload.shortlist ?? (await h.c.query(`SELECT id FROM hcm.applications WHERE requisition_id=$1 AND phase='SCREENING' AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(evidence) e WHERE e->>'kind'='must' AND e->>'status'<>'evident')`, [h.req.payload.requisition_id])).rows.map((r: any) => r.id);
@@ -401,7 +401,7 @@ export const HANDLERS: Record<string, H> = {
     await h.patch({ basic, housing: alw.housing, transport: alw.transport, other_allowance: alw.other, approver, grade: pos.grade, grade_id: pos.grade_id });
     await h.trail({ act: 'RECOMMEND', summary: `Proposed basic ${money(basic)} in ${pos.grade} (range SAR ${sar(pos.min_basic)}–${sar(pos.max_basic)}, compa-ratio ${(basic / pos.mid_basic).toFixed(2)}). Peer median in grade ${money(median)} across ${peers.length}. ${approver === 'CHRO' ? 'Above midpoint: CHRO approves.' : 'Within midpoint: HRBP approves.'}`, summary_ar: 'اقترح الراتب ضمن الدرجة مع مقارنة الأقران.', citation: 'HR-02 §2.7' });
     return { status: 'DONE', decision: `SAR ${basic} basic`, outputs: { basic, median, peers: peers.length, compa: round2(basic / pos.mid_basic), range: [pos.min_basic, pos.mid_basic, pos.max_basic] },
-      recommend: { verdict: 'APPROVE', summary: `Basic ${money(basic)}, compa-ratio ${(basic / pos.mid_basic).toFixed(2)}; ${basic > median ? 'above' : 'at or below'} the peer median of ${money(median)}.` } };
+      recommend: { verdict: 'APPROVE', summary: `Basic ${money(basic)}, compa-ratio ${(basic / pos.mid_basic).toFixed(2)}; ${basic > median ? 'above' : 'at or below'} the peer median of ${money(median)}.`, summary_ar: `الأساسي ${money(basic)}، ونسبة المقارنة ${(basic / pos.mid_basic).toFixed(2)}؛ ${basic > median ? 'أعلى من' : 'عند أو دون'} وسيط الأقران البالغ ${money(median)}.` } };
   },
   'WF-05:letter': async (h) => {
     const p = h.req.payload;
@@ -507,7 +507,7 @@ export const HANDLERS: Record<string, H> = {
     await h.trail({ act: 'WRITE', summary: h.req.payload.expat ? 'Submitted the Qiwa work permit and work visa request and the GOSI registration (occupational hazards).' : 'Created the Qiwa contract and registered the employee with GOSI (annuities and SANED).', summary_ar: h.req.payload.expat ? 'قدم طلب رخصة العمل والتأشيرة عبر قوى وسجل الموظف في التأمينات الاجتماعية.' : 'أنشأ العقد في قوى وسجل الموظف في التأمينات الاجتماعية.', actor_type: 'SYSTEM', actor_name: 'Connector', autonomy: null });
     if (h.req.payload.blocked) {
       await h.trail({ act: 'ESCALATE', actor_type: 'AGENT', actor_id: 'dalil', actor_name: 'Dalil', autonomy: 'A3', summary: 'Medical examination is blocked: the clinic cancelled the slot and the next one is after the planned arrival date. Start date at risk; escalated to HR Operations.', summary_ar: 'الفحص الطبي متوقف؛ تاريخ الالتحاق في خطر وأُحيل إلى عمليات الموارد البشرية.' });
-      return { status: 'DONE', recommend: { verdict: 'REVIEW', summary: 'Book a priority slot at an approved medical centre or move the start date by one week.' } };
+      return { status: 'DONE', recommend: { verdict: 'REVIEW', summary: 'Book a priority slot at an approved medical centre or move the start date by one week.', summary_ar: 'احجز موعدًا عاجلًا في مركز طبي معتمد أو أجّل تاريخ المباشرة أسبوعًا.' } };
     }
     return { status: 'DONE' };
   },
@@ -523,7 +523,7 @@ export const HANDLERS: Record<string, H> = {
 
   // ---------------------------------------------------------- WF-07 (partial)
   'WF-07:day1': async (h) => { await h.trail({ act: 'NOTIFY', summary: 'Day-one plan delivered.', autonomy: 'A3' }); return { status: 'DONE' }; },
-  'WF-07:checkins': async (h) => { await h.trail({ act: 'CHECK', summary: '30-day pulse: positive; no concerns.', autonomy: 'A3' }); return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: 'No concerns raised at 30 days.' } }; },
+  'WF-07:checkins': async (h) => { await h.trail({ act: 'CHECK', summary: '30-day pulse: positive; no concerns.', autonomy: 'A3' }); return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: 'No concerns raised at 30 days.', summary_ar: 'لم تُثر أي مخاوف بعد 30 يومًا.' } }; },
 
   // ---------------------------------------------------------- WF-08 probation
   'WF-08:flag': async (h) => {
@@ -576,7 +576,7 @@ export const HANDLERS: Record<string, H> = {
     const cal = await calibration(h.conn, h.req.payload.period, h.req.payload.division);
     await h.setResult({ calibration: { n: cal.n, average: cal.average, distribution: cal.distribution, flags: cal.flags } });
     await h.trail({ act: 'RECOMMEND', summary: `${cal.n} ratings checked. ${cal.flags.length} flags for the panel: ${cal.flags.map((f: any) => f.kind.toLowerCase().replace('_', ' ')).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i).join(', ')}. Mezan changes no rating.`, summary_ar: `فحص ${cal.n} تقييماً ورصد ${cal.flags.length} ملاحظات.`, citation: 'HR-09 §9.3–9.4' });
-    return { status: 'DONE', outputs: { flags: cal.flags.length }, recommend: { verdict: 'REVIEW', summary: `${cal.flags.length} flags to resolve before ratings are shared.` } };
+    return { status: 'DONE', outputs: { flags: cal.flags.length }, recommend: { verdict: 'REVIEW', summary: `${cal.flags.length} flags to resolve before ratings are shared.`, summary_ar: `${cal.flags.length} ملاحظات تُحسم قبل مشاركة التقييمات.` } };
   },
   'WF-10:post': async (h) => {
     const changes: { doc_id?: number; person_id?: number; rating: number; reason: string; name?: string; from?: number }[] = h.req.payload.changes ?? [];
@@ -689,13 +689,13 @@ export const HANDLERS: Record<string, H> = {
     const lastDay = h.req.payload.last_day ?? iso(addDays(notified, w.notice_period_days - 1));
     await h.patch({ last_day: lastDay, notice_days: w.notice_period_days, division: w.division });
     await h.trail({ act: 'PREPARE', summary: `Resignation received ${notified}. Contract notice ${w.notice_period_days} days (grade ${w.grade_code}), so the proposed last working day is ${lastDay}.`, summary_ar: `استلم الاستقالة؛ آخر يوم عمل مقترح ${lastDay}.`, citation: 'HR-12 §12.1 (Art. 75)' });
-    return { status: 'DONE', outputs: { lastDay, notice: w.notice_period_days }, recommend: { verdict: 'APPROVE', summary: `Last working day ${lastDay}. On resignation the end-of-service award follows Art. 85: none under two years, one third for 2-5 years, two thirds for 5-10, in full from 10 years (HR-11 §11.2).` } };
+    return { status: 'DONE', outputs: { lastDay, notice: w.notice_period_days }, recommend: { verdict: 'APPROVE', summary: `Last working day ${lastDay}. On resignation the end-of-service award follows Art. 85: none under two years, one third for 2-5 years, two thirds for 5-10, in full from 10 years (HR-11 §11.2).`, summary_ar: `آخر يوم عمل ${lastDay}. عند الاستقالة تتبع مكافأة نهاية الخدمة المادة 85: لا شيء قبل سنتين، والثلث من 2 إلى 5 سنوات، والثلثان من 5 إلى 10، وكاملة من 10 سنوات.` } };
   },
   'WF-19:settlement': async (h) => {
     const st = await settlement(h.conn, h.req.subject_person_id, h.req.payload.last_day);
     await h.setResult({ settlement: st });
     await h.trail({ act: 'PREPARE', summary: `Final settlement ${money(st.total)}: ${st.lines.map((l) => `${l.label} ${money(l.amount)}`).join('; ')}. Pay by ${st.payBy}.`, summary_ar: `التسوية النهائية ${money(st.total)}.`, citation: 'HR-11 §11.1–11.5' });
-    return { status: 'DONE', outputs: { total: st.total }, recommend: { verdict: 'APPROVE', summary: `${money(st.total)}; every line traced to its rule and HRMS record. Pay by ${st.payBy}.` } };
+    return { status: 'DONE', outputs: { total: st.total }, recommend: { verdict: 'APPROVE', summary: `${money(st.total)}; every line traced to its rule and HRMS record. Pay by ${st.payBy}.`, summary_ar: `${money(st.total)}؛ كل بند مرتبط بقاعدته وبسجله في نظام الموارد البشرية. يُدفع قبل ${st.payBy}.` } };
   },
   'WF-19:terminate': async (h) => terminate(h, 'RESIGNATION'),
 
@@ -710,7 +710,7 @@ export const HANDLERS: Record<string, H> = {
       return { status: 'DONE', decision: `Stopped: ${chk.missing.length} required step(s) missing`, outputs: chk, stop: 'ESCALATED' };
     }
     await h.trail({ act: 'CHECK', summary: 'Documentation, legal grounds and protections checked: complete.', citation: 'HR-12 §12.4–12.5' });
-    return { status: 'DONE', outputs: chk, recommend: { verdict: 'REVIEW', summary: 'Case file complete. The decision remains with the CHRO and Legal.' } };
+    return { status: 'DONE', outputs: chk, recommend: { verdict: 'REVIEW', summary: 'Case file complete. The decision remains with the CHRO and Legal.', summary_ar: 'ملف الحالة مكتمل. القرار للرئيس التنفيذي للموارد البشرية والشؤون القانونية.' } };
   },
   'WF-20:settlement': async (h) => {
     const last = h.req.payload.last_day ?? iso(addDays(asOf(), 30));
@@ -723,7 +723,7 @@ export const HANDLERS: Record<string, H> = {
   'WF-20:terminate': async (h) => terminate(h, 'TERMINATION'),
 
   // ---------------------------------------------------------- WF-18 (partial)
-  'WF-18:triage': async (h) => { await h.trail({ act: 'PREPARE', summary: 'Chronology built from HRMS records; severity medium.' }); return { status: 'DONE', recommend: { verdict: 'REVIEW', summary: 'Investigate within 10 working days.' } }; },
+  'WF-18:triage': async (h) => { await h.trail({ act: 'PREPARE', summary: 'Chronology built from HRMS records; severity medium.' }); return { status: 'DONE', recommend: { verdict: 'REVIEW', summary: 'Investigate within 10 working days.', summary_ar: 'يُحقَّق خلال 10 أيام عمل.' } }; },
 
   'WF-21:scan': async (h) => { const { scan } = await import('../agents/amin.js'); const n = await scan(h.c, asOf()); return { status: 'DONE', decision: `${n} alerts` }; },
 };

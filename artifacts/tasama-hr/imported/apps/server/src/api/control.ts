@@ -8,6 +8,7 @@ import { reseed } from '../seed/index.js';
 import { resetPersonas } from './session.js';
 import { resetPeople } from '../engine/handlers.js';
 
+import { dropOnboardedSchemas } from '../onboarding/golive.js';
 export const control = Router();
 
 control.get('/agents', async (_req, res) => {
@@ -96,7 +97,8 @@ control.post('/reset', async (_req, res) => {
   try {
     // The presenter's storylines are not demo data: they survive a reset.
     const kept = (await pool.query(`SELECT value FROM tasama.meta WHERE key='storylines'`).catch(() => ({ rows: [] as any[] }))).rows[0]?.value;
-    clearRuns(); clearTasamaRuns(); await reseed(() => {}); resetPersonas(); resetPeople();
+    // Clients taken on from their files go with the demo data (design/payroll-addendum.md §13).
+    clearRuns(); clearTasamaRuns(); await dropOnboardedSchemas(); await reseed(() => {}); resetPersonas(); resetPeople();
     if (kept) await pool.query(`INSERT INTO tasama.meta (key, value) VALUES ('storylines', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(kept)]);
     res.json({ ok: true });
   }

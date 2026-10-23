@@ -5,7 +5,7 @@
  */
 import { Router } from 'express';
 import { pool, withClient, tx } from '../db.js';
-import { CLIENTS, clientByKey } from '../domain/clients.js';
+import { CLIENTS, allClients, clientByKey } from '../domain/clients.js';
 import { DIMENSIONS } from '../domain/payroll-policy.js';
 import { startCase } from '../engine/core.js';
 import { activeVersion, rulesOf } from '../payroll/policy.js';
@@ -21,7 +21,7 @@ import { personaOf, isPayrollTeam, isTasama, type Persona } from './session.js';
 
 export const payroll = Router();
 const allowed = (p: Persona) => isPayrollTeam(p) || isTasama(p);
-const forEachClient = <T>(fn: (key: string) => Promise<T>) => Promise.all(CLIENTS.map((c) => withClient(c.key, () => fn(c.key))));
+const forEachClient = <T>(fn: (key: string) => Promise<T>) => Promise.all(allClients().map((c) => withClient(c.key, () => fn(c.key))));
 
 /** Where every client's month stands: cut-off, approval, pay day. */
 payroll.get('/payroll/months', async (req, res) => {

@@ -102,7 +102,7 @@ async function masterData() {
   const wb = book();
   const cols: [string, number, string?][] = [
     ['Employee No', 12], ['Employee Name (English)', 26], ['Employee Name (Arabic)', 24], ['National ID / Iqama', 14], ['Nationality', 13], ['Saudi / Expat', 10], ['Gender', 8],
-    ['Marital Status', 11], ['Dependants', 10], ['Date of Birth', 12, DATE], ['Passport No', 13], ['Mobile', 12], ['Email', 30],
+    ['Marital Status', 11], ['Dependants', 10], ['Date of Birth', 12, DATE], ['ID / Iqama Expiry', 13, DATE], ['Passport No', 13], ['Passport Expiry', 13, DATE], ['Mobile', 12], ['Email', 30],
     ['Organisation', 30], ['Location', 10], ['Position', 30], ['Grade', 7], ['Line Manager No', 13], ['Hire Date', 12, DATE], ['Probation End', 12, DATE],
     ['Contract Type', 12], ['Contract Start', 12, DATE], ['Contract End', 12, DATE],
     ['Basic Salary', 12, MONEY], ['Housing Allowance', 12, MONEY], ['Transport Allowance', 12, MONEY], ['Other Allowance', 11, MONEY],
@@ -113,17 +113,17 @@ async function masterData() {
   const project = (p: Person) => (p.dept.location === 'Soudah' ? 'Soudah Peaks' : 'Head office');
   const rows = people.map((p) => {
     const probEnd = new Date(Date.parse(p.hire) + 89 * 86_400_000).toISOString().slice(0, 10);
-    return [p.masterNo, p.en, p.ar, p.nationalId, nat(p.nat), p.isSaudi ? 'Saudi' : 'Expat', p.gender, p.marital, p.dependants, xdate(p.birth), p.passport, p.mobile, p.email,
+    return [p.masterNo, p.en, p.ar, p.nationalId, nat(p.nat), p.isSaudi ? 'Saudi' : 'Expat', p.gender, p.marital, p.dependants, xdate(p.birth), xdate(p.idExpiry), p.passport, xdate(p.passportExpiry), p.mobile, p.email,
       p.dept.name, p.dept.location, p.title, p.grade, p.managerNo, xdate(p.hire), xdate(probEnd), p.contract.type, xdate(p.contract.start), xdate(p.contract.end),
       p.basic, p.masterHousing, p.transport, 0, p.bank, p.masterIban, xdate(p.masterGosi), p.leave.entitlement, edu(p), project(p)];
   });
   sheet(wb, 'Master Data', cols, rows as any);
   // Who left this year: the payroll sheets still carry them, the master data does not.
-  sheet(wb, 'Leavers 2026', [['Employee No', 12], ['Employee Name (English)', 26], ['Employee Name (Arabic)', 24], ['National ID / Iqama', 14], ['Organisation', 30], ['Position', 30], ['Hire Date', 12, DATE], ['Last Working Day', 14, DATE], ['Reason', 14]],
-    [[leaver.no, leaver.en, leaver.ar, leaver.nationalId, leaver.dept.name, leaver.title, xdate(leaver.hire), xdate(leaver.lastDay), 'Resignation']] as any);
+  sheet(wb, 'Leavers 2026', [['Employee No', 12], ['Employee Name (English)', 26], ['Employee Name (Arabic)', 24], ['National ID / Iqama', 14], ['Nationality', 13], ['Gender', 8], ['Date of Birth', 12, DATE], ['Organisation', 30], ['Position', 30], ['Grade', 7], ['Hire Date', 12, DATE], ['Last Working Day', 14, DATE], ['Reason', 14]],
+    [[leaver.no, leaver.en, leaver.ar, leaver.nationalId, 'Egyptian', leaver.gender, xdate(leaver.birth), leaver.dept.name, leaver.title, leaver.grade, xdate(leaver.hire), xdate(leaver.lastDay), 'Resignation']] as any);
   const co = wb.addWorksheet('Company');
   co.columns = [{ width: 32 }, { width: 44 }];
-  for (const r of [['Legal name (English)', 'Soudah Development Company'], ['Legal name (Arabic)', 'شركة السودة للتطوير'], ['Trading name', SOUDAH.name], ['Commercial registration', '1010000000'], ['GOSI establishment number', '500000000'], ['Main bank', SOUDAH.bank[0]], ['Head office', 'King Fahd Road, Riyadh'], ['Sites', 'Soudah, Asir']]) co.addRow(r);
+  for (const r of [['Legal name (English)', 'Soudah Development Company'], ['Legal name (Arabic)', 'شركة السودة للتطوير'], ['Trading name', SOUDAH.name], ['Trading name (Arabic)', SOUDAH.name_ar], ['Sector', SOUDAH.sector], ['Sector (Arabic)', SOUDAH.sector_ar], ['City', SOUDAH.city], ['City (Arabic)', SOUDAH.city_ar], ['Commercial registration', '1010000000'], ['GOSI establishment number', '500000000'], ['Main bank', SOUDAH.bank[0]], ['Nitaqat activity', SOUDAH.nitaqat.activity], ['Nitaqat band', SOUDAH.nitaqat.band], ['Nitaqat required Saudi share', `${Math.round(SOUDAH.nitaqat.requiredPct * 100)}%`], ['Head office', 'King Fahd Road, Riyadh'], ['Sites', 'Soudah, Asir']]) co.addRow(r);
   co.getColumn(1).font = { bold: true };
   await save(wb, 'Soudah - Master Data.xlsx');
 }

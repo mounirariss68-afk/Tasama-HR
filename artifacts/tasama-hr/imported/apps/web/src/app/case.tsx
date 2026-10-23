@@ -415,7 +415,7 @@ function RulesCited({ trail }: { trail: any[] }) {
 }
 
 /** The facts, each once: a tiled grid so values never wrap into a column of words. */
-function FactGrid({ facts }: { facts: Fact[] }) {
+export function FactGrid({ facts }: { facts: Fact[] }) {
   if (!facts.length) return null;
   const twoCols = facts.length > 1 && !(facts.length === 3 && !facts.some((f) => f.viz || f.wide));
   const cols = facts.length === 1 ? 'grid-cols-1' : twoCols ? 'grid-cols-2' : 'grid-cols-3';
@@ -436,9 +436,10 @@ function FactGrid({ facts }: { facts: Fact[] }) {
 }
 
 /** The recommendation, attributed to the agent that made it, with its reason and exception in one line. */
-function Recommendation({ rec, agent }: { rec: { verdict: string; line: string }; agent: string | null }) {
+export function Recommendation({ rec, agent }: { rec: { verdict: string; line: string; line_ar?: string }; agent: string | null }) {
   const { bi, t } = useLang();
-  const [lead, reason] = splitRec(rec.line);
+  const [en, reason] = splitRec(bi(rec.line, rec.line_ar));
+  const lead = en ? t(en) : en;
   const tone = rec.verdict === 'APPROVE' ? 'success' : rec.verdict === 'DECLINE' ? 'danger' : 'warn';
   const name = agent && AGENT_NAMES[agent] ? bi(...AGENT_NAMES[agent]) : t('The agents');
   return (
@@ -557,7 +558,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
         <span className="ms-auto">{open && c.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
       <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : ['WF-27', 'WF-28', 'WF-30'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : ['WF-27', 'WF-28', 'WF-30'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${c.canDecide ? t('now with you') : `${t('now with')} ${holder}`}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
     </div>
   );
 

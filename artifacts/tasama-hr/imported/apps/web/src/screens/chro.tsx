@@ -47,7 +47,7 @@ export function ChroOverview() {
   const closed = (pay?.periods ?? []).filter((p: any) => p.status === 'CLOSED');
   const lastRun = closed[closed.length - 1], prevRun = closed[closed.length - 2];
   const pc = pay?.precheck;
-  const blockers = pc ? pc.findings.filter((f: any) => f.severity === 'BLOCKER').length : 0;
+  const blockers = pc ? pc.findings.filter((f: any) => f.severity === 'BLOCKER' || f.severity === 'HIGH').length : 0;
 
   // Talent and risk.
   const critical = (perf?.succession ?? []).filter((s: any) => s.impact_of_loss === 'HIGH');
@@ -58,12 +58,12 @@ export function ChroOverview() {
   const mine = (inbox ?? []).filter((r) => !asManager(r)).length;
 
   const lede = [
-    sa ? `${t('Saudization')} ${Math.round(Number(sa.ratio))}% ${t('against a target of')} ${sa.target}% (${sa.band}).` : '',
+    sa?.target ? `${t('Saudization')} ${Math.round(Number(sa.ratio))}% ${t('against a target of')} ${sa.target}% (${sa.band}).` : '',
     pc ? (pc.blocked ? `${month(pc.period.period_name, lang).split(' ')[0]} ${t('payroll is held by')} ${blockers} ${t(blockers === 1 ? 'blocker' : 'blockers')}.` : `${month(pc.period.period_name, lang)} ${t('payroll is clear to release')}.`) : '',
   ].filter(Boolean).join(' ');
 
   return (
-    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={`${num(total)} ${t('people')}; ${uncovered.length ? `${uncovered.length} ${t(uncovered.length === 1 ? 'critical role has no ready successor' : 'critical roles have no ready successor')}` : t('every critical role has a ready successor')}`} lede={lede}
+    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={`${num(total)} ${t('people')}; ${uncovered.length ? `${uncovered.length} ${t(uncovered.length === 1 ? 'critical role has no ready successor' : 'critical roles have no ready successor')}` : critical.length ? t('every critical role has a ready successor') : t('no critical roles are mapped yet')}`} lede={lede}
       actions={mine ? <Btn kind="primary" onClick={() => go('hr-inbox')}>{`${mine} ${t(mine === 1 ? 'decision waits on you' : 'decisions wait on you')}`}</Btn> : undefined} />}>
       <OverviewTabs />
       <StatRow>
@@ -76,8 +76,8 @@ export function ChroOverview() {
         <Panel icon={<AlertTriangle size={16} />} title={`${uncovered.length + urgent.length + exitsOpen.length} ${t('things to watch')}`}>
           <div className="space-y-4">
             <section>
-              <div className="mb-1 flex items-center justify-between"><h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{`${covered.length} ${t('of')} ${critical.length} ${t('critical roles have a ready successor')}`}</h3><button type="button" onClick={() => go('hr-performance')} className="text-xs text-primary hover:underline">{t('Succession')}</button></div>
-              {uncovered.length ? uncovered.slice(0, 4).map((s: any) => <StatusRow key={s.id} name={s.position} detail={s.incumbent} status={<StatusChip status={s.risk_of_loss} />} />) : <p className="text-sm text-muted-foreground">{t('Every critical role has someone ready now.')}</p>}
+              <div className="mb-1 flex items-center justify-between"><h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{critical.length ? `${covered.length} ${t('of')} ${critical.length} ${t('critical roles have a ready successor')}` : t('No critical roles are mapped')}</h3><button type="button" onClick={() => go('hr-performance')} className="text-xs text-primary hover:underline">{t('Succession')}</button></div>
+              {uncovered.length ? uncovered.slice(0, 4).map((s: any) => <StatusRow key={s.id} name={s.position} detail={s.incumbent} status={<StatusChip status={s.risk_of_loss} />} />) : <p className="text-sm text-muted-foreground">{t(critical.length ? 'Every critical role has someone ready now.' : 'No succession plan has been made yet.')}</p>}
             </section>
             <section>
               <div className="mb-1 flex items-center justify-between"><h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{`${urgent.length} ${t(urgent.length === 1 ? 'urgent compliance alert' : 'urgent compliance alerts')}`}</h3><button type="button" onClick={() => go('hr-compliance')} className="text-xs text-primary hover:underline">{t('Compliance')}</button></div>

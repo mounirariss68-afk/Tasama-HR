@@ -4,38 +4,38 @@
     "employees": 64,
     "ready": 61,
     "held": [
-      "SDH-1026",
-      "SDH-1048",
-      "SDH-1035"
+      "SDH-1042",
+      "SDH-1035",
+      "SDH-1048"
     ]
   },
   "plants": {
     "duplicate": [
-      "SDH-1018",
-      "SDH-1026"
+      "SDH-1028",
+      "SDH-1042"
     ],
     "badIban": [
-      "SDH-1048",
-      "SDH-1035"
+      "SDH-1035",
+      "SDH-1048"
     ],
-    "noGosi": "SDH-1015",
-    "housingSlip": "SDH-1043",
+    "noGosi": "SDH-1010",
+    "housingSlip": "SDH-1061",
     "mayJoiner": "SDH-1064",
     "gosiLow": "SDH-1051",
     "leaver": "SDH-1065",
-    "negativeLeave": "SDH-1047",
+    "negativeLeave": "SDH-1045",
     "promoted": [
-      "SDH-1050",
-      "SDH-1041"
+      "SDH-1044",
+      "SDH-1052"
     ],
     "unexplained": "SDH-1055",
     "noContract": [
-      "SDH-1038",
-      "SDH-1002"
+      "SDH-1017",
+      "SDH-1004"
     ],
-    "expired": "SDH-1028",
-    "chro": "SDH-1032",
-    "finance": "SDH-1010"
+    "expired": "SDH-1032",
+    "chro": "SDH-1031",
+    "finance": "SDH-1009"
   },
   "issues": [
     {
@@ -44,8 +44,8 @@
       "lane": "roster",
       "client": true,
       "people": [
-        "SDH-1018",
-        "SDH-1026"
+        "SDH-1028",
+        "SDH-1042"
       ]
     },
     {
@@ -54,7 +54,7 @@
       "lane": "roster",
       "client": true,
       "people": [
-        "SDH-1048"
+        "SDH-1035"
       ]
     },
     {
@@ -63,7 +63,7 @@
       "lane": "roster",
       "client": true,
       "people": [
-        "SDH-1035"
+        "SDH-1048"
       ]
     },
     {
@@ -72,7 +72,7 @@
       "lane": "contracts",
       "client": true,
       "people": [
-        "SDH-1038"
+        "SDH-1017"
       ]
     },
     {
@@ -81,7 +81,7 @@
       "lane": "contracts",
       "client": true,
       "people": [
-        "SDH-1002"
+        "SDH-1004"
       ]
     },
     {
@@ -90,7 +90,7 @@
       "lane": "contracts",
       "client": true,
       "people": [
-        "SDH-1028"
+        "SDH-1032"
       ]
     },
     {
@@ -108,7 +108,7 @@
       "lane": "roster",
       "client": false,
       "people": [
-        "SDH-1015"
+        "SDH-1010"
       ]
     },
     {
@@ -117,7 +117,7 @@
       "lane": "roster",
       "client": false,
       "people": [
-        "SDH-1043"
+        "SDH-1061"
       ]
     },
     {
@@ -167,7 +167,7 @@
       "lane": "leave",
       "client": false,
       "people": [
-        "SDH-1047"
+        "SDH-1045"
       ]
     }
   ],
@@ -176,24 +176,24 @@
     "differences": 3,
     "explained": 2,
     "missing": [
-      "SDH-1038",
-      "SDH-1002"
+      "SDH-1017",
+      "SDH-1004"
     ],
-    "expired": "SDH-1028"
+    "expired": "SDH-1032"
   },
   "letters": [
     {
-      "no": "SDH-1050",
+      "no": "SDH-1044",
       "kind": "Promotion letter",
       "date": "2026-05-20"
     },
     {
-      "no": "SDH-1041",
+      "no": "SDH-1052",
       "kind": "Promotion letter",
       "date": "2026-05-20"
     },
     {
-      "no": "SDH-1009",
+      "no": "SDH-1008",
       "kind": "Warning letter",
       "date": "2026-09-03"
     },
@@ -203,12 +203,12 @@
       "date": "2026-04-14"
     },
     {
-      "no": "SDH-1003",
+      "no": "SDH-1002",
       "kind": "Salary certificate",
       "date": "2026-05-06"
     },
     {
-      "no": "SDH-1004",
+      "no": "SDH-1003",
       "kind": "Salary certificate",
       "date": "2026-06-22"
     },
@@ -228,27 +228,27 @@
       "date": "2026-09-08"
     },
     {
-      "no": "SDH-1008",
+      "no": "SDH-1011",
       "kind": "Salary certificate",
       "date": "2026-09-24"
     },
     {
-      "no": "SDH-1011",
+      "no": "SDH-1012",
       "kind": "Salary certificate",
       "date": "2026-10-05"
     },
     {
-      "no": "SDH-1012",
+      "no": "SDH-1013",
       "kind": "Salary transfer letter",
       "date": "2026-07-09"
     },
     {
-      "no": "SDH-1013",
+      "no": "SDH-1014",
       "kind": "Salary transfer letter",
       "date": "2026-08-17"
     },
     {
-      "no": "SDH-1014",
+      "no": "SDH-1015",
       "kind": "Salary transfer letter",
       "date": "2026-09-08"
     },
@@ -258,7 +258,7 @@
       "date": "2026-09-24"
     },
     {
-      "no": "SDH-1017",
+      "no": "SDH-1018",
       "kind": "Salary transfer letter",
       "date": "2026-10-05"
     },
@@ -286,63 +286,63 @@
       {
         "month": "2026-04",
         "no": "SDH-1051",
-        "name": "Ghadah Al Otaibi",
-        "paid": 15474.37,
-        "due": 15395.62,
-        "difference": 78.75
+        "name": "Mishari Al Rasheed",
+        "paid": 19281.56,
+        "due": 19183.44,
+        "difference": 98.12
       },
       {
         "month": "2026-05",
         "no": "SDH-1051",
-        "name": "Ghadah Al Otaibi",
-        "paid": 15474.37,
-        "due": 15395.62,
-        "difference": 78.75
+        "name": "Mishari Al Rasheed",
+        "paid": 19281.56,
+        "due": 19183.44,
+        "difference": 98.12
       },
       {
         "month": "2026-05",
         "no": "SDH-1064",
-        "name": "Nasser Al Muqbel",
-        "paid": 10045.87,
-        "due": 12294.27,
-        "difference": -2248.4
+        "name": "Ghadah Al Otaibi",
+        "paid": 8410.5,
+        "due": 10292.62,
+        "difference": -1882.12
       },
       {
         "month": "2026-06",
         "no": "SDH-1051",
-        "name": "Ghadah Al Otaibi",
-        "paid": 15474.37,
-        "due": 15395.62,
-        "difference": 78.75
+        "name": "Mishari Al Rasheed",
+        "paid": 19281.56,
+        "due": 19183.44,
+        "difference": 98.12
       },
       {
         "month": "2026-06",
         "no": "SDH-1064",
-        "name": "Nasser Al Muqbel",
-        "paid": 15012.37,
-        "due": 18389.67,
-        "difference": -3377.3
+        "name": "Ghadah Al Otaibi",
+        "paid": 12568.5,
+        "due": 15395.62,
+        "difference": -2827.12
       },
       {
         "month": "2026-07",
         "no": "SDH-1051",
-        "name": "Ghadah Al Otaibi",
-        "paid": 15474.37,
-        "due": 15316.87,
-        "difference": 157.5
+        "name": "Mishari Al Rasheed",
+        "paid": 19281.56,
+        "due": 19085.31,
+        "difference": 196.25
       },
       {
         "month": "2026-08",
         "no": "SDH-1051",
-        "name": "Ghadah Al Otaibi",
-        "paid": 15474.37,
-        "due": 15316.87,
-        "difference": 157.5
+        "name": "Mishari Al Rasheed",
+        "paid": 19281.56,
+        "due": 19085.31,
+        "difference": 196.25
       },
       {
         "month": "2026-08",
         "no": "SDH-1065",
-        "name": "Fadi Shawky",
+        "name": "Mostafa Mansour",
         "paid": 13230,
         "due": 0,
         "difference": 13230
@@ -350,27 +350,27 @@
       {
         "month": "2026-09",
         "no": "SDH-1051",
-        "name": "Ghadah Al Otaibi",
-        "paid": 15474.37,
-        "due": 15316.87,
-        "difference": 157.5
+        "name": "Mishari Al Rasheed",
+        "paid": 19281.56,
+        "due": 19085.31,
+        "difference": 196.25
       }
     ],
-    "total": 8313.05,
+    "total": 9403.87,
     "net": {
-      "2026-04": 1344690.56,
-      "2026-05": 1356473.5,
-      "2026-06": 1363500.64,
-      "2026-07": 1367123.89,
-      "2026-08": 1367123.89,
-      "2026-09": 1353893.89
+      "2026-04": 1347219.78,
+      "2026-05": 1357338.08,
+      "2026-06": 1363029.28,
+      "2026-07": 1366966.39,
+      "2026-08": 1366313.9,
+      "2026-09": 1353736.39
     }
   },
   "provisions": {
-    "sheetEos": 2432559.68,
-    "engineEos": 2447835.92,
-    "sheetLeave": 494221.72,
-    "engineLeave": 494221.71,
+    "sheetEos": 2404219.55,
+    "engineEos": 2419495.79,
+    "sheetLeave": 511850.89,
+    "engineLeave": 511850.89,
     "over5": [
       "SDH-1001",
       "SDH-1002",

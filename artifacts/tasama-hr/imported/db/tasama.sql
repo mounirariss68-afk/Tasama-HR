@@ -36,7 +36,9 @@ CREATE TABLE tasama.clients (
   credit_cap_pct  numeric NOT NULL,
   account_manager_id int,
   nitaqat         jsonb NOT NULL,
-  sort            int NOT NULL
+  sort            int NOT NULL,
+  config          jsonb,                    -- a client taken on from its files: its config and payroll terms (§19)
+  onboarded_at    timestamptz
 );
 
 CREATE TABLE tasama.sla_defs (
@@ -214,7 +216,12 @@ CREATE TABLE tasama.onboarding (
   lanes        jsonb NOT NULL DEFAULT '{}',           -- each lane's state, counts and summary
   staged       jsonb NOT NULL DEFAULT '{}',           -- the client, roster, policy, contracts, letters, history, leave
   issues       jsonb NOT NULL DEFAULT '[]',
-  request_ref  text,                                  -- the WF-24 decision
+  request_ref  text,
+  shown        int,                                   -- lanes revealed so far when the Director paces D10; null = all
+  decision     text,                                  -- WF-24: APPROVED | RETURNED, by the payroll lead
+  decided_by   text,
+  decided_at   timestamptz,
+  reason       text,
   created_by   text,
   created_at   timestamptz NOT NULL DEFAULT now(),
   read_at      timestamptz,

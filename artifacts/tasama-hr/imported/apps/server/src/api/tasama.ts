@@ -1,7 +1,7 @@
 /** Tasama HR Services: portfolio, client accounts, service levels, finance, delivery, escalations, policies. */
 import { Router } from 'express';
 import { pool, withClient } from '../db.js';
-import { CLIENTS, clientByKey, slasFor, SERVICE_LABELS, type ClientConfig } from '../domain/clients.js';
+import { CLIENTS, allClients, clientByKey, slasFor, SERVICE_LABELS, type ClientConfig } from '../domain/clients.js';
 import { addDays, iso, monthStart, round2 } from '../domain/rules.js';
 import { now } from '../clock.js';
 import { personaOf, isTasama } from './session.js';
@@ -43,8 +43,9 @@ async function money(cl: ClientConfig) {
 
 tasama.get('/tasama/portfolio', async (_req, res) => {
   const out: any[] = [];
-  for (const cl of CLIENTS) {
-    const [counts, pay, sla, fin] = await Promise.all([
+  // A client taken on from its files is listed from go-live; its first service month has not run yet.
+  for (const cl of allClients()) {
+    const got = await Promise.all([
       inClient(cl, async () => (await pool.query(`SELECT
           (SELECT COUNT(*)::int FROM hcm.work_relationships WHERE worker_type='E' AND end_date IS NULL) AS headcount,
           (SELECT COUNT(*)::int FROM layer.requests WHERE status IN ('WAITING','RUNNING','ESCALATED')) AS open_cases,
@@ -57,7 +58,9 @@ tasama.get('/tasama/portfolio', async (_req, res) => {
       inClient(cl, async () => { try { const pc: any = await precheck({ c: pool, quiet: true } as any); return { blockers: pc.findings.filter((f: any) => f.severity === 'BLOCKER').length, high: pc.findings.filter((f: any) => f.severity === 'HIGH').length, findings: pc.findings.length }; } catch { return null; } }),
       slaSnapshot(cl),
       money(cl),
-    ]);
+    ]).catch((e) => { console.error('[portfolio]', cl.key, e?.message); return null; });
+    if (!got) continue;
+    const [counts, pay, sla, fin] = got;
     const esc = (await pool.query(`SELECT kind, COUNT(*)::int n FROM tasama.escalations WHERE client_key=$1 AND status <> 'RESOLVED' GROUP BY 1`, [cl.key])).rows;
     const csat = (await pool.query(`SELECT score FROM tasama.csat WHERE client_key=$1 ORDER BY period DESC LIMIT 1`, [cl.key])).rows[0]?.score ?? null;
     const overdue = fin.invoices.filter((i: any) => i.status === 'OVERDUE').reduce((a: number, i: any) => a + Number(i.total), 0);

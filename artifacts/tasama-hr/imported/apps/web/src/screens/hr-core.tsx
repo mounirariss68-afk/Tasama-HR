@@ -44,9 +44,9 @@ export function Lifecycle() {
   const { data: pay } = useApi<any>(chro ? '/payroll' : null);
   const sa = org?.saudization;
   const pc = pay?.precheck;
-  const blockers = pc ? pc.findings.filter((f: any) => f.severity === 'BLOCKER').length : 0;
+  const blockers = pc ? pc.findings.filter((f: any) => f.severity === 'BLOCKER' || f.severity === 'HIGH').length : 0;
   const status = chro ? [
-    sa ? `${t('Saudization')} ${Math.round(Number(sa.ratio))}% ${t('against a target of')} ${sa.target}%.` : '',
+    sa?.target ? `${t('Saudization')} ${Math.round(Number(sa.ratio))}% ${t('against a target of')} ${sa.target}%.` : '',
     pc ? (pc.blocked ? `${month(pc.period.period_name, lang).split(' ')[0]} ${t('payroll is held by')} ${blockers} ${t(blockers === 1 ? 'blocker' : 'blockers')}.` : `${month(pc.period.period_name, lang)} ${t('payroll is clear to release')}.`) : '',
   ].filter(Boolean).join(' ') : '';
   const [stage, setStage] = useState<string>('all');

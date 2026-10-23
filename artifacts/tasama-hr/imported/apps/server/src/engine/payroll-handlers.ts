@@ -80,7 +80,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     }
     await h.patch({ readings_applied: lines });
     await h.trail({ act: 'PREPARE', summary: `Prepared version ${h.req.payload.version} for the client's decision${lines.length ? `: ${lines.join('; ')}` : ''}.` });
-    return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: `activate version ${h.req.payload.version}${lines.length ? `, with ${lines.join('; ')}, as Tasama's payroll lead recommends` : ''}` } };
+    return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: `activate version ${h.req.payload.version}${lines.length ? `, with ${lines.join('; ')}, as Tasama's payroll lead recommends` : ''}`, summary_ar: `تفعيل الإصدار ${h.req.payload.version}${lines.length ? ` كما توصي قائدة الرواتب في تسامى` : ''}` } };
   },
 
   'WF-29:read': async (h) => {
@@ -91,7 +91,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     if (capped) await h.trail({ act: 'CHECK', summary: `${capped === 1 ? 'One person\'s' : `${capped} people's`} lateness fines would pass five days' wage; they stop at the cap (Art. 70). Unpaid absence is kept apart: it is not a fine and has no cap.` });
     await h.setResult({ attendance: summary });
     return { status: 'DONE', decision: `${summary.fined} fines, ${summary.unpaidDays} unpaid days proposed`, outputs: summary,
-      recommend: { verdict: 'APPROVE', summary: `confirm ${summary.fined} fines totalling SAR ${Math.round(summary.fines).toLocaleString('en-US')} and ${summary.unpaidDays} unpaid days, after reading each employee's explanation` } };
+      recommend: { verdict: 'APPROVE', summary: `confirm ${summary.fined} fines totalling SAR ${Math.round(summary.fines).toLocaleString('en-US')} and ${summary.unpaidDays} unpaid days, after reading each employee's explanation`, summary_ar: `تأكيد ${summary.fined} غرامات مجموعها ${Math.round(summary.fines).toLocaleString('en-US')} ريال و${summary.unpaidDays} أيام دون أجر، بعد قراءة إفادة كل موظف` } };
   },
 
   // ---------------------------------------------------------- WF-30 payroll run (§18)
@@ -169,7 +169,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     const r = { months: per, total: Math.round(total * 100) / 100, gosiEe: Math.round(gosiEe * 100) / 100, gosiEr: Math.round(gosiEr * 100) / 100, catchUp, open: open.period_name };
     await h.setResult({ backpay: r });
     await h.trail({ act: 'CHECK', summary: `${p.person_name}'s ${String(p.what ?? 'pay change').toLowerCase()} is dated ${p.effective}, ${per.length} closed ${per.length === 1 ? 'month' : 'months'} ago. Recalculated each: ${per.map((x) => `${x.period} ${sar(x.amount)}`).join(', ')}; ${sar(r.total)} of back pay and ${sar(r.gosiEe)} of employee GOSI on it. End of service re-measured ${r.catchUp.eos >= 0 ? '+' : '−'}${sar(Math.abs(r.catchUp.eos))}, leave ${r.catchUp.leave >= 0 ? '+' : '−'}${sar(Math.abs(r.catchUp.leave))}. The closed months stay as paid.` });
-    return { status: 'DONE', decision: `${sar(r.total)} back pay`, outputs: r, recommend: { verdict: 'APPROVE', summary: `add ${sar(r.total)} of back pay to the ${open.period_name} run; no closed month reopens` } };
+    return { status: 'DONE', decision: `${sar(r.total)} back pay`, outputs: r, recommend: { verdict: 'APPROVE', summary: `add ${sar(r.total)} of back pay to the ${open.period_name} run; no closed month reopens`, summary_ar: `إضافة ${sar(r.total)} من الفروقات إلى رواتب ${open.period_name}؛ لا يُعاد فتح أي شهر مغلق` } };
   },
   'WF-35:apply': async (h) => {
     const p = h.req.payload, r = h.req.result.backpay;
@@ -200,14 +200,14 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
       await h.patch({ ...v, period: per.name, next, cutoff: per.cutoff });
       await h.trail({ act: 'CHECK', summary: `${p.person_name}'s ${p.what.toLowerCase()} was entered on ${dayOf(p.entered_on)}, after ${monthWord(per.name)}'s cut-off on ${dayOf(per.cutoff)}. ${monthWord(per.name)}'s run stays as approved. The ${v.days} days of ${monthWord(per.name).split(' ')[0]} at the new pay are worth SAR ${fmt(v.backPay)}, paid as back pay with ${monthWord(next)}.` });
       return { status: 'DONE', decision: `SAR ${fmt(v.backPay)} back pay with ${monthWord(next)}`, outputs: v,
-        recommend: { verdict: 'APPROVE', summary: `pay the SAR ${fmt(v.backPay)} with ${monthWord(next)}; nothing in ${monthWord(per.name).split(' ')[0]}'s approved run reopens` } };
+        recommend: { verdict: 'APPROVE', summary: `pay the SAR ${fmt(v.backPay)} with ${monthWord(next)}; nothing in ${monthWord(per.name).split(' ')[0]}'s approved run reopens`, summary_ar: `دفع ${fmt(v.backPay)} ريال مع رواتب الشهر التالي؛ لا يُعاد فتح أي شيء في رواتب الشهر المعتمدة` } };
     }
     const r = await prefill(h.c, h.req.id);
     await h.patch({ period: per.name, cutoff: per.cutoff, due: `${per.cutoff}T21:00:00Z` });
     await h.setResult({ month: { confirmed: r.confirmed, expected: r.expected } });
     await h.trail({ act: 'PREPARE', summary: `Listed ${r.confirmed + r.expected} changes for ${monthWord(per.name)}: ${r.confirmed} already confirmed through approved cases and HR events, ${r.expected} expected from HR operations before the cut-off on ${dayOf(per.cutoff)}.` });
     return { status: 'DONE', decision: `${r.expected} expected from the client`, outputs: r,
-      recommend: { verdict: 'APPROVE', summary: r.expected ? `confirm the ${r.expected} expected ${r.expected === 1 ? 'line' : 'lines'} before the cut-off; ${r.expectedOt ? 'the overtime figures are last month\'s, to change if they differ' : 'nothing else is missing'}` : 'nothing is missing; confirm the month' } };
+      recommend: { verdict: 'APPROVE', summary: r.expected ? `confirm the ${r.expected} expected ${r.expected === 1 ? 'line' : 'lines'} before the cut-off; ${r.expectedOt ? 'the overtime figures are last month\'s, to change if they differ' : 'nothing else is missing'}` : 'nothing is missing; confirm the month', summary_ar: r.expected ? `تأكيد ${r.expected} بنود متوقعة قبل الإقفال؛ ${r.expectedOt ? 'أرقام العمل الإضافي من الشهر الماضي، وتُعدّل إن اختلفت' : 'لا شيء آخر ناقص'}` : 'لا شيء ناقص؛ أكّد الشهر' } };
   },
   'WF-27:apply': async (h) => {
     const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'HR operations';
@@ -258,7 +258,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     await h.c.query(`INSERT INTO layer.contracts (contract_number, person_id, offer_number, request_id, contract_type, fields, body, status) VALUES ($1,$2,$3,$4,$5,$6,$7,'DRAFTED')`, [num, p.person_id, p.offer_number, h.req.id, fields.contract_type, JSON.stringify(fields), body]);
     await h.patch({ contract_number: num, contract: fields, body, wage });
     await h.trail({ act: 'PREPARE', summary: `Drafted ${num} from the accepted offer: ${sar(wage)} a month from ${fields.start_date}, ${fixed ? 'a two-year fixed term (Art. 37)' : 'indefinite (Art. 55)'}, ${fields.probation_days} days' probation, ${fields.annual_leave} days' leave. Every pay term is the offer's.` });
-    return { status: 'DONE', decision: num, outputs: fields, recommend: { verdict: 'APPROVE', summary: 'send it for signature: every pay term is the accepted offer\'s, and the rest follows the policy and the law' } };
+    return { status: 'DONE', decision: num, outputs: fields, recommend: { verdict: 'APPROVE', summary: 'send it for signature: every pay term is the accepted offer\'s, and the rest follows the policy and the law', summary_ar: 'إرساله للتوقيع: كل شروط الأجر من العرض المقبول، والباقي وفق السياسة والنظام' } };
   },
   'WF-28:sign': async (h) => {
     const p = h.req.payload;

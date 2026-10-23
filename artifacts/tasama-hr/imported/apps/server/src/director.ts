@@ -26,6 +26,8 @@ import { saveVersion, nextVersion, READINGS } from './payroll/policy.js';
 import { draftRun } from './payroll/run.js';
 import { explain } from './payroll/differences.js';
 import { deviceExport, proposeMap, ingest, justify as justifyDay } from './attendance/service.js';
+import * as Onb from './onboarding/store.js';
+import { dropClient } from './onboarding/golive.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
 type Text = string | ((c: Ctx) => Promise<string> | string);
@@ -40,7 +42,10 @@ type Action =
   | { kind: 'basira_scan' }
   | { kind: 'assign_pattern'; pattern: 'riyadhair' | 'cross'; staff: string; action: Text; days: number }
   | { kind: 'prepare_invoice' }
-  | { kind: 'approve_invoice' };
+  | { kind: 'approve_invoice' }
+  | { kind: 'onboard_drop' }
+  | { kind: 'onboard_reveal'; upto: number | null }
+  | { kind: 'onboard_decide' };
 /** One line in pane 01 of the Stage: what the person asking said, or what reached them. */
 export type Line = { by: 'person' | 'agent' | 'system'; who: string; via?: string; text: string };
 /** A record as the client's HRMS (or Tasama's own system) holds it, for pane 03. A representative screen. */
@@ -53,6 +58,8 @@ type Step = {
   action: Action; say: Text; say_ar?: Text;
   chat?: (c: Ctx) => Promise<Line[]> | Line[];
   focus?: Focus;
+  /** The client this step plays in, when it is not the scenario's (D10's last step is in the new client). */
+  client?: string;
 };
 type Scenario = { key: string; level: 'client' | 'tasama'; client?: string; shape: string; shape_ar: string; title: string; title_ar: string; summary: string; summary_ar: string; steps: Step[]; record?: (c: Ctx) => Promise<Rec | null> };
 
@@ -499,12 +506,28 @@ const STARTERS = {
 
 // ------------------------------------------------------------------ the scripts
 
-const S = (id: string, title: string, title_ar: string, trigger: string, persona: string, screen: string, action: Action, say: Text, open?: string, x: { chat?: Step['chat']; focus?: Focus } = {}): Step => ({ id, title, title_ar, trigger, persona, screen, action, say, open, ...x });
+const S = (id: string, title: string, title_ar: string, trigger: string, persona: string, screen: string, action: Action, say: Text, open?: string, x: { chat?: Step['chat']; focus?: Focus; client?: string } = {}): Step => ({ id, title, title_ar, trigger, persona, screen, action, say, open, ...x });
 const SHOW: Action = { kind: 'show' };
 const person = (who: string, text: string, via = 'Rafeeq'): Line => ({ by: 'person', who, via, text });
 const agent = (who: string, text: string, via?: string): Line => ({ by: 'agent', who, via, text });
 const system = (who: string, text: string, via?: string): Line => ({ by: 'system', who, via, text });
 const first = async (id: number) => (await nameOf(id)).split(' ')[0];
+
+/* ------------------------------------------------------------------ D10: taking a client on from its files */
+
+const D10_KEY = 'soudah';
+async function onboardingOf(c: Ctx) { return c.out.onb ? Onb.get(Number(c.out.onb)) : null; }
+const laneOf = (o: any, k: string) => o?.lanes?.find((l: any) => l.key === k);
+async function onboardingRecord(c: Ctx): Promise<Rec | null> {
+  const o = await onboardingOf(c);
+  if (!o) return null;
+  const files = (o.files ?? []).reduce((n: number, f: any) => n + f.n, 0);
+  const read = (o.lanes ?? []).filter((l: any) => l.state === 'DONE').length;
+  return { system: 'Tasama HR, staging', title: o.client?.name ?? 'The dropped folder', fields: [
+    ['Files', String(files)], ['Lanes read', `${read} of 7`], ['Employees ready', `${o.ready ?? 0} of ${o.client?.headcount ?? 0}`],
+    ['Issues for the client', String(o.counts.client)], ['Issues Tasama settles', String(o.counts.issues - o.counts.client)], ['State', o.state === 'LIVE' ? `Live from ${o.from}` : o.state === 'STAGED' ? 'Waiting for the payroll lead' : 'Reading'],
+  ] };
+}
 
 export const SCRIPTS: Scenario[] = [
   { key: 'certificate', level: 'client', shape: 'Happy path', shape_ar: 'المسار المعتاد', title: 'Salary certificate through chat', title_ar: 'شهادة راتب عبر المحادثة',
@@ -752,6 +775,32 @@ export const SCRIPTS: Scenario[] = [
         { chat: async () => { const a = await patternOf('riyadhair'); const b = await patternOf('cross'); const parts = [a ? `at Riyadh Air, leave requests escalate because one approver is away with no delegate (${Number(a.current_rate)} per 100, from ${Number(a.baseline_rate)})` : null, b ? `at ${(b.client_keys as string[]).map((k) => clientByKey(k)!.short).join(', ')}, payroll changes arrive after the cut-off, which points at Tasama's own calendar` : null].filter(Boolean); return [person('Faisal Al Harbi', 'What is rising, and why?', 'Murshid'), agent('Murshid', parts.length ? `Two things: ${parts.join('; and ')}. Both have an owner and a date to measure again.` : 'Nothing is rising enough to flag this week.')]; },
           focus: { fact: 'Murshid answers from Basira\'s patterns, with the references.' } }),
     ] },
+  { key: 'client-transition', level: 'tasama', client: 'redsea', shape: 'Happy path', shape_ar: 'المسار المعتاد', title: 'A new client from its files', title_ar: 'عميل جديد من ملفاته',
+    summary: 'Soudah Development keeps its payroll in spreadsheets and a shared folder. Tasama drops the folder on one screen; seven lanes read the roster, the policy, contracts, letters, six months of payroll and leave, and raise 15 issues, 7 of them for the client. Sharifa takes Soudah on from next month and its HR team sees its first month open.',
+    summary_ar: 'تحتفظ السودة للتطوير برواتبها في جداول ومجلد مشترك. تُفلت تسامى المجلد في شاشة واحدة فتقرأ سبعة مسارات البيانات والسياسة والعقود والخطابات وستة أشهر من الرواتب والإجازات، وتعتمد شريفة نقلها اعتباراً من الشهر القادم.',
+    record: async (c) => onboardingRecord(c),
+    steps: [
+      S('t1', 'The folder is dropped', 'إفلات المجلد', 'Soudah\'s shared folder, dropped on Add a payroll client', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_drop' },
+        async (c) => { const o = await onboardingOf(c); const n = (o?.files ?? []).reduce((s: number, f: any) => s + f.n, 0); const k = (x: string) => (o?.files ?? []).find((f: any) => f.kind === x)?.n ?? 0; return `Soudah Development keeps its payroll in spreadsheets. Its folder holds ${n} files: the master data, ${k('PAYROLL')} months of payroll, provisions, a leave tracker, the policy manual, ${k('CONTRACT')} contracts and ${k('LETTER')} letters. Intiqal reads them into a staging area; nothing reaches a master until Sharifa decides.`; }, undefined,
+        { chat: () => [person('Soudah Development HR', 'Our payroll folder is in the shared drive: the master data, six months of payroll, the policy manual, contracts and letters.', 'Email to Tasama'), agent('Intiqal', 'Received. Reading it into a staging area; nothing is written to a master until the payroll lead approves.')] }),
+      S('t2', 'The client and its roster', 'العميل وموظفوه', 'Intiqal reads the master data', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: 2 },
+        async (c) => { const o = await onboardingOf(c); const held = (o?.issues ?? []).filter((i: any) => i.lane === 'roster' && i.who === 'CLIENT'); return `${laneOf(o, 'client')?.headline ?? ''}. ${laneOf(o, 'roster')?.headline ?? ''}: ${held.map((i: any) => i.title).join('; ')}.`; }),
+      S('t3', 'Nizam reads the policy, and refuses two rules', 'نظام يقرأ السياسة ويرفض قاعدتين', 'Nizam reads the policy manual', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: 3 },
+        async (c) => { const o = await onboardingOf(c); const r = (o?.issues ?? []).filter((i: any) => i.lane === 'policy'); return `${laneOf(o, 'policy')?.headline ?? ''}. ${r.map((i: any) => `${i.title}: ${i.settle.replace(/^Refused: /, 'refused, ')}`).join(' ')}`; },
+        undefined, { focus: { fact: 'A rule below the law is refused, not copied: the law\'s limit is what payroll applies.' } }),
+      S('t4', 'Contracts and letters are matched', 'مطابقة العقود والخطابات', 'Aqd reads 62 contracts; Intiqal attaches 18 letters', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: 5 },
+        async (c) => { const o = await onboardingOf(c); return `${laneOf(o, 'contracts')?.headline ?? ''}. Two salary differences are explained by promotion letters; the third is not, so it goes to the client. ${laneOf(o, 'letters')?.headline ?? ''}.`; }),
+      S('t5', 'Six months recalculated', 'إعادة احتساب ستة أشهر', 'Hisab recalculates each month under the policy', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: 7 },
+        async (c) => { const o = await onboardingOf(c); const h = (o?.issues ?? []).filter((i: any) => i.lane === 'history'); return `Hisab recalculated each month Soudah paid with the same engine that pays every client. Three differences: ${h.map((i: any) => i.title).join('; ')}.`; },
+        undefined, { focus: { fact: 'Every month Soudah paid, recalculated with the engine that will pay it from now on.' } }),
+      S('t6', 'One decision for the payroll lead', 'قرار واحد لقائدة الرواتب', 'The decision card', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: null },
+        async (c) => { const o = await onboardingOf(c); return `Take Soudah on from ${o?.from ? new Date(`${o.from}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'next month'}: ${o?.counts.issues ?? 15} issues, ${o?.counts.client ?? 7} need the client. ${o?.ready ?? 61} of ${o?.client?.headcount ?? 64} employees are ready; the rest are held until the client answers and are still paid.`; }),
+      S('t7', 'Sharifa takes Soudah on', 'شريفة تعتمد النقل', 'Human step: Payroll lead (WF-24)', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_decide' },
+        async (c) => { const o = await onboardingOf(c); return `Sharifa approved. Soudah's master was written to Tasama HR from the staging area: ${o?.client?.headcount ?? 64} employees, six months as paid, the policy as Nizam read it. Its ${o?.counts.client ?? 7} issues are questions in its HR operations inbox, and back pay and GOSI arrears are booked in the first month.`; }),
+      S('t8', 'Soudah\'s HR sees its first month', 'السودة ترى شهرها الأول', 'Soudah HR operations', 'payroll', 'hr-payroll', SHOW,
+        async () => { const per = (await pool.query(`SELECT period_name, to_char(cutoff_date,'DD Mon') co FROM hcm.payroll_periods WHERE status='OPEN' LIMIT 1`)).rows[0]; const q = (await pool.query(`SELECT count(*)::int n FROM layer.requests WHERE workflow_id='WF-36' AND status='WAITING'`)).rows[0].n; return `Soudah's HR operations signs in and sees ${per ? new Date(`${per.period_name}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' }) : 'its first month'} open, cut-off on ${per?.co ?? 'the policy day'}, and ${q} questions from Tasama to answer before it.`; },
+        undefined, { client: D10_KEY }),
+    ] },
 ];
 
 // ------------------------------------------------------------------ running
@@ -812,6 +861,26 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
       c.out.assigned = p.ref; return `${p.ref} assigned to ${a.staff}`;
     }
     case 'prepare_invoice': { const inv = await prepareInvoice(clientByKey(c.client)!, monthStart(now(), -1)); c.out.inv = inv; return `Prepared ${inv.number}`; }
+    case 'onboard_drop': {
+      // The presenter may have dropped the folder by hand ("Your move"); otherwise the step drops the demo folder.
+      const mine = (await pool.query(`SELECT o.id FROM tasama.onboarding o JOIN tasama.director_runs r ON r.status='RUNNING' AND r.key=$1 WHERE o.created_at >= r.started_at AND EXISTS (SELECT 1 FROM tasama.onboarding_files f WHERE f.onboarding_id=o.id) ORDER BY o.id DESC LIMIT 1`, [c.key])).rows[0]?.id;
+      const id = mine ?? await Onb.create('Sharifa AlMousa');
+      if (!mine) await Onb.addDemoFiles(id);
+      await Onb.read(id, 0);
+      await Onb.reveal(id, 0);
+      c.out.onb = id;
+      return hand || mine ? 'Dropped in the room' : 'Folder dropped';
+    }
+    case 'onboard_reveal': { if (c.out.onb) await Onb.reveal(Number(c.out.onb), a.upto); return a.upto == null ? 'Every lane read' : `${a.upto} lanes read`; }
+    case 'onboard_decide': {
+      const o = c.out.onb ? await Onb.get(Number(c.out.onb)) : null;
+      if (!o) return 'No folder was dropped';
+      if (o.state === 'LIVE') return 'Decided in the room';
+      await Onb.reveal(o.id, null);
+      const r = await Onb.decide(o.id, 'APPROVED', 'Sharifa AlMousa');
+      const m = 'month' in r ? r.month : o.from;
+      return `${o.client?.name ?? 'The client'} is live from ${new Date(`${m}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`;
+    }
     case 'approve_invoice': {
       const number = c.out.inv?.number ?? `TAS-${clientByKey(c.client)!.code}-${iso(monthStart(now(), -1)).slice(0, 7).replace('-', '')}`;
       const inv = (await pool.query(`SELECT * FROM tasama.invoices WHERE number=$1`, [number])).rows[0];
@@ -895,6 +964,8 @@ export async function startScenario(key: string, clientKey: string) {
   if (key === 'attendance-month') await withClient('saudicoffee', async () => { await pool.query(`DELETE FROM layer.attendance_uploads`); await pool.query(`DELETE FROM hcm.element_entries WHERE reference LIKE 'Attendance %'`); await pool.query(`UPDATE layer.pay_inputs SET state='EXPECTED', confirmed_by=NULL, confirmed_at=NULL, ref=NULL, label='The attendance month: unpaid days and lateness fines' WHERE kind='ATTENDANCE'`); });
   // D2 starts with no overtime entered; its first step enters it.
   if (key === 'overtime-two-clients') for (const k of D2_CLIENTS) await withClient(k, async () => { await pool.query(`DELETE FROM hcm.element_entries WHERE reference=$1`, [D2_REF]); });
+  // D10 starts before Soudah is a client: the client and any earlier drop are removed, so it plays again without a Reset.
+  if (key === 'client-transition') { if (clientByKey(D10_KEY)) await dropClient(D10_KEY); await pool.query(`DELETE FROM tasama.onboarding`); }
   if (key === 'pattern-rca') { await pool.query(`DELETE FROM tasama.patterns WHERE status <> 'CLOSED'`); await pool.query(`DELETE FROM tasama.pattern_watch`); }
   const run = (await pool.query(`INSERT INTO tasama.director_runs (key, client_key) VALUES ($1,$2) RETURNING *`, [key, client])).rows[0];
   return { run: run.id, client, scenario: outline(s) };
@@ -907,9 +978,10 @@ export async function runStep(runId: number, index: number, hand = false) {
   const st = s.steps[index];
   if (!st) throw new Error(`No step ${index + 1}`);
   const t0 = Date.now();
-  return withClient(run.client_key, async () => {
+  const stepClient = st.client && clientByKey(st.client) ? st.client : run.client_key;
+  return withClient(stepClient, async () => {
     const { P, T } = await people();
-    const c: Ctx = { key: s.key, client: run.client_key, refs: run.refs ?? {}, P, T, out: (run.log as any[]).reduce((o, l) => ({ ...o, ...(l.out ?? {}) }), {}) };
+    const c: Ctx = { key: s.key, client: stepClient, refs: run.refs ?? {}, P, T, out: (run.log as any[]).reduce((o, l) => ({ ...o, ...(l.out ?? {}) }), {}) };
     const snap = await snapshot(c.client);
     let result = '', error: string | null = null;
     try { result = await execute(st.action, c, hand); } catch (e: any) { error = e.message; console.error('[director]', s.key, st.id, e); }

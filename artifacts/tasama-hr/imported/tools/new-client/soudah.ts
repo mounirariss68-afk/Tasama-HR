@@ -80,6 +80,7 @@ export type Person = {
   contract: { type: 'Indefinite' | 'Fixed-term'; start: string; end: string | null; file: boolean };
   leave: { entitlement: number; carry: number; taken: number };
   unpaid: Record<string, number>;   // YYYY-MM -> unpaid days
+  idExpiry: string; passportExpiry: string | null;
 };
 
 const BANKS: [code: string, name: string][] = [['10', 'Saudi National Bank'], ['80', 'Al Rajhi Bank'], ['20', 'Riyad Bank'], ['05', 'Alinma Bank'], ['15', 'Bank Albilad'], ['55', 'Banque Saudi Fransi'], ['45', 'Saudi Awwal Bank']];
@@ -159,7 +160,7 @@ export function buildSoudah() {
         gosiFirst: isSaudi ? hire : hire, masterGosi: hire,
         contract: { type: R.chance(isSaudi ? 0.15 : 0.5) && !senior ? 'Fixed-term' : 'Indefinite', start: hire, end: null, file: true },
         leave: { entitlement, carry: R.int(0, SOUDAH.policy.carryForwardMax), taken: 0 },
-        unpaid: {},
+        unpaid: {}, idExpiry: '', passportExpiry: null,
       });
     }
   }
@@ -174,7 +175,9 @@ export function buildSoudah() {
 
   /* ---------- the plants ---------- */
   let byHire: Person[] = [];
-  const pool = R.shuffle(people.filter((p) => !(p.dept.code === 'EXE' && p.grade === 'G15') && p.grade < 'G12' && p.dept.code !== 'HRA' && p.dept.code !== 'FIN'));
+  // Department heads are never planted: their teams' rows point at them.
+  const heads = new Set(DEPTS.map((d) => people.find((p) => p.dept === d)));
+  const pool = R.shuffle(people.filter((p) => !heads.has(p) && !(p.dept.code === 'EXE' && p.grade === 'G15') && p.grade < 'G12' && p.dept.code !== 'HRA' && p.dept.code !== 'FIN'));
   const take = (f: (p: Person) => boolean) => { const i = pool.findIndex(f); if (i < 0) throw new Error('No one fits a plant'); return pool.splice(i, 1)[0]; };
   const expat = (p: Person) => !p.isSaudi, saudi = (p: Person) => p.isSaudi;
 
@@ -246,10 +249,12 @@ export function buildSoudah() {
     birth: '1988-03-14', nationalId: '2' + '418836027', passport: 'EG4471209', mobile: '0551840266', email: '', dept: sup, title: 'Guest Experience Officer', title_ar: 'مسؤول تجربة الزوار', grade: 'G06',
     managerNo: people.find((p) => p.dept === sup)!.no, hire: '2022-10-02', lastDay: '2026-07-31', basic: lBasic, housing: Math.round(lBasic * 0.25), transport: Math.round(lBasic * 0.1),
     promotion: null, contractBasic: lBasic, masterHousing: Math.round(lBasic * 0.25), bankCode: '80', bank: 'Al Rajhi Bank', iban: '', masterIban: '', gosiFirst: '2022-10-02', masterGosi: '2022-10-02',
-    contract: { type: 'Indefinite', start: '2022-10-02', end: null, file: false }, leave: { entitlement: 21, carry: 2, taken: 12 }, unpaid: {},
+    contract: { type: 'Indefinite', start: '2022-10-02', end: null, file: false }, leave: { entitlement: 21, carry: 2, taken: 12 }, unpaid: {}, idExpiry: '2027-03-18', passportExpiry: '2029-08-02',
   };
   { const bban = `80${'608010167519'}${'000123'}`; leaver.iban = spaced(`SA${ibanCheck(bban)}${bban}`); leaver.masterIban = leaver.iban; }
 
+  // ID and passport expiry dates, drawn last so every draw above stays as it was.
+  for (const p of people) { p.idExpiry = between(R, '2026-12-01', '2030-06-30'); p.passportExpiry = p.isSaudi ? null : between(R, '2027-01-01', '2031-12-31'); }
   const chro = people.find((p) => p.dept.code === 'HRA' && p.grade === 'G12')!;
   const finance = people.find((p) => p.dept.code === 'FIN' && p.grade === 'G12')!;
   const plants: Plants = {

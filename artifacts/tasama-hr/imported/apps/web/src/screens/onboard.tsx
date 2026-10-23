@@ -10,9 +10,12 @@ import { api, bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { num } from '../lib/format';
 import { AgentTag, Btn, Chip, Hero, Screen } from '../app/ui';
+import { useApp } from '../app/state';
+import { onboardingCard } from '../app/decision';
+import { FactGrid, Recommendation } from '../app/case';
 
-type Lane = { key: string; state: 'WAITING' | 'READING' | 'DONE' | 'EMPTY'; files: number; headline: string; stats: { label: string; value: string | number; tone?: 'ok' | 'warn' | 'bad' }[]; issues: number };
-type Issue = { id: string; code: string; lane: string; who: 'CLIENT' | 'TASAMA'; title: string; settle: string; people: { no: string; name: string }[] };
+type Lane = { key: string; state: 'WAITING' | 'READING' | 'DONE' | 'EMPTY'; files: number; headline: string; headline_ar?: string; stats: { label: string; label_ar?: string; value: string | number; value_ar?: string; tone?: 'ok' | 'warn' | 'bad' }[]; issues: number };
+type Issue = { id: string; code: string; lane: string; who: 'CLIENT' | 'TASAMA'; title: string; title_ar?: string; settle: string; settle_ar?: string; people: { no: string; name: string }[] };
 
 const LANE: Record<string, { label: string; agent: string; icon: ReactNode; expect: number }> = {
   client: { label: 'Client', agent: 'intiqal', icon: <Building2 size={16} />, expect: 2 },
@@ -43,16 +46,21 @@ async function filesOf(e: DragEvent): Promise<{ path: string; file: File }[]> {
 }
 
 export function AddPayrollClient() {
-  const { t } = useLang();
+  const { t, bi, lang } = useLang();
+  const { persona, go } = useApp();
   const { data, reload } = useApi<any>('/onboarding/current', { poll: 900 });
   const [busy, setBusy] = useState<string | null>(null);
   const [over, setOver] = useState(false);
+  const [returning, setReturning] = useState(false);
+  const [reason, setReason] = useState('');
+  const [err, setErr] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const o = data;
   const lanes: Lane[] = o?.lanes ?? [];
   const issues: Issue[] = o?.issues ?? [];
   const reading = o?.state === 'READING' || !!busy;
   const fileCount = (o?.files ?? []).reduce((s: number, f: any) => s + f.n, 0);
+  const lead = persona?.key === 'tasama-lead';
 
   const upload = async (files: { path: string; file: File }[]) => {
     if (!files.length) return;
@@ -67,18 +75,35 @@ export function AddPayrollClient() {
       await post(`/onboarding/${id}/read`, { pace: 900 });
     } finally { setBusy(null); bump(); reload(); }
   };
-  const startAgain = async () => { if (o) await api(`/onboarding/${o.id}`, { method: 'DELETE' }); bump(); reload(); };
+  // A client already taken on stays; starting again opens a new drop.
+  const startAgain = async () => { if (o && o.state !== 'LIVE') await api(`/onboarding/${o.id}`, { method: 'DELETE' }); else await post('/onboarding'); bump(); reload(); };
+  const decide = async (decision: 'APPROVED' | 'RETURNED') => {
+    if (decision === 'RETURNED' && !returning) { setReturning(true); return; }
+    setBusy(t(decision === 'APPROVED' ? 'Taking the client on…' : 'Returning…')); setErr(null);
+    try { await post(`/onboarding/${o.id}/decide`, { decision, reason: reason.trim() || undefined }); setReturning(false); setReason(''); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(null); bump(); reload(); }
+  };
 
   const client = o?.client;
+  const name = bi(client?.name, client?.name_ar);
+  const month = o?.from ? new Date(`${o.from}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
   const title = !o || !fileCount ? t('Drop a client\'s folder and its payroll moves onto the platform')
-    : o.state === 'STAGED' ? `${client?.name ?? ''}: ${num(o.ready ?? 0)} ${t('of')} ${num(client?.headcount ?? 0)} ${t('employees are ready to take on')}`
+    : o.state === 'LIVE' ? `${name} ${t('is a Tasama client from')} ${month}`
+    : o.state === 'RETURNED' ? `${name} ${t('was returned; nothing was written')}`
+    : o.state === 'STAGED' ? `${name}: ${num(o.ready ?? 0)} ${t('of')} ${num(client?.headcount ?? 0)} ${t('employees are ready to take on')}`
     : `${t('Intiqal is reading')} ${num(fileCount)} ${t('files')}`;
+  const card = o?.state === 'STAGED' ? onboardingCard(o, { t, bi, lang }) : null;
 
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Add a payroll client" title={title}
-      lede={t('Spreadsheets, the policy manual, contracts and letters go into a staging area. Nothing reaches a client master until the payroll lead approves.')}
-      feature={o?.state === 'STAGED' ? <HeroFeature label="Need the client" value={num(o.counts.client)} support={<span className="text-xs text-muted-foreground">{t('Tasama settles')} {num(o.counts.issues - o.counts.client)}</span>} /> : undefined}
-      actions={o && fileCount ? <Btn small onClick={startAgain} disabled={reading}>{t('Start again')}</Btn> : undefined} />}>
+      lede={o?.state === 'LIVE' ? `${t('Its master is in Tasama HR, its questions are with its HR operations, and')} ${month} ${t('is open for changes.')}`
+        : o?.state === 'RETURNED' ? `${o.decided_by}: ${o.reason}`
+        : t('Spreadsheets, the policy manual, contracts and letters go into a staging area. Nothing reaches a client master until the payroll lead approves.')}
+      feature={o?.state === 'LIVE' ? <HeroFeature label="Need the client" value={num(o.counts.client)} support={<span className="text-xs text-muted-foreground">{t('Tasama settles')} {num(o.counts.issues - o.counts.client)}</span>} /> : undefined}
+      actions={o && fileCount ? <>
+        {o.state === 'LIVE' ? <Btn small kind="primary" onClick={() => go('payroll-inputs')}>{t('Open the first month')}</Btn> : null}
+        <Btn small onClick={startAgain} disabled={reading}>{t(o.state === 'LIVE' ? 'Add another client' : 'Start again')}</Btn>
+      </> : undefined} />}>
       {!o || !fileCount ? (
         <div onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
           onDrop={async (e) => { e.preventDefault(); setOver(false); await upload(await filesOf(e)); }}
@@ -92,14 +117,36 @@ export function AddPayrollClient() {
         </div>
       ) : (
         <>
-          <Panel icon={<FolderUp size={16} />} title={o.state === 'STAGED' ? `${num(fileCount)} ${t('files read and matched; the issues are below')}` : `${num(fileCount)} ${t('files received')}`}>
+          {card ? (
+            <section className="space-y-4 rounded-2xl border border-primary/30 bg-card p-5 shadow-sm">
+              <div>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{card.kind}</span>
+                <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{lead ? t('Your decision as payroll lead') : `${t('Waiting on')} Sharifa AlMousa, ${t('payroll lead')}`}</p>
+              </div>
+              <FactGrid facts={card.facts} />
+              {card.rec ? <Recommendation rec={card.rec} agent={card.agent ?? null} /> : null}
+              {lead ? (
+                <div className="space-y-2.5">
+                  {returning ? <input className="input h-10 w-full text-sm" autoFocus placeholder={t('What has to change before the client is taken on')} value={reason} onChange={(e) => setReason(e.target.value)} /> : null}
+                  {err ? <p className="text-sm text-danger">{err}</p> : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {returning ? <Btn onClick={() => { setReturning(false); setErr(null); }} disabled={!!busy}>{t('Cancel')}</Btn> : null}
+                    <Btn kind="danger" onClick={() => decide('RETURNED')} disabled={!!busy}>{t(returning ? 'Confirm the return' : 'Return it')}</Btn>
+                    {!returning ? <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={!!busy}>{busy ?? `${t('Take it on from')} ${month}`}</Btn> : null}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+          <Panel icon={<FolderUp size={16} />} title={o.state === 'READING' ? `${num(fileCount)} ${t('files received')}` : `${num(fileCount)} ${t('files read and matched; the issues are below')}`}>
             <div className="divide-y divide-border/60">
               {lanes.map((l) => <LaneRow key={l.key} lane={l} />)}
             </div>
           </Panel>
           {issues.length ? (
             <div className="grid gap-4 lg:grid-cols-2">
-              <IssueList title="The client settles these" items={issues.filter((i) => i.who === 'CLIENT')} tone="danger" />
+              <IssueList title={o.state === 'LIVE' ? 'Sent to the client\'s HR operations' : 'The client settles these'} items={issues.filter((i) => i.who === 'CLIENT')} tone="danger" />
               <IssueList title="Tasama settles these" items={issues.filter((i) => i.who === 'TASAMA')} tone="warn" />
             </div>
           ) : null}
@@ -113,7 +160,7 @@ export function AddPayrollClient() {
 const lower = (s: string) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
 
 function LaneRow({ lane }: { lane: Lane }) {
-  const { t } = useLang();
+  const { t, bi, lang } = useLang();
   const meta = LANE[lane.key];
   const n = lane.state === 'DONE' ? lane.files : meta.expect;
   // The headline carries the counts that matter; the line under it adds what the headline does not say.
@@ -132,9 +179,9 @@ function LaneRow({ lane }: { lane: Lane }) {
       </div>
       <div className="min-w-0">
         {lane.state === 'DONE' ? <>
-          <p className="text-sm font-semibold leading-snug">{lane.headline}</p>
-          {shown.length ? <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">{shown.map((s) => <span key={s.label}><span className="font-semibold text-foreground">{typeof s.value === 'number' ? num(s.value) : s.value}</span> {lower(t(s.label))}</span>)}</p> : null}
-        </> : lane.state === 'EMPTY' ? <p className="text-sm text-muted-foreground">{lane.headline || t('No file for this lane in the folder')}</p>
+          <p className="text-sm font-semibold leading-snug">{bi(lane.headline, lane.headline_ar)}</p>
+          {shown.length ? <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">{shown.map((s) => <span key={s.label}><span className="font-semibold text-foreground">{typeof s.value === 'number' ? num(s.value) : lang === 'ar' && s.value_ar ? s.value_ar : s.value}</span> {lang === 'ar' ? s.label_ar ?? s.label : lower(s.label)}</span>)}</p> : null}
+        </> : lane.state === 'EMPTY' ? <p className="text-sm text-muted-foreground">{bi(lane.headline, lane.headline_ar) || t('No file for this lane in the folder')}</p>
           : <p className="text-sm text-muted-foreground">{lane.state === 'READING' ? t('Reading…') : t('Waiting')}</p>}
       </div>
       <div className="text-end">{lane.state === 'DONE' ? (lane.issues ? <Chip tone="danger">{lane.issues} {t(lane.issues === 1 ? 'issue' : 'issues')}</Chip> : <Chip tone="success">{t('Clean')}</Chip>) : null}</div>
@@ -143,14 +190,14 @@ function LaneRow({ lane }: { lane: Lane }) {
 }
 
 function IssueList({ title, items, tone }: { title: string; items: Issue[]; tone: 'danger' | 'warn' }) {
-  const { t } = useLang();
+  const { t, bi } = useLang();
   return (
     <Panel title={`${t(title)} (${items.length})`}>
       <ul className="space-y-3">
         {items.map((i) => (
           <li key={i.id} className={`border-s-2 ps-3 ${tone === 'danger' ? 'border-danger' : 'border-warn'}`}>
-            <p className="text-sm font-medium leading-snug">{i.title}</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{i.settle}</p>
+            <p className="text-sm font-medium leading-snug">{bi(i.title, i.title_ar)}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{bi(i.settle, i.settle_ar)}</p>
           </li>
         ))}
       </ul>

@@ -59,7 +59,7 @@ export async function seedInputs(c: PoolClient, base: BaseResult, cl: ClientConf
   const cutoff = new Date(`${per.cutoff}T00:00:00Z`).getTime();
   const today = Date.now();
   setClock(new Date(cutoff - 10 * DAY + 7 * 3600_000));
-  const k = await startCase(c, { workflowId: 'WF-27', type: 'MONTH', title: `Payroll changes for ${new Date(`${per.start}T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`, title_ar: 'تغييرات الرواتب للشهر', requester: ops, subject: ops, channel: 'SCHEDULE', payload: { period: per.name } });
+  const k = await startCase(c, { workflowId: 'WF-27', type: 'MONTH', title: `Payroll changes for ${new Date(`${per.start}T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`, title_ar: `تغييرات الرواتب لشهر ${new Date(`${per.start}T00:00:00Z`).toLocaleString('ar', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`, requester: ops, subject: ops, channel: 'SCHEDULE', payload: { period: per.name } });
   for (const d of [3, 1]) {
     const at = cutoff - d * DAY + 8 * 3600_000;
     if (at > today) continue;

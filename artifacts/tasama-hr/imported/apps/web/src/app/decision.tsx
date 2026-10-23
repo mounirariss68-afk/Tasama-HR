@@ -18,7 +18,7 @@ import { ChangeWaterfall, CapBar, CoverStrip, RangeBar, SegmentBar, Progress, Sl
 const addDays = (d: string, n: number) => new Date(new Date(`${d}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
 
 export type Fact = { k: string; v: ReactNode; note?: string; tone?: 'warn' | 'danger' | 'success'; viz?: ReactNode; wide?: boolean };
-export type Rec = { verdict: 'APPROVE' | 'DECLINE' | 'REVIEW'; line: string };
+export type Rec = { verdict: 'APPROVE' | 'DECLINE' | 'REVIEW'; line: string; line_ar?: string };
 export type Card = { kind: string; headline: string; facts: Fact[]; rec: Rec | null; agent?: string | null };
 type T = { t: (s: string) => string; bi: (en: any, ar: any) => string; lang: Lang; mine: boolean };
 
@@ -89,7 +89,8 @@ function recOf(c: any, line?: string): Rec | null {
   const r = c.result?.recommendation;
   if (!r && !line) return null;
   const verdict = (r?.verdict ?? 'REVIEW') as Rec['verdict'];
-  return { verdict, line: line ?? `${verdict === 'APPROVE' ? 'Approve' : verdict === 'DECLINE' ? 'Decline' : 'Review'}: ${lower(plain(r?.summary))}` };
+  const word = verdict === 'APPROVE' ? 'Approve' : verdict === 'DECLINE' ? 'Decline' : 'Review';
+  return { verdict, line: line ?? `${word}: ${lower(plain(r?.summary))}`, line_ar: !line && r?.summary_ar ? `${word}: ${plain(r.summary_ar)}` : undefined };
 }
 
 /** The agent whose check produced the recommendation: the last agent step that ran. */
@@ -102,6 +103,30 @@ export function recommender(c: any): string | null {
 export function splitRec(line: string): [string, string] {
   const m = /^([^:]{2,40}):\s*(.+)$/.exec(line);
   return m ? [m[1], cap(m[2])] : ['', line];
+}
+
+/**
+ * WF-24, taking a client on (design/payroll-addendum.md §13, §19). The client does not exist in the platform
+ * until this is approved, so the decision sits on the staging record, not on a client's case; it is the same card.
+ */
+export function onboardingCard(o: any, x: Omit<T, 'mine'>): Card {
+  const { t, bi, lang } = x;
+  const name = bi(o.client?.name, o.client?.name_ar);
+  const month = o.from ? new Date(`${o.from}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
+  const held = (o.client?.headcount ?? 0) - (o.ready ?? 0);
+  const tasama = o.counts.issues - o.counts.client;
+  return {
+    kind: t('New client'),
+    headline: `${t('Take')} ${name} ${t('on from')} ${month}: ${o.counts.issues} ${t('issues')}, ${o.counts.client} ${t('need the client')}`,
+    facts: [
+      { k: t('Employees ready'), v: `${num(o.ready ?? 0)} ${t('of')} ${num(o.client?.headcount ?? 0)}`, note: held ? `${held} ${t('held until the client answers; they are still paid')}` : undefined, tone: held ? 'warn' : undefined },
+      { k: t('For the client'), v: num(o.counts.client), note: t('Each becomes a question in its HR operations inbox'), tone: o.counts.client ? 'danger' : undefined },
+      { k: t('Tasama settles'), v: num(tasama), note: t('Back pay and GOSI arrears are booked in the first month') },
+      { k: t('First month'), v: month, note: o.client?.cutoffDay ? `${t('Cut-off on day')} ${o.client.cutoffDay}, ${t('pay day')} ${o.client.payDay}` : undefined },
+    ],
+    rec: { verdict: 'APPROVE', line: `${t('Approve')}: ${t('the client answers its')} ${o.counts.client} ${t('questions before the first cut-off, and Tasama settles the other')} ${tasama} ${t('in the first month')}` },
+    agent: 'intiqal',
+  };
 }
 
 export function caseCard(c: any, x: T): Card {
@@ -341,6 +366,12 @@ export function caseCard(c: any, x: T): Card {
     case 'WF-36': {
       // A question from Tasama payroll that stops or holds part of the run (design/payroll-addendum.md §16).
       const month = p.period ? new Date(`${p.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+      // An issue found when the client's files were read (design/payroll-addendum.md §19).
+      if (p.kind === 'ONBOARDING_ISSUE') {
+        const facts: Fact[] = [{ k: t('What Tasama needs'), v: bi(p.settle, p.settle_ar), wide: true }];
+        if (c.status === 'COMPLETED' && r.answered) facts.push({ k: t('Answer'), v: plain(r.answered), wide: true });
+        return { kind: t('Taking Tasama on'), headline: bi(p.finding, p.finding_ar), facts, rec: null };
+      }
       const gosi = p.kind === 'GOSI_REGISTRATION';
       const done = c.status === 'COMPLETED';
       const headline = gosi
@@ -385,7 +416,9 @@ export function rowTitle(r: any, bi: (en: any, ar: any) => string, withSubject =
 export function rowParts(r: any, bi: (en: any, ar: any) => string, t: (s: string) => string) {
   const who = bi(r.subject_name, r.subject_name_ar) || r.requester_name || '';
   let what = bi(r.title, r.title_ar);
-  for (const n of [r.subject_name, r.subject_name_ar]) if (n) what = what.replace(n, '');
+  // The name comes off only where it stands apart ("Name: …", "… — Name"); inside a sentence ("Name's contract…") the sentence stays whole.
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const n of [r.subject_name, r.subject_name_ar]) if (n) what = what.replace(new RegExp(`^${esc(n)}\\s*[:·،,–—-]\\s*`), '').replace(new RegExp(`\\s*[:·،,–—-]\\s*${esc(n)}$`), '').replace(new RegExp(`:\\s*${esc(n)}\\s+`), ' ');
   what = what.replace(/[:،,]\s*$/, '').replace(/^\s*[:·]\s*/, '').replace(/^(?:Shortlist|Requisition|Offer|Promotion|Resignation|New position|Probation review|Calibration|Pre-boarding|Termination request)\s*:\s*/i, '').trim();
   return { who, what: what || bi(r.title, r.title_ar), kind: t(KIND[r.workflow_id] ?? 'Request') };
 }

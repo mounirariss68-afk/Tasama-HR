@@ -244,5 +244,16 @@ export const CLIENTS: ClientConfig[] = [
   },
 ];
 
-export const clientByKey = (k: string) => CLIENTS.find((c) => c.key === k);
+/**
+ * Clients Tasama takes on in the demo from their files (design/payroll-addendum.md §13, §19). They are
+ * kept in tasama.clients and registered here at go-live and at start-up, so every lookup finds them.
+ * Reset drops them; the five above are the seed's.
+ */
+export const ONBOARDED: ClientConfig[] = [];
+export const allClients = (): ClientConfig[] => [...CLIENTS, ...ONBOARDED];
+export function registerClient(c: ClientConfig) { const i = ONBOARDED.findIndex((x) => x.key === c.key); if (i >= 0) ONBOARDED[i] = c; else ONBOARDED.push(c); }
+export function unregisterClient(key?: string) { for (let i = ONBOARDED.length - 1; i >= 0; i--) if (!key || ONBOARDED[i].key === key) ONBOARDED.splice(i, 1); }
+export const isSeedClient = (k: string) => CLIENTS.some((c) => c.key === k);
+
+export const clientByKey = (k: string) => CLIENTS.find((c) => c.key === k) ?? ONBOARDED.find((c) => c.key === k);
 export const DEFAULT_CLIENT = CLIENTS[0].key;
