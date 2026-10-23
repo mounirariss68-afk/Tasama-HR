@@ -1,0 +1,388 @@
+{
+  "client": {
+    "name": "Soudah Development",
+    "employees": 64,
+    "ready": 61,
+    "held": [
+      "SDH-1026",
+      "SDH-1048",
+      "SDH-1035"
+    ]
+  },
+  "plants": {
+    "duplicate": [
+      "SDH-1018",
+      "SDH-1026"
+    ],
+    "badIban": [
+      "SDH-1048",
+      "SDH-1035"
+    ],
+    "noGosi": "SDH-1015",
+    "housingSlip": "SDH-1043",
+    "mayJoiner": "SDH-1064",
+    "gosiLow": "SDH-1051",
+    "leaver": "SDH-1065",
+    "negativeLeave": "SDH-1047",
+    "promoted": [
+      "SDH-1050",
+      "SDH-1041"
+    ],
+    "unexplained": "SDH-1055",
+    "noContract": [
+      "SDH-1038",
+      "SDH-1002"
+    ],
+    "expired": "SDH-1028",
+    "chro": "SDH-1032",
+    "finance": "SDH-1010"
+  },
+  "issues": [
+    {
+      "n": 1,
+      "key": "DUPLICATE_NUMBER",
+      "lane": "roster",
+      "client": true,
+      "people": [
+        "SDH-1018",
+        "SDH-1026"
+      ]
+    },
+    {
+      "n": 2,
+      "key": "IBAN_CHECK",
+      "lane": "roster",
+      "client": true,
+      "people": [
+        "SDH-1048"
+      ]
+    },
+    {
+      "n": 3,
+      "key": "IBAN_CHECK",
+      "lane": "roster",
+      "client": true,
+      "people": [
+        "SDH-1035"
+      ]
+    },
+    {
+      "n": 4,
+      "key": "NO_CONTRACT",
+      "lane": "contracts",
+      "client": true,
+      "people": [
+        "SDH-1038"
+      ]
+    },
+    {
+      "n": 5,
+      "key": "NO_CONTRACT",
+      "lane": "contracts",
+      "client": true,
+      "people": [
+        "SDH-1002"
+      ]
+    },
+    {
+      "n": 6,
+      "key": "CONTRACT_EXPIRED",
+      "lane": "contracts",
+      "client": true,
+      "people": [
+        "SDH-1028"
+      ]
+    },
+    {
+      "n": 7,
+      "key": "SALARY_UNEXPLAINED",
+      "lane": "contracts",
+      "client": true,
+      "people": [
+        "SDH-1055"
+      ]
+    },
+    {
+      "n": 8,
+      "key": "GOSI_DATE_MISSING",
+      "lane": "roster",
+      "client": false,
+      "people": [
+        "SDH-1015"
+      ]
+    },
+    {
+      "n": 9,
+      "key": "HOUSING_NOT_POLICY",
+      "lane": "roster",
+      "client": false,
+      "people": [
+        "SDH-1043"
+      ]
+    },
+    {
+      "n": 10,
+      "key": "PROBATION_ABOVE_LAW",
+      "lane": "policy",
+      "client": false,
+      "people": []
+    },
+    {
+      "n": 11,
+      "key": "FINES_ABOVE_LAW",
+      "lane": "policy",
+      "client": false,
+      "people": []
+    },
+    {
+      "n": 12,
+      "key": "HOUSING_NOT_PAID",
+      "lane": "history",
+      "client": false,
+      "people": [
+        "SDH-1064"
+      ]
+    },
+    {
+      "n": 13,
+      "key": "GOSI_RATE",
+      "lane": "history",
+      "client": false,
+      "people": [
+        "SDH-1051"
+      ]
+    },
+    {
+      "n": 14,
+      "key": "PAID_AFTER_LEAVING",
+      "lane": "history",
+      "client": false,
+      "people": [
+        "SDH-1065"
+      ]
+    },
+    {
+      "n": 15,
+      "key": "LEAVE_NEGATIVE",
+      "lane": "leave",
+      "client": false,
+      "people": [
+        "SDH-1047"
+      ]
+    }
+  ],
+  "contracts": {
+    "matched": 62,
+    "differences": 3,
+    "explained": 2,
+    "missing": [
+      "SDH-1038",
+      "SDH-1002"
+    ],
+    "expired": "SDH-1028"
+  },
+  "letters": [
+    {
+      "no": "SDH-1050",
+      "kind": "Promotion letter",
+      "date": "2026-05-20"
+    },
+    {
+      "no": "SDH-1041",
+      "kind": "Promotion letter",
+      "date": "2026-05-20"
+    },
+    {
+      "no": "SDH-1009",
+      "kind": "Warning letter",
+      "date": "2026-09-03"
+    },
+    {
+      "no": "SDH-1001",
+      "kind": "Salary certificate",
+      "date": "2026-04-14"
+    },
+    {
+      "no": "SDH-1003",
+      "kind": "Salary certificate",
+      "date": "2026-05-06"
+    },
+    {
+      "no": "SDH-1004",
+      "kind": "Salary certificate",
+      "date": "2026-06-22"
+    },
+    {
+      "no": "SDH-1005",
+      "kind": "Salary certificate",
+      "date": "2026-07-09"
+    },
+    {
+      "no": "SDH-1006",
+      "kind": "Salary certificate",
+      "date": "2026-08-17"
+    },
+    {
+      "no": "SDH-1007",
+      "kind": "Salary certificate",
+      "date": "2026-09-08"
+    },
+    {
+      "no": "SDH-1008",
+      "kind": "Salary certificate",
+      "date": "2026-09-24"
+    },
+    {
+      "no": "SDH-1011",
+      "kind": "Salary certificate",
+      "date": "2026-10-05"
+    },
+    {
+      "no": "SDH-1012",
+      "kind": "Salary transfer letter",
+      "date": "2026-07-09"
+    },
+    {
+      "no": "SDH-1013",
+      "kind": "Salary transfer letter",
+      "date": "2026-08-17"
+    },
+    {
+      "no": "SDH-1014",
+      "kind": "Salary transfer letter",
+      "date": "2026-09-08"
+    },
+    {
+      "no": "SDH-1016",
+      "kind": "Salary transfer letter",
+      "date": "2026-09-24"
+    },
+    {
+      "no": "SDH-1017",
+      "kind": "Salary transfer letter",
+      "date": "2026-10-05"
+    },
+    {
+      "no": "SDH-1019",
+      "kind": "Salary transfer letter",
+      "date": "2026-04-14"
+    },
+    {
+      "no": "SDH-1020",
+      "kind": "Salary transfer letter",
+      "date": "2026-05-06"
+    }
+  ],
+  "history": {
+    "months": [
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07",
+      "2026-08",
+      "2026-09"
+    ],
+    "differences": [
+      {
+        "month": "2026-04",
+        "no": "SDH-1051",
+        "name": "Ghadah Al Otaibi",
+        "paid": 15474.37,
+        "due": 15395.62,
+        "difference": 78.75
+      },
+      {
+        "month": "2026-05",
+        "no": "SDH-1051",
+        "name": "Ghadah Al Otaibi",
+        "paid": 15474.37,
+        "due": 15395.62,
+        "difference": 78.75
+      },
+      {
+        "month": "2026-05",
+        "no": "SDH-1064",
+        "name": "Nasser Al Muqbel",
+        "paid": 10045.87,
+        "due": 12294.27,
+        "difference": -2248.4
+      },
+      {
+        "month": "2026-06",
+        "no": "SDH-1051",
+        "name": "Ghadah Al Otaibi",
+        "paid": 15474.37,
+        "due": 15395.62,
+        "difference": 78.75
+      },
+      {
+        "month": "2026-06",
+        "no": "SDH-1064",
+        "name": "Nasser Al Muqbel",
+        "paid": 15012.37,
+        "due": 18389.67,
+        "difference": -3377.3
+      },
+      {
+        "month": "2026-07",
+        "no": "SDH-1051",
+        "name": "Ghadah Al Otaibi",
+        "paid": 15474.37,
+        "due": 15316.87,
+        "difference": 157.5
+      },
+      {
+        "month": "2026-08",
+        "no": "SDH-1051",
+        "name": "Ghadah Al Otaibi",
+        "paid": 15474.37,
+        "due": 15316.87,
+        "difference": 157.5
+      },
+      {
+        "month": "2026-08",
+        "no": "SDH-1065",
+        "name": "Fadi Shawky",
+        "paid": 13230,
+        "due": 0,
+        "difference": 13230
+      },
+      {
+        "month": "2026-09",
+        "no": "SDH-1051",
+        "name": "Ghadah Al Otaibi",
+        "paid": 15474.37,
+        "due": 15316.87,
+        "difference": 157.5
+      }
+    ],
+    "total": 8313.05,
+    "net": {
+      "2026-04": 1344690.56,
+      "2026-05": 1356473.5,
+      "2026-06": 1363500.64,
+      "2026-07": 1367123.89,
+      "2026-08": 1367123.89,
+      "2026-09": 1353893.89
+    }
+  },
+  "provisions": {
+    "sheetEos": 2432559.68,
+    "engineEos": 2447835.92,
+    "sheetLeave": 494221.72,
+    "engineLeave": 494221.71,
+    "over5": [
+      "SDH-1001",
+      "SDH-1002",
+      "SDH-1003",
+      "SDH-1004",
+      "SDH-1005"
+    ]
+  },
+  "rules": {
+    "refused": [
+      "probation",
+      "lateness.cap"
+    ]
+  }
+}

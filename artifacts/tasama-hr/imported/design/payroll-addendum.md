@@ -891,3 +891,49 @@ A leaver whose last day falls in the open month is paid this settlement in that 
 Both people are set aside in the seed and restored each time the scenario starts.
 
 **Effort:** two Claude sessions, as planned, plus one for the Oracle clients' runs, which the plan had not counted.
+
+## 19. Phase 5b as built: Soudah's files are generated from one fixed seed, and the engine writes the six months it paid
+
+*Added 23 October 2026, at the start of phase 5b. It fills in section 13 and records where the build departs from it.*
+
+### The generator calculates Soudah's past with the platform's own engine, then plants the mistakes
+
+`tools/new-client/make.ts` builds Soudah from one seed and writes `demo-files/soudah/`. Each month's payroll sheet is the engine's result under Soudah's policy, with the planted mistakes applied to it. So when the platform recalculates the six months, the only differences are the three section 13 plants. Nothing else shows. The generator is a development tool: the server never imports it and learns Soudah only from the files.
+
+The truth the files were written from goes to `tools/new-client/expected.json`, outside the folder the presenter drops. The check script compares the platform's reading with it.
+
+### Fifteen issues, seven for the client
+
+The generator refuses to write the files unless these counts hold.
+
+| # | Issue | Found by | Who settles it |
+|---|---|---|---|
+| 1 | One employee number used for two people | Roster | Client |
+| 2–3 | Two IBANs that fail the check digits | Roster | Client |
+| 4–5 | Two employees with no contract in the folder | Contracts | Client |
+| 6 | A fixed-term contract that ended on 31 August, with the employee still paid | Contracts | Client |
+| 7 | A basic salary in the master data that neither the contract nor a letter explains | Contracts | Client |
+| 8 | A Saudi with no GOSI registration date | Roster | Tasama, from the GOSI portal |
+| 9 | A housing allowance at 20% in the master data where the contract and the policy say 25% | Roster and contracts | Tasama: the contract's amount is staged |
+| 10 | Probation of 200 days | Policy | Refused; the law's 180 applies |
+| 11 | Lateness fines of up to 10 days' wage a month | Policy | Refused; the law's 5 applies |
+| 12 | A May joiner paid without housing in May and June | History | Tasama: back pay in November |
+| 13 | GOSI at 9.75% for a Saudi first registered in 2025 | History | Tasama: GOSI arrears in November |
+| 14 | A leaver paid for August after a last day of 31 July | History | Tasama: recovery agreed with the client |
+| 15 | One negative leave balance | Leave | Tasama |
+
+Two salary differences between a contract and the master data are explained by promotion letters, so they are not issues. The September provisions sheet keeps the end-of-service provision at half a month a year after five years (the template's habit in the requirements, §208). The lane shows the difference as the opening provision the platform books at go-live; it is not counted as an issue.
+
+### What the files are
+
+- The master data follows the fields of INT-12, in English and Arabic. It is a layout written for the demo, with nothing copied from Tasama's real templates or the July 2025 runs.
+- The handbook is built from the same clause library as the other five clients' handbooks, without the clauses on HR data and AI (HR-13). Two clauses are changed to carry the planted rules. It is in English only, because the PDF library cannot shape Arabic script.
+- Contracts and letters are one-page PDFs, also in English. Each contract carries the employee's real number, so the duplicate number in the master data can be told apart.
+- Soudah's payroll terms are a sixth entry in `PAYROLL_POLICY`, added by the generator at run time and, after go-live, by the client registry from `tasama.clients`. The terms follow the standard clause wordings, so the offline resolver recognises them.
+
+**Effort:** still three Claude sessions:
+
+1. the files;
+2. staging and the lanes;
+3. go-live, the screen and D10.
+

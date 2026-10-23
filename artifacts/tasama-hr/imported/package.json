@@ -16,6 +16,7 @@
     "check": "tsx tools/check-world.ts",
     "check:screens": "node tools/check-screens.mjs",
     "check:golden": "tsx tools/golden/check.ts",
+    "make:soudah": "tsx tools/new-client/make.ts",
     "replit": "bash tools/replit-run.sh"
   },
   "engines": { "node": ">=20" }
