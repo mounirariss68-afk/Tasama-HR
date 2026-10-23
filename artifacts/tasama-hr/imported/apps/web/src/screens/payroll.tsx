@@ -309,6 +309,44 @@ function PersonLines({ r }: { r: any }) {
   );
 }
 
+/**
+ * One check on the draft run: what was found, what it means, who settles it, and the one
+ * action that settles it (design/payroll-addendum.md §16). A client's check waits on a named
+ * person; Tasama follows it and can send a reminder from the question itself.
+ */
+function CheckCard({ c, client, reload }: { c: any; client: string; reload: () => void }) {
+  const { t, bi } = useLang();
+  const { openCase } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const act = async (id: string) => {
+    setBusy(true); setErr(null);
+    try { await post(`/payroll/runs/${client}/checks/${c.person_id}/${id}`); bump(); reload(); }
+    catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  };
+  const owner = c.owner.side === 'TASAMA' ? t('Tasama payroll: you') : `${c.owner.name}, ${bi(c.owner.role, c.owner.role_ar)}`;
+  return (
+    <div className="rounded-xl glass-l3 p-4">
+      <div className="flex flex-wrap items-start gap-3">
+        <Chip tone={c.severity === 'BLOCK' ? 'danger' : 'warn'}>{t(c.severity === 'BLOCK' ? 'Stops the run' : 'Needs the client')}</Chip>
+        <p className="min-w-0 flex-1 text-sm font-semibold">{c.title}</p>
+      </div>
+      <dl className="mt-3 grid gap-3 text-sm md:grid-cols-[1fr_1fr_14rem]">
+        <div><dt className="text-xs text-muted-foreground">{t('What we found')}</dt><dd className="mt-0.5">{c.found}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">{t('What it means')}</dt><dd className="mt-0.5">{c.look}</dd></div>
+        <div><dt className="text-xs text-muted-foreground">{t('Who settles it')}</dt><dd className="mt-0.5 font-medium">{owner}</dd>
+          {c.owner.side === 'CLIENT' ? <dd className="text-xs text-muted-foreground">{t('Only the employer can do this')}</dd> : <dd className="text-xs text-muted-foreground">{t('The law sets the answer; HR operations is told')}</dd>}</div>
+      </dl>
+      {c.status ? <p className="mt-3 text-sm text-muted-foreground">{c.status}</p> : null}
+      {err ? <p className="mt-2 text-sm text-danger">{err}</p> : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {c.actions.map((a: any) => <Btn key={a.id} small kind="primary" disabled={busy} onClick={() => act(a.id)}>{busy ? t('Working…') : a.label}</Btn>)}
+        {c.case_ref && c.status ? <Btn small onClick={() => openCase(c.case_ref)}>{c.actions.length ? t('Open the last answer') : t('Open the question and send a reminder')}</Btn> : null}
+      </div>
+    </div>
+  );
+}
+
 export function PayrollRuns() {
   const { t, bi, lang } = useLang();
   const { route, session, go } = useApp();
@@ -317,19 +355,22 @@ export function PayrollRuns() {
   const [key, setKey] = useState<string | null>(route.param);
   useEffect(() => { setKey(route.param ?? (session?.client.hrms === 'PLATFORM' ? session.client.key : null)); }, [route.param, session?.client.key]);
   const current = key ?? platform[0]?.key ?? null;
-  const { data } = useApi<any>(current ? `/payroll/runs/${current}` : null, { poll: 20000 });
+  const { data, reload } = useApi<any>(current ? `/payroll/runs/${current}` : null, { poll: 20000 });
   const [tab, setTab] = useState('draft');
   const [showAll, setShowAll] = useState(false);
   const d = data?.draft;
   const rows: any[] = d?.rows ?? [];
-  const checks = rows.flatMap((r) => r.flags.map((f: any) => ({ ...f, r })));
+  const review = data?.review ?? { checks: [], settled: [], fixed: [] };
+  const checks: any[] = review.checks;
   const blocks = checks.filter((c) => c.severity === 'BLOCK');
+  const checkOf = (id: number) => checks.filter((c) => c.person_id === id);
+  const settledOf = (id: number) => review.settled.find((x: any) => x.person_id === id);
   const changed = rows.filter((r) => r.change != null && Math.abs(r.change) >= 1).sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
   const joiners = rows.filter((r) => r.prev_net == null);
   const prevNet = rows.reduce((s, r) => s + (r.prev_net ?? 0), 0);
   const monthWord = d ? new Date(`${d.period.start}T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
   const name = data ? bi(data.client.short, data.client.name_ar) : '';
-  const listed = showAll ? rows : rows.filter((r) => r.flags.length || (r.change != null && Math.abs(r.change) >= 1) || r.prev_net == null);
+  const listed = showAll ? rows : rows.filter((r) => checkOf(r.person_id).length || (r.change != null && Math.abs(r.change) >= 1) || r.prev_net == null);
   const hist: any[] = data?.history ?? [];
   const mon = (pn: string) => new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'short', timeZone: 'UTC' });
   const points = [...hist.map((h) => ({ label: mon(h.period_name), eos: h.eos, leave: h.leave })), ...(d ? [{ label: mon(d.period.name), eos: rows.reduce((s, r) => s + r.eos.accrued, 0), leave: rows.reduce((s, r) => s + r.leave.accrued, 0), draft: true }] : [])];
@@ -364,7 +405,8 @@ export function PayrollRuns() {
                   <Table><thead><tr><th>{t('Person')}</th><th>{t('Department')}</th><th className="text-end">{t('Days')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Deductions')}</th><th className="text-end">{t('Net')}</th><th className="text-end">{t('Last month')}</th></tr></thead>
                     <tbody>{listed.map((r) => (
                       <tr key={r.person_id} className="align-top">
-                        <td><span className="font-medium">{bi(r.name, r.name_ar)}</span>{r.flags.length ? <span className="ms-2"><Chip tone={r.flags.some((f: any) => f.severity === 'BLOCK') ? 'danger' : 'warn'}>{t(r.flags.some((f: any) => f.severity === 'BLOCK') ? 'Stops the run' : 'Check')}</Chip></span> : r.prev_net == null ? <span className="ms-2"><Chip tone="primary">{t('New')}</Chip></span> : null}<PersonLines r={r} /></td>
+                        <td><span className="font-medium">{bi(r.name, r.name_ar)}</span>{checkOf(r.person_id).length ? <button type="button" className="ms-2" onClick={() => setTab('checks')}><Chip tone={checkOf(r.person_id).some((c) => c.severity === 'BLOCK') ? 'danger' : 'warn'}>{t(checkOf(r.person_id).some((c) => c.severity === 'BLOCK') ? 'Stops the run' : 'Needs the client')} ›</Chip></button> : r.prev_net == null ? <span className="ms-2"><Chip tone="primary">{t('New')}</Chip></span> : null}
+                          {settledOf(r.person_id) ? <p className="mt-0.5 text-xs text-muted-foreground">{settledOf(r.person_id).text}</p> : null}<PersonLines r={r} /></td>
                         <td>{r.department}</td>
                         <td className="text-end tabular-nums">{r.pay_days}</td>
                         <td className="text-end tabular-nums">{num(r.gross, 2)}</td>
@@ -375,14 +417,16 @@ export function PayrollRuns() {
                   {!showAll && listed.length < rows.length ? <Btn small onClick={() => setShowAll(true)}>{t('Show everyone')} ({rows.length})</Btn> : null}
                 </div>
               ) : tab === 'checks' ? (
-                checks.length ? (
-                  <div className="grid gap-3 md:grid-cols-2">{checks.map((c, i) => (
-                    <div key={i} className="rounded-xl glass-l3 p-3">
-                      <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{bi(c.r.name, c.r.name_ar)}</p><Chip tone={c.severity === 'BLOCK' ? 'danger' : 'warn'}>{t(c.severity === 'BLOCK' ? 'Stops the run' : 'Check')}</Chip></div>
-                      <p className="mt-1 text-sm">{c.text}</p>
-                      <p className="mt-1 text-[11px] text-muted-foreground">{c.r.department} · {t('net')} {num(c.r.net, 2)}</p>
-                    </div>))}</div>
-                ) : <Empty icon={<Scale size={18} />}>{t('Every line is within the law and the client\'s policy.')}</Empty>
+                <div className="space-y-3">
+                  {checks.length ? checks.map((c, i) => <CheckCard key={i} c={c} client={current!} reload={reload} />)
+                    : <Empty icon={<Scale size={18} />}>{t('Every line is within the law and the client\'s policy.')}</Empty>}
+                  {review.fixed.length ? (
+                    <div className="pt-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('Done this month')}</p>
+                      <ul className="mt-2 space-y-1.5 text-sm">{review.fixed.map((f: any, i: number) => <li key={i} className="flex gap-3"><span className="w-28 shrink-0 text-xs text-muted-foreground">{date(f.at, lang)}</span><span>{f.summary}</span></li>)}</ul>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 <div className="space-y-4">
                   <ProvisionTrend points={points} />

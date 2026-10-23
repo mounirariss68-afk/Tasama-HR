@@ -15,6 +15,7 @@ import { now } from '../clock.js';
 import { readHandbook, dimensionName } from '../agents/nizam.js';
 import { saveVersion, nextVersion, activeVersion, READINGS, RECOMMENDED } from '../payroll/policy.js';
 import { readUpload, confirmMonth } from '../attendance/service.js';
+import { applyAnswer } from '../payroll/checks.js';
 
 type H = (h: HCtx) => Promise<StepOutcome>;
 type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; personId: number } | null>;
@@ -83,6 +84,15 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     await h.setResult({ attendance: summary });
     return { status: 'DONE', decision: `${summary.fined} fines, ${summary.unpaidDays} unpaid days proposed`, outputs: summary,
       recommend: { verdict: 'APPROVE', summary: `confirm ${summary.fined} fines totalling SAR ${Math.round(summary.fines).toLocaleString('en-US')} and ${summary.unpaidDays} unpaid days, after reading each employee's explanation` } };
+  },
+
+  // WF-30: the client's answer to a check on the draft run becomes entries in the open month (§16).
+  'WF-30:apply': async (h) => {
+    const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'HR operations';
+    const summary = await applyAnswer(h.c, h.req as any, who);
+    await h.trail({ act: 'WRITE', summary: `${summary} The draft run recalculates.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
+    await h.setResult({ answered: summary });
+    return { status: 'DONE', decision: summary };
   },
 
   'WF-29:apply': async (h) => {

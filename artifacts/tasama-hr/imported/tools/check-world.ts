@@ -143,6 +143,22 @@ async function main() {
     return [m.map.employee && m.map.date && m.map.time && m.map.direction && n === 37, `map ${JSON.stringify(m.map)}; planted lates ${n}`];
   });
 
+  await check('Run checks: an advance above 10% is rescheduled, and the client\'s GOSI answer clears its check (SEVEN)', async () => {
+    const H = (persona: string) => ({ 'x-persona': persona, 'x-client': 'seven', 'content-type': 'application/json' });
+    const run = async () => (await fetch(`${BASE}/api/payroll/runs/seven`, { headers: H('tasama-lead') })).json();
+    const before = (await run()).review.checks;
+    const adv = before.find((c: any) => c.codes.includes('ADVANCE_CAP')), gosi = before.find((c: any) => c.codes.includes('GOSI_NOT_REGISTERED'));
+    if (!adv || !gosi) return [false, `checks ${before.map((c: any) => c.codes.join('+')).join(', ')}`];
+    await fetch(`${BASE}/api/payroll/runs/seven/checks/${adv.person_id}/reschedule`, { method: 'POST', headers: H('tasama-specialist') });
+    const k = await (await fetch(`${BASE}/api/payroll/runs/seven/checks/${gosi.person_id}/ask`, { method: 'POST', headers: H('tasama-specialist') })).json();
+    const mid = (await run()).review.checks;
+    await fetch(`${BASE}/api/requests/${k.ref}/decide`, { method: 'POST', headers: H('payroll'), body: JSON.stringify({ decision: 'APPROVED', edits: { registered_on: '2026-09-01' } }) });
+    const after = await run();
+    const row = after.draft.rows.find((r: any) => r.person_id === adv.person_id);
+    const waited = mid.find((c: any) => c.person_id === gosi.person_id)?.status ?? '';
+    return [before.length === 2 && /waiting on/.test(waited) && after.review.checks.length === 0 && row.deductions <= row.gross / 2 && after.review.fixed.length === 3, `${before.length} checks → ${after.review.checks.length}; "${waited}"; ${after.review.fixed.length} logged`];
+  });
+
   await pool.end();
   const failed = results.filter((r) => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}  (${r.detail})`);

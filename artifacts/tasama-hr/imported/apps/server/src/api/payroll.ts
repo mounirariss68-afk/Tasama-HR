@@ -10,6 +10,8 @@ import { DIMENSIONS } from '../domain/payroll-policy.js';
 import { startCase } from '../engine/core.js';
 import { activeVersion, rulesOf } from '../payroll/policy.js';
 import { draftRun, provisionHistory } from '../payroll/run.js';
+import { runChecks, reschedule, ask } from '../payroll/checks.js';
+import { tasamaTrail } from '../tasama/service.js';
 import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
 import { PENALTY_TABLE, FINE_CAP_DAYS } from '../domain/attendance.js';
 import { personaOf, isPayrollTeam, isTasama, type Persona } from './session.js';
@@ -132,7 +134,7 @@ payroll.get('/payroll/runs', async (req, res) => {
     if (c.hrms !== 'PLATFORM') return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: null };
     const d = await draftRun(pool);
     if (!d) return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: null };
-    const blocks = d.rows.reduce((n, r) => n + r.flags.filter((f: any) => f.severity === 'BLOCK').length, 0);
+    const blocks = (await runChecks(pool, d)).checks.filter((x) => x.severity === 'BLOCK').length;
     const prevNet = d.rows.reduce((n, r) => n + (r.prev_net ?? 0), 0);
     return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: { period: d.period, people: d.rows.length, gross: d.totals.gross, net: d.totals.net, prev_net: Math.round(prevNet * 100) / 100, blocks, version: d.version } };
   });
@@ -146,8 +148,31 @@ payroll.get('/payroll/runs/:client', async (req, res) => {
   const c = clientByKey(req.params.client);
   if (!c) return res.status(404).json({ error: 'No such client' });
   if (c.hrms !== 'PLATFORM') return res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, draft: null });
-  const out = await withClient(c.key, async () => ({ draft: await draftRun(pool), history: await provisionHistory(pool) }));
+  const out = await withClient(c.key, async () => {
+    const draft = await draftRun(pool);
+    return { draft, history: await provisionHistory(pool), review: draft ? await runChecks(pool, draft) : null };
+  });
   res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, ...out });
+});
+
+/** Act on a check (§16): Tasama reschedules an advance to the legal limit, or asks the client's HR operations. */
+payroll.post('/payroll/runs/:client/checks/:person/:action', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isPayrollTeam(p)) return res.status(403).json({ error: 'Only Tasama payroll acts on a run\'s checks.' });
+  const c = clientByKey(req.params.client);
+  if (!c || c.hrms !== 'PLATFORM') return res.status(404).json({ error: 'No such client run' });
+  const personId = Number(req.params.person);
+  try {
+    const out = await withClient(c.key, () => tx(async (db) => {
+      const draft = await draftRun(db);
+      if (!draft) throw new Error('No open month for this client.');
+      if (req.params.action === 'reschedule') return { summary: (await reschedule(db, draft, personId, p.display_name)).summary };
+      if (req.params.action === 'ask') { const k = await ask(db, draft, personId, p.display_name, c.short); return { ref: k.ref, summary: `Asked HR operations at ${c.short}.` }; }
+      throw new Error('Unknown action');
+    }));
+    await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: req.params.action === 'ask' ? 'NUDGE' : 'WRITE', summary: out.summary, summary_ar: out.summary, ref: (out as any).ref ?? null });
+    res.json(out);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 /* ------------------------------------------------------------------ Attendance (WF-29) */

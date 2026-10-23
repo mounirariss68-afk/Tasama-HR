@@ -615,3 +615,39 @@ Only Tasama staff can draft or send a reminder.
 **No change to the seed, the engine or the HRMS connector.**
 
 **Effort:** within phase 3.
+
+## 16. Every check on a draft run says what was found, who settles it, and how
+
+*Added 22 October 2026, after the owner's review of Runs ("how to check? what to check? who acts?").*
+
+**Why.** The Draft tab marked people "Check" or "Stops the run" with no explanation, owner or action. The "Check" marks were lines the client had already confirmed (unpaid days, a fine cut at the cap), so there was nothing to check.
+
+**What changes on Runs.**
+
+- "Check" is removed. A line the client already confirmed shows who confirmed it and when (for example "Attendance confirmed by Nikhil Thomas on 22 Oct 2026").
+- "Stops the run" (red) and "Needs the client" (amber) open the Checks tab.
+- Each check shows what was found, what it means, who settles it and the one action that settles it. Below the checks, "Done this month" lists what was done, by whom and when.
+
+| Check | Stops the run? | Who settles it | Action on Runs | What happens |
+|---|---|---|---|---|
+| Advance instalment above 10% of the wage (Art. 92), usually with deductions above half the wage (Art. 93) | Yes | Tasama payroll. The law sets the answer | "Recover SAR x a month from <month>" | The same balance is recovered at the legal limit over more months. HR operations gets a notification |
+| Not registered with GOSI | Yes | The client's HR operations. Only the employer can register | "Ask <name> to register <first name>" | A question goes to HR operations' inbox (WF-30). They give the registration date or answer "Not registered yet" |
+| Overtime above the policy cap held | No | The client's HR operations | "Ask <name> whether to pay them" | WF-30 question: pay the held hours this month, or not |
+| Deductions above half the wage, alone | Yes | Tasama payroll | None yet | Named on the check. Not in the demo data |
+
+**Follow-up and reminders.** While a question is open, the check reads "Asked on <date>; waiting on <name>". "Open the question and send a reminder" opens the case, where the reminder from §15 is available. A "Not registered yet" answer shows on the check with the client's note, and Tasama can ask again.
+
+**WF-30, Run question to the client.**
+
+1. HR operations answers (date, or pay or not).
+2. Tasama HR writes the entries in the open month: GOSI registration and contribution entries, or the held hours settled. The run recalculates.
+
+A first GOSI registration with an earlier employer stands, because it decides the contribution rate.
+
+**Recorded in** `layer.run_check_log`. The client's answer and Tasama's actions are also on Tasama's own trail.
+
+**Who approves the run** is not part of this change: the Approval tab is phase 5.
+
+**No change to the seed or the engine.** Fixes are written as element entries in the open month, as the connector does for any confirmed input.
+
+**Effort:** within phase 3, about one Claude session.

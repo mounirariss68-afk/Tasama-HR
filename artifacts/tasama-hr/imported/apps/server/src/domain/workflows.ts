@@ -218,6 +218,11 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('confirm', 'HUMAN', 'PAYROLL', 'The client\'s HR operations confirms, after employees have explained', 'عمليات الموارد البشرية لدى العميل تؤكد بعد سماع الموظفين', 'The proposed amounts and the explanations', 'Each explanation accepted or not; the amounts confirmed', 'Confirm the deductions'),
       S('apply', 'SYSTEM', 'platform', 'Enter the confirmed amounts in the open payroll month', 'إدخال المبالغ المؤكدة في شهر الرواتب المفتوح', 'Confirmed amounts', 'Unpaid days and fines as entries in the open month', 'None'),
     ] },
+  { id: 'WF-30', num: 30, name: 'Run question to the client', name_ar: 'سؤال الرواتب إلى العميل', stage: 'Pay', coverage: 'implemented', trigger: 'Tasama payroll asks the client to settle a check on the draft run', agents: [], decision_by: 'The client\'s HR operations',
+    steps: [
+      S('answer', 'HUMAN', 'PAYROLL', 'The client\'s HR operations answers', 'عمليات الموارد البشرية لدى العميل تجيب', 'The check on the draft run and what it costs', 'The registration date, or whether the held hours are paid', 'Answer'),
+      S('apply', 'SYSTEM', 'platform', 'Apply the answer to the open payroll month', 'تطبيق الإجابة على شهر الرواتب المفتوح', 'The answer', 'Entries in the open month; the run recalculates', 'None'),
+    ] },
 ];
 
 export const wf = (id: string) => {

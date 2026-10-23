@@ -882,6 +882,20 @@ CREATE TABLE layer.attendance_punches (
   device         text
 );
 CREATE INDEX ON layer.attendance_punches (upload_id, person_id);
+-- What Tasama's payroll team did about each check on a draft run (design/payroll-addendum.md §16).
+CREATE TABLE layer.run_check_log (
+  id          bigserial PRIMARY KEY,
+  period_name text NOT NULL,
+  person_id   int NOT NULL,
+  code        text NOT NULL,             -- ADVANCE_CAP | GOSI_NOT_REGISTERED | OVERTIME_CAP | DEDUCTION_CAP
+  action      text NOT NULL,             -- RESCHEDULED | ASKED | ANSWERED | REFUSED
+  by_name     text NOT NULL,
+  summary     text NOT NULL,
+  request_id  int,
+  at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ON layer.run_check_log (period_name, person_id);
+
 CREATE TABLE layer.attendance_days (
   id             serial PRIMARY KEY,
   upload_id      int NOT NULL REFERENCES layer.attendance_uploads(id) ON DELETE CASCADE,

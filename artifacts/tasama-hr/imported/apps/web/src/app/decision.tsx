@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-30': 'Payroll question',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -272,6 +272,22 @@ export function caseCard(c: any, x: T): Card {
         { k: t('Explained by employees'), v: num(at.explained ?? 0), wide: Boolean(at.explanations?.length), note: at.explanations?.length ? `${at.explanations[0].name}, ${date(at.explanations[0].day, lang)}${at.explanations[0].minutes_late ? ` (${at.explanations[0].minutes_late} ${t('minutes late')})` : ''}: “${at.explanations[0].text}” ${t('An explained day is excused unless you decide otherwise.')}` : t('An explained day is excused unless you decide otherwise.') },
       ];
       return { kind, headline: `${month}${t('’s attendance')}: ${at.fined} ${t(at.fined === 1 ? 'fine' : 'fines')} ${t('and')} ${at.unpaidDays} ${c.status === 'COMPLETED' ? t(at.unpaidDays === 1 ? 'unpaid day, confirmed' : 'unpaid days, confirmed') : t(at.unpaidDays === 1 ? 'unpaid day to confirm' : 'unpaid days to confirm')}`, facts, rec: recOf(c) };
+    }
+    case 'WF-30': {
+      // A question from Tasama payroll that stops or holds part of the run (design/payroll-addendum.md §16).
+      const month = p.period ? new Date(`${p.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+      const gosi = p.kind === 'GOSI_REGISTRATION';
+      const done = c.status === 'COMPLETED';
+      const headline = gosi
+        ? (done ? `${p.person_name}${t('’s GOSI registration is recorded')}` : `${t('Is')} ${p.person_name} ${t('registered with GOSI? The')} ${month} ${t('run stops until you give the date')}`)
+        : (done ? `${p.person_name}${t('’s held overtime is settled')}` : `${t('Should')} ${p.person_name}${t('’s')} ${p.held_hours ?? ''} ${t('overtime hours above the cap be paid?')}`);
+      const facts: Fact[] = [
+        { k: t('Tasama found'), v: plain(p.finding ?? ''), wide: true },
+        gosi ? { k: t('What you do'), v: t('Register in your GOSI account, then give the date here'), note: t('The run calculates the contribution from that date.') }
+          : { k: t('Held'), v: p.held_amount != null ? aed(p.held_amount, lang) : '—', note: p.cap ? `${t('Policy cap')}: ${p.cap} ${t('hours a month')}` : undefined },
+      ];
+      if (done && r.answered) facts.push({ k: t('Answer'), v: plain(r.answered), wide: true });
+      return { kind, headline, facts, rec: null };
     }
     case 'WF-06': return { kind, headline: `${who}${t('’s pre-boarding is blocked; start date')} ${date(p.start_date, lang)}`, facts: [], rec: recOf(c) };
     default: return base;
