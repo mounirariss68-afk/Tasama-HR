@@ -770,3 +770,124 @@ The medical-test block is not played in D4; it stays possible for other runs of 
 5. Nasser sees it under Inputs as "next month".
 
 **Effort:** three Claude sessions, as planned.
+
+## 18. Phase 5 as built: a run is prepared, validated, explained and approved, and the engine runs for all five clients
+
+*Added 23 October 2026, at the start of phase 5. It fills in sections 1, 2, 3, 7 and 9 for reconciliation and approval.*
+
+### The engine now calculates for the two Oracle clients too
+
+Section 1's default is that the platform's engine calculates for ROSHN and Riyadh Air, and the approved run is written back to Oracle through the connector. Until now, Runs showed only the three clients held in Tasama HR, and the Oracle clients' past months were authored in the seed.
+
+From this phase:
+
+- the engine replays every client's history (`SEED_VERSION` 7);
+- Runs lists all five clients;
+- the approved run is written to the master: Oracle HCM's payroll results for ROSHN and Riyadh Air, Tasama HR for the other three. Both writes appear in the Integration log.
+
+### One case carries the run from preparation to payslips (WF-30)
+
+Section 7 listed three workflows: WF-30 (run), WF-31 (differences and client approval) and WF-32 (payslips). They are built as the steps of one case, so the client, Tasama and the trail follow one record. WF-31 and WF-32 stay in the catalogue as the names of those steps.
+
+| # | Step | Who | Rule |
+|---|---|---|---|
+| 1 | Hisab prepares the draft and runs the checks (the pre-run check, WF-13) | Agent | Section 16's checks, with who settles each |
+| 2 | Send for validation | Payroll specialist | Refused while a check stops the run |
+| 3 | The run is frozen | System | Every line kept as calculated; what the client approves is what is paid |
+| 4 | Validate | Payroll lead | Never the person who prepared it (PLT-04): refused if it is |
+| 5 | Mutabaqa explains every difference from last month | Agent | Each person's change is split into its causes, and they add up to the change |
+| 6 | Approve, or return with a reason | The client's CHRO | A return goes back to the specialist; a new case prepares it again |
+| 7 | The run is written to the master | System | Oracle HCM or Tasama HR, through the connector |
+| 8 | Wathiqa issues the payslips | Agent, A3 | Each employee is told; My HR › Pay shows the payslip |
+
+`layer.pay_runs` holds each run: period, state, preparer, validator, approver and totals. `layer.pay_lines` holds each person's frozen lines.
+
+### Mutabaqa explains each difference by taking one change at a time
+
+For each person, the engine starts from last month's inputs and replaces one input at a time with this month's, in a fixed order. The change in net pay at each step is that cause's share, so the causes add up to the difference exactly:
+
+1. days in the month;
+2. joining or leaving;
+3. pay change;
+4. unpaid days;
+5. overtime;
+6. lateness fines;
+7. advances;
+8. GOSI.
+
+Nothing is left unexplained. If a residual ever appears, it is shown as "not explained" and stops the approval.
+
+**The visual is a waterfall:** last month's net, each cause, this month's net. It appears in Runs › Differences, on the CHRO's approval card and in the client's Payroll › Approval tab.
+
+### Screens
+
+- **Payroll › Runs** (Tasama), one record per client with these tabs:
+  - Draft and checks, as before;
+  - **Differences**, the waterfall and each person's causes;
+  - **Approval**: who prepared, validated and approved, with the clock to the approval deadline (four days before pay day);
+  - **Payslips**: issued against the people paid;
+  - Provisions, as before.
+- **HR Workspace › Payroll** (client) gets three tabs:
+  - This month;
+  - **Approval**: the waterfall, and Approve or Return from the case;
+  - **Reports**: net pay and employer cost by month.
+
+  The Pre-run check tab goes: its content is Runs › Draft and checks.
+
+### Seeded state on the demo day, following section 8
+
+| Client | Run |
+|---|---|
+| Riyadh Air | Validated and approved by the client; written to Oracle HCM; payslips issued; the bank file is phase 6 |
+| Red Sea Global | Prepared; two checks stop it (D6 clears them) |
+| ROSHN, SEVEN, Saudi Coffee | Before their cut-off: the draft only |
+
+### Scenarios
+
+**D6, `run-approve`, "Run, explain, approve", Red Sea Global:**
+
+1. Nasser clears the two checks.
+2. He sends the run for validation.
+3. Sharifa validates it.
+4. Mutabaqa explains the differences.
+5. The CHRO approves.
+6. The run is written and payslips go out.
+
+**`payroll-escalation`** becomes a Tasama-level scenario at ROSHN with the Payroll specialist:
+
+1. Hisab prepares ROSHN's run and finds what stops it.
+2. Nasser sends it for validation once it is clear.
+
+### Back pay and the final settlement (WF-35, D9)
+
+**WF-35 Back pay**, for a change dated in a closed month:
+
+1. Hisab recalculates each closed month under the change with the engine's back-pay rule. It also works out the GOSI owed on the difference, and re-measures both provisions; the catch-up shows on its own line (CAL-30).
+2. The payroll specialist adds it to this month's run.
+3. Tasama HR enters one back-pay line per month, and the GOSI on them, in the open month.
+
+The back pay is then validated and approved with the run like any other line. No closed month is reopened.
+
+**The final settlement comes from the engine.** Wadaa's settlement (WF-19, WF-20) used to value the award and the leave on basic pay alone, which section 5 refuses (Art. 2, 84, 111). It now uses the engine's final settlement:
+
+- salary to the last day;
+- unused leave on the policy's wage;
+- the award by the way the person left (Art. 84, 85, 87, 80);
+- the outstanding advance recovered on its own line.
+
+A leaver whose last day falls in the open month is paid this settlement in that month's run. Mutabaqa counts it under "Left or leaving".
+
+**Last month is taken as paid.** Mutabaqa's waterfall starts from last month's payroll results as written. A change dated back into last month after it was paid shows as a pay change for that person.
+
+**The seeded past now matches the master.** Advances from the case history and last month's overtime sheets are written after the history is first calculated. So the closed months are recalculated by the engine once every seeded entry is in.
+
+**D9, `backpay-leaver`, "Back pay and a leaver", ROSHN:**
+
+1. A raise dated three months back reaches three closed months.
+2. Nasser adds the back pay to the run.
+3. A colleague resigns after about seven years: two thirds of the award, unused leave, the advance recovered.
+4. Mutabaqa splits the month's change.
+
+Both people are set aside in the seed and restored each time the scenario starts.
+
+**Effort:** two Claude sessions, as planned, plus one for the Oracle clients' runs, which the plan had not counted.

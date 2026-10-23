@@ -24,6 +24,7 @@ import { policiesFor } from './domain/policies.js';
 import { readHandbook } from './agents/nizam.js';
 import { saveVersion, nextVersion, READINGS } from './payroll/policy.js';
 import { draftRun } from './payroll/run.js';
+import { explain } from './payroll/differences.js';
 import { deviceExport, proposeMap, ingest, justify as justifyDay } from './attendance/service.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
@@ -121,12 +122,26 @@ async function requisitionRecord(c: Ctx, jobCode: string): Promise<Rec | null> {
 async function payrollRecord(c: Ctx): Promise<Rec | null> {
   const per = (await pool.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date LIMIT 1`)).rows[0];
   if (!per) return null;
-  const k = c.refs.pc ? await caseOf(c.refs.pc) : null;
-  const paid = (await pool.query(`SELECT COUNT(*)::int n FROM hcm.work_relationships WHERE worker_type='E' AND (end_date IS NULL OR end_date >= $1)`, [per.start_date])).rows[0].n;
+  const k = c.refs.run ? await caseOf(c.refs.run) : null;
+  const run = k ? (await pool.query(`SELECT * FROM layer.pay_runs WHERE request_id=$1`, [k.id])).rows[0] : null;
+  const written = (await pool.query(`SELECT COUNT(*)::int n, COALESCE(SUM(net),0)::float net FROM hcm.payroll_results WHERE period_id=$1`, [per.id])).rows[0];
+  const STATE: Record<string, string> = { DRAFT: 'Being prepared', PREPARED: 'Sent for validation', VALIDATED: 'Validated; with the client', APPROVED: 'Approved' };
   return { system: clientByKey(c.client)!.hrmsLabel, title: 'Payroll period', fields: [
-    ['Period', per.period_name], ['Status', String(per.status).toLowerCase()], ['Cut-off', fmtDate(per.cutoff_date)], ['Pay date', fmtDate(per.pay_date)],
-    ['Employees on the run', String(paid)], ['Release to Mudad', k ? (['WAITING', 'ESCALATED'].includes(k.status) ? 'Held until the blockers are cleared' : 'Cleared') : 'Not checked yet'],
+    ['Period', per.period_name], ['Cut-off', fmtDate(per.cutoff_date)], ['Pay date', fmtDate(per.pay_date)],
+    ['Run', run ? STATE[run.state] ?? run.state : 'Not started'], ['Prepared by', run?.preparer ?? '—'], ['Validated by', run?.validator ?? '—'], ['Approved by', run?.approver ?? '—'],
+    ['Payroll results written', written.n ? `${written.n} people, ${sar(written.net)} net` : 'None yet'],
   ] };
+}
+
+async function backpayRecord(c: Ctx): Promise<Rec | null> {
+  const k = c.refs.bp ? await caseOf(c.refs.bp) : null;
+  const r = k?.result?.backpay;
+  const st = c.out.resign?.settlement;
+  const f: [string, string][] = [];
+  if (r) { for (const m of r.months) f.push([`Back pay, ${new Date(`${m.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`, sar(m.amount)]); f.push(['GOSI on the back pay', sar(r.gosiEe)], ['End of service re-measured', `+${sar(r.catchUp.eos)}`], ['Leave provision re-measured', `+${sar(r.catchUp.leave)}`]); }
+  if (st) { f.push(['Leaver', `${st.person.name}, last day ${fmtDate(st.lastDay)}`]); for (const l of st.lines.filter((x: any) => ['GRATUITY', 'LEAVE_ENCASH', 'ADVANCE_RECOVERY'].includes(x.code))) f.push([l.label, sar(l.amount)]); f.push(['Settlement', sar(st.total)]); }
+  if (!f.length) return null;
+  return { system: clientByKey(c.client)!.hrmsLabel, title: 'Back pay and final settlement', fields: f.slice(0, 12) };
 }
 
 async function invoiceRecord(c: Ctx): Promise<Rec | null> {
@@ -264,6 +279,43 @@ async function capture(c: Ctx, id: number, a: { followon?: string; also?: Record
   for (const [key, name] of Object.entries(a.also ?? {})) if (r[key]) c.refs[name] = r[key];
 }
 
+
+/** The open month's run case waiting for Nasser; a new one when there is none (or `fresh`). */
+async function runCase(c: Ctx, fresh: boolean) {
+  const per = (await pool.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+  const open = (await pool.query(`SELECT r.id, r.ref, r.current_step, r.status FROM layer.requests r WHERE r.workflow_id='WF-30' AND r.payload->>'period'=$1 AND r.status NOT IN ('CANCELLED','REJECTED') ORDER BY r.id DESC LIMIT 1`, [per.period_name])).rows[0];
+  if (open && !fresh && open.status === 'WAITING' && open.current_step === 'prepare') return open.ref as string;
+  if (open) await tx(async (x) => {
+    await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE id=$1`, [open.id]);
+    await x.query(`DELETE FROM layer.pay_lines WHERE run_id IN (SELECT id FROM layer.pay_runs WHERE request_id=$1)`, [open.id]);
+    await x.query(`DELETE FROM layer.pay_runs WHERE request_id=$1`, [open.id]);
+  });
+  const cl = clientByKey(c.client)!;
+  const month = new Date(`${per.period_name}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const r = await tx((x) => startCase(x, { workflowId: 'WF-30', type: 'RUN', title: `${cl.short} payroll, ${month}`, title_ar: `رواتب ${cl.name_ar}`, requester: c.P.payroll, subject: c.P.payroll, channel: 'SCENARIO', scenario: c.key, payload: { period: per.period_name } }));
+  const k = await caseOf(r.ref);
+  c.out.run = k.result?.check ?? {};
+  return r.ref as string;
+}
+
+/** What Nasser does on Runs › Checks: reschedule an advance to the legal limit; ask HR operations for a GOSI date, answered by the scenario. */
+async function clearChecks(c: Ctx): Promise<string[]> {
+  const { reschedule, ask } = await import('./payroll/checks.js');
+  const done: string[] = [];
+  const d = await draftRun(pool);
+  if (!d) return done;
+  for (const r of d.rows) {
+    if (r.flags.some((f: any) => f.code === 'ADVANCE_CAP')) { await tx((x) => reschedule(x, d, r.person_id, 'Nasser AlFarraj')); done.push(`${r.name}'s advance rescheduled to 10% of the wage`); }
+    if (r.flags.some((f: any) => f.code === 'GOSI_NOT_REGISTERED')) {
+      const k = await tx((x) => ask(x, d, r.person_id, 'Nasser AlFarraj', clientByKey(c.client)!.short));
+      const hire = (await pool.query(`SELECT to_char(start_date,'YYYY-MM-DD') s FROM hcm.work_relationships WHERE person_id=$1`, [r.person_id])).rows[0].s;
+      await tx((x) => decide(x, { requestId: k.id, personId: c.P.payroll, decision: 'APPROVED', reason: 'Registered in our GOSI account (decided by the scenario)', edits: { registered_on: hire } }));
+      done.push(`${r.name}'s GOSI registration given by HR operations`);
+    }
+  }
+  return done;
+}
+
 // ------------------------------------------------------------------ starters: each opens a real case and returns its reference
 
 const STARTERS = {
@@ -313,6 +365,76 @@ const STARTERS = {
     c.out.start = per && two > per.e ? per.e : two;
     const div = (await divisionOf(rq.hiring_manager_id)) ?? 'Technology and Digital';
     const r = await tx((x) => startCase(x, { workflowId: 'WF-05', type: 'OFFER', title: `Offer: ${rq.title}`, title_ar: `عرض عمل: ${rq.title_ar}`, requester: rq.hiring_manager_id, subject: rq.hiring_manager_id, channel: 'SCENARIO', scenario: c.key, payload: { application_id: app.id, position_id: rq.position_id, requisition_id: rq.id, title: rq.title, hiring_manager_id: rq.hiring_manager_id, start_date: c.out.start, expected_basic: 16500, accept: true, block_medical: false, division: div } }));
+    return r.ref as string;
+  },
+  /** D6, payroll-escalation: this month's run, started fresh if an earlier play left one past preparation (§18). */
+  runStart: async (c: Ctx) => runCase(c, true),
+  /** D6: the run waiting for Nasser, with its two checks cleared: the advance rescheduled, the GOSI date given by HR operations. */
+  runClear: async (c: Ctx) => { const ref = await runCase(c, false); c.out.cleared = await clearChecks(c); return ref; },
+  /** D9: a raise dated three months back, entered before the cut-off. Restored each time the scenario starts. */
+  raise: async (c: Ctx) => {
+    const meta = (await pool.query(`SELECT value FROM layer.meta WHERE key='inputs'`)).rows[0]?.value ?? {};
+    const pid = meta.raise as number;
+    if (!pid) throw new Error('No person set aside for the raise');
+    const per = (await pool.query(`SELECT period_name, to_char(start_date,'YYYY-MM-DD') s FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const eff = iso(monthStart(new Date(`${per.s}T00:00:00Z`), -3));
+    // D9 starts before the month's run is prepared: an open run from an earlier scenario is withdrawn.
+    await tx(async (x) => {
+      const open = (await x.query(`SELECT id FROM layer.requests WHERE workflow_id='WF-30' AND status IN ('WAITING','RUNNING','ESCALATED')`)).rows.map((r: any) => r.id);
+      if (open.length) { await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE id = ANY($1::int[])`, [open]); await x.query(`DELETE FROM layer.pay_lines WHERE run_id IN (SELECT id FROM layer.pay_runs WHERE request_id = ANY($1::int[]))`, [open]); await x.query(`DELETE FROM layer.pay_runs WHERE request_id = ANY($1::int[])`, [open]); }
+    });
+    await tx(async (x) => {
+      const d9 = (await x.query(`SELECT value FROM layer.meta WHERE key='d9'`)).rows[0]?.value;
+      if (d9?.ended?.length) await x.query(`UPDATE hcm.element_entries SET effective_end='4712-12-31' WHERE id = ANY($1::int[])`, [d9.ended]);
+      await x.query(`DELETE FROM hcm.element_entries WHERE person_id=$1 AND (reference='DEMO-D9' OR element_code IN ('BACK_PAY','GOSI_ARREARS'))`, [pid]);
+      await x.query(`DELETE FROM hcm.salaries WHERE person_id=$1 AND reason='DEMO-D9'`, [pid]);
+      await x.query(`UPDATE hcm.salaries SET date_to='4712-12-31' WHERE id=(SELECT id FROM hcm.salaries WHERE person_id=$1 ORDER BY date_from DESC LIMIT 1)`, [pid]);
+      const old = (await x.query(`SELECT id FROM layer.requests WHERE workflow_id='WF-35' AND subject_person_id=$1`, [pid])).rows.map((r: any) => r.id);
+      if (old.length) { await x.query(`DELETE FROM layer.pay_inputs WHERE request_id = ANY($1::int[])`, [old]); await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL WHERE id = ANY($1::int[]) AND status IN ('WAITING','RUNNING')`, [old]); }
+    });
+    const cur = (await pool.query(`SELECT * FROM hcm.salaries WHERE person_id=$1 ORDER BY date_from DESC LIMIT 1`, [pid])).rows[0];
+    const basic = Math.round(Number(cur.basic) * 1.1 / 50) * 50, housing = Math.round(Number(cur.housing) * 1.1 / 50) * 50;
+    const who = await nameOf(pid);
+    c.out.raise = { who, from: Number(cur.basic), to: basic, effective: eff };
+    const r = await tx(async (x) => {
+      const ended = (await x.query(`UPDATE hcm.element_entries SET effective_end=$2::date - 1 WHERE person_id=$1 AND element_code IN ('BASIC','HOUSING') AND effective_end='4712-12-31' RETURNING id`, [pid, eff])).rows.map((z: any) => z.id);
+      await x.query(`INSERT INTO layer.meta (key, value) VALUES ('d9', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify({ ended })]);
+      await x.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, source, reference) VALUES ($1,$2,'BASIC',$3,$4,'HRMS','DEMO-D9'), ($5,$2,'HOUSING',$6,$4,'HRMS','DEMO-D9')`, [`D9-${pid}-B`, pid, basic, eff, `D9-${pid}-H`, housing]);
+      await x.query(`UPDATE hcm.salaries SET date_to=$2::date - 1 WHERE id=$1`, [cur.id, eff]);
+      await x.query(`INSERT INTO hcm.salaries (person_id, assignment_number, date_from, basic, housing, transport, other_allowance, currency, action_code, reason) VALUES ($1,$2,$3,$4,$5,$6,$7,'SAR','PAY_CHANGE','DEMO-D9')`, [pid, cur.assignment_number, eff, basic, housing, cur.transport, cur.other_allowance]);
+      return startCase(x, { workflowId: 'WF-35', type: 'BACK_PAY', title: `Back pay: ${who}`, title_ar: 'فروقات رواتب', requester: c.P.payroll, subject: pid, channel: 'EVENT', scenario: c.key,
+        payload: { person_id: pid, person_name: who, what: 'Raise', effective: eff, entered_on: iso(now()), old: { basic: Number(cur.basic), housing: Number(cur.housing) } } });
+    });
+    return r.ref as string;
+  },
+  /** D9: a resignation after about seven years, the last day inside this month, an advance still owed. Restored each time. */
+  resign: async (c: Ctx) => {
+    const meta = (await pool.query(`SELECT value FROM layer.meta WHERE key='inputs'`)).rows[0]?.value ?? {};
+    const pid = meta.resigner as number;
+    if (!pid) throw new Error('No person set aside for the resignation');
+    const per = (await pool.query(`SELECT to_char(end_date,'YYYY-MM-DD') e FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    await tx(async (x) => {
+      const wr = (await x.query(`SELECT to_char(end_date,'YYYY-MM-DD') e FROM hcm.work_relationships WHERE person_id=$1`, [pid])).rows[0];
+      if (wr?.e) {
+        await x.query(`UPDATE hcm.work_relationships SET end_date=NULL, last_working_day=NULL, notified_termination_date=NULL, termination_action=NULL, termination_reason=NULL WHERE person_id=$1`, [pid]);
+        await x.query(`UPDATE hcm.assignments SET effective_end='4712-12-31' WHERE id=(SELECT id FROM hcm.assignments WHERE person_id=$1 ORDER BY effective_start DESC LIMIT 1)`, [pid]);
+        await x.query(`UPDATE hcm.element_entries SET effective_end='4712-12-31' WHERE person_id=$1 AND effective_end=$2`, [pid, wr.e]);
+        await x.query(`DELETE FROM hcm.element_entries WHERE person_id=$1 AND element_code IN ('GRATUITY','LEAVE_ENCASH','GRATUITY_PRE')`, [pid]);
+      }
+      await x.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL WHERE workflow_id='WF-19' AND subject_person_id=$1`, [pid]);
+      await x.query(`INSERT INTO hcm.advances (advance_number, person_id, amount, monthly_recovery, months, start_period, outstanding, status) VALUES ('DEMO-ADV-D9',$1,9000,1000,9,$2,6000,'ACTIVE') ON CONFLICT (advance_number) DO UPDATE SET outstanding=6000, status='ACTIVE'`, [pid, per.e.slice(0, 7)]);
+    });
+    const who = await nameOf(pid);
+    const notice = (await pool.query(`SELECT notice_period_days n FROM hcm.assignments WHERE person_id=$1 ORDER BY effective_start DESC LIMIT 1`, [pid])).rows[0]?.n ?? 30;
+    const noticeDate = iso(addDays(new Date(`${per.e}T00:00:00Z`), -(notice - 1)));
+    const r = await tx((x) => startCase(x, { workflowId: 'WF-19', type: 'RESIGNATION', title: `Resignation: ${who}`, title_ar: `استقالة: ${who}`, requester: pid, subject: pid, channel: 'SCENARIO', scenario: c.key, payload: { person_id: pid, notice_date: noticeDate, last_day: per.e, reason: 'Moving to another employer' } }));
+    for (let i = 0; i < 4; i++) {
+      const k = await caseOf(r.ref);
+      if (!k || !['WAITING', 'ESCALATED'].includes(k.status)) break;
+      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: 'APPROVED', reason: 'Agreed (decided by the scenario)' }));
+    }
+    const k = await caseOf(r.ref);
+    c.out.resign = { who, settlement: k?.result?.settlement ?? null, lastDay: per.e };
     return r.ref as string;
   },
   /** D5: the month's changes case, confirmed before the cut-off (seeded). */
@@ -425,15 +547,17 @@ export const SCRIPTS: Scenario[] = [
         () => 'Evidence lists every refusal and escalation by the agents, with the instruction, the clause and who was told. Hessa never ranks or rejects a candidate; people decide who goes forward.', undefined,
         { focus: 'refusal' }),
     ] },
-  { key: 'payroll-escalation', level: 'client', shape: 'Escalation', shape_ar: 'تصعيد', title: 'Payroll pre-run finds blockers', title_ar: 'فحص الرواتب يكشف موانع',
-    summary: 'Before the Mudad upload, Hisab checks this month\'s draft payroll: a promotion missing from element entries, a leaver still paid, deductions above the 50% cap, a missing GOSI line. Release is held for Payroll.', summary_ar: 'قبل رفع الرواتب إلى مدد يفحص حساب مسودة الرواتب ويجد موانع؛ يُعلّق الاعتماد لفريق الرواتب.',
+  { key: 'payroll-escalation', level: 'tasama', client: 'roshn', shape: 'Escalation', shape_ar: 'تصعيد', title: 'Payroll pre-run finds blockers', title_ar: 'فحص الرواتب يكشف موانع',
+    summary: 'Before ROSHN\'s cut-off, Hisab prepares the run and checks it: an advance recovered above the legal limit and a new joiner not registered with GOSI stop it. Each check names who settles it. Nasser clears them and sends the run for validation; nothing goes forward while a check stops it.', summary_ar: 'قبل موعد إقفال روشن يعدّ حساب الرواتب ويفحصها فيجد ما يوقفها؛ يحسمها ناصر ويرسل الرواتب للمراجعة.',
     record: async (c) => payrollRecord(c),
     steps: [
-      S('p1', 'Hisab checks the draft payroll', 'حساب يفحص مسودة الرواتب', 'Schedule: before the Mudad upload (WF-13)', 'payroll', 'hr-payroll', { kind: 'start', starter: 'precheck', as: 'pc' },
-        async (c) => { const pc = await precheck({ c: pool, actor: 'director' }); const b = pc.findings.filter((f: any) => f.severity === 'BLOCKER').length; c.out.findings = pc.findings.length; c.out.blockers = b; return `Before the Mudad upload, Hisab checked the draft payroll for ${c.out.period}: ${pc.findings.length} findings, ${b} of them blockers. Release to Mudad is held until Payroll clears every blocker.`; }, 'case:pc',
-        { chat: (c) => [system('Payroll calendar', `The ${c.out.period} payroll goes to Mudad next. Hisab's pre-run check has started.`, 'Schedule'), agent('Hisab', `I found ${c.out.findings ?? 'several'} issues in the draft payroll, ${c.out.blockers ?? 'some'} of them blockers. Release to Mudad is held until they are cleared; each one comes with its fix.`, 'Teams, to Payroll')] }),
-      S('p2', 'Every finding has a fix', 'لكل ملاحظة تصحيح', 'Payroll and rewards', 'payroll', 'hr-payroll', SHOW,
-        () => 'Each finding names the employee, the amount at stake, the rule it breaks (Saudi Labor Law or the handbook) and the fix. Payroll applies the fixes in the HRMS and releases the run; Hisab re-checks before release.', 'case:pc'),
+      S('p1', 'Hisab prepares the run and finds what stops it', 'حساب يعدّ الرواتب ويجد ما يوقفها', 'Schedule: before the cut-off (WF-30)', 'tasama-specialist', 'payroll-runs', { kind: 'start', starter: 'runStart', as: 'run' },
+        async (c) => { const k = await caseOf(c.refs.run); const ck = k?.result?.check ?? {}; return `Hisab prepared ROSHN's run: ${ck.people ?? ''} people, ${sar(ck.net ?? 0)} net. ${ck.blocks ? `${ck.blocks} checks stop it: an advance recovered above 10% of the wage, and a new joiner with no GOSI registration. Each names who settles it.` : 'Nothing stops it.'}`; }, 'case:run',
+        { chat: async (c) => [system('Payroll calendar', 'ROSHN\'s cut-off is tomorrow. Hisab has prepared the run.', 'Schedule'), agent('Hisab', 'Two checks stop the run. The advance is ours to reschedule; only ROSHN can register the joiner with GOSI.', 'Teams, to Tasama payroll')] }),
+      S('p2', 'Nasser clears both checks', 'ناصر يحسم الفحصين', 'Payroll › Runs › Checks', 'tasama-specialist', 'payroll-runs', { kind: 'start', starter: 'runClear', as: 'run' },
+        (c) => `${(c.out.cleared ?? []).join('; ') || 'Nothing left to clear'}. Nothing stops the run now.`, 'case:run'),
+      S('p3', 'Sent for validation', 'إرسال للمراجعة', 'Human step: Payroll specialist', 'tasama-specialist', 'payroll-runs', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Checks cleared', edits: { prepared_by: 'tasama-specialist', prepared_by_name: 'Nasser AlFarraj' } },
+        (c) => `Nasser sent the run for validation (${by(c, 'run')}). Its lines are frozen; Sharifa validates it, never Nasser, and ROSHN's CHRO approves it.`, 'case:run'),
     ] },
   { key: 'hire-to-onboard', level: 'client', client: 'seven', shape: 'End to end', shape_ar: 'من البداية إلى النهاية', title: 'From offer to first payslip', title_ar: 'من العرض إلى أول قسيمة راتب',
     summary: 'SEVEN accepts a candidate who starts in two days. The record created when the offer is accepted is the one that is paid: Aqd drafts the contract from the offer, HR operations sends it, the employee accepts it on Qiwa, the pending record becomes the employee, Tamin registers GOSI, and the new hire is in this month\'s draft run. Nothing is entered twice.', summary_ar: 'يقبل مرشح عرض سفن ويباشر بعد يومين؛ السجل الذي أُنشئ عند قبول العرض هو الذي يُصرف له الراتب: يصوغ عقد العقد، وترسله عمليات الموارد البشرية، ويقبله الموظف في قوى، ويسجله تأمين في التأمينات، ويظهر في مسودة رواتب الشهر.',
@@ -515,6 +639,38 @@ export const SCRIPTS: Scenario[] = [
           return `Nasser sees each client's changes against its cut-off: Riyadh Air confirmed, with one change moved to next month${waiting.length ? `; still expected before the cut-off: ${waiting.join(', ')}` : '; every other client is in'}.`;
         }, undefined,
         { focus: { fact: async (c) => { const k = await caseOf(c.refs.late); return `After the cut-off: ${sar(k?.payload?.backPay ?? 0)} paid next month as back pay. The approved run is unchanged.`; } } }),
+    ] },
+  { key: 'run-approve', level: 'tasama', client: 'redsea', shape: 'Happy path', shape_ar: 'المسار المعتاد', title: 'Run, explain, approve', title_ar: 'التشغيل والتفسير والاعتماد',
+    summary: 'Red Sea Global\'s cut-off passed yesterday and two checks stop its run. Nasser clears them and sends the run; Sharifa validates it; Mutabaqa explains every difference from last month; the CHRO approves knowing why every riyal moved. The run is written to Tasama HR and every payslip goes out.', summary_ar: 'يحسم ناصر ما يوقف رواتب البحر الأحمر ويرسلها، وتراجعها شريفة، ويفسّر مطابقة كل فرق، ويعتمدها الرئيس التنفيذي للموارد البشرية، ثم تُصدر القسائم.',
+    record: async (c) => payrollRecord(c),
+    steps: [
+      S('r1', 'Nasser clears what stops the run', 'ناصر يحسم ما يوقف الرواتب', 'Payroll › Runs › Checks', 'tasama-specialist', 'payroll-runs', { kind: 'start', starter: 'runClear', as: 'run' },
+        (c) => `Red Sea Global's cut-off passed yesterday. Two checks stopped the run: ${(c.out.cleared ?? []).join('; ') || 'already cleared'}. Nothing stops it now.`, 'case:run',
+        { chat: async () => [agent('Hisab', 'Two checks stop the run: an advance above the legal limit, and a joiner with no GOSI registration.', 'Teams, to Tasama payroll')] }),
+      S('r2', 'Nasser sends it for validation', 'ناصر يرسلها للمراجعة', 'Human step: Payroll specialist', 'tasama-specialist', 'payroll-runs', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Checks cleared', edits: { prepared_by: 'tasama-specialist', prepared_by_name: 'Nasser AlFarraj' } },
+        (c) => `Nasser sent the run for validation (${by(c, 'run')}). Every line is frozen as calculated: what the client approves is what is paid.`, 'case:run'),
+      S('r3', 'Sharifa validates', 'شريفة تراجع', 'Human step: Payroll lead', 'tasama-lead', 'payroll-inbox', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Lines and totals checked', edits: { validated_by_name: 'Sharifa AlMousa' } },
+        async (c) => { const k = await caseOf(c.refs.run); const dx = k?.result?.differences; return `Sharifa validated the run Nasser prepared (${by(c, 'run')}); she could not have validated her own. Mutabaqa then explained the month: ${dx ? `${dx.people} people paid differently, net ${dx.thisNet - dx.lastNet >= 0 ? 'up' : 'down'} ${sar(Math.abs(dx.thisNet - dx.lastNet))}, every difference explained` : 'every difference explained'}.`; }, 'case:run'),
+      S('r4', 'The CHRO approves, knowing why every riyal moved', 'الرئيس التنفيذي للموارد البشرية يعتمد', 'Human step: the client\'s CHRO', 'chro', 'hr-inbox', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Differences reviewed' },
+        async (c) => { const k = await caseOf(c.refs.run); return `Red Sea Global's CHRO approved (${by(c, 'run')}). The run was written to the Tasama HR employee master and Wathiqa issued ${k?.result?.payslips ?? 'every'} payslips.`; }, 'case:run',
+        { focus: { fact: async (c) => { const k = await caseOf(c.refs.run); const dx = k?.result?.differences; return dx ? `Last month ${sar(dx.lastNet)} → this month ${sar(dx.thisNet)}: ${dx.steps.map((x: any) => `${x.label.toLowerCase()} ${x.amount >= 0 ? '+' : '−'}${sar(Math.abs(x.amount))}`).join(', ')}.` : 'Every difference explained.'; } } }),
+      S('r5', 'Every employee has a payslip', 'لكل موظف قسيمة راتب', 'My HR › Pay', 'employee', 'my-pay', SHOW,
+        () => 'The employee opens My HR › Pay: this month\'s payslip, every line with the rule behind it. Prepared by one person, validated by another, approved by the client.', undefined),
+    ] },
+  { key: 'backpay-leaver', level: 'tasama', client: 'roshn', shape: 'Exception', shape_ar: 'استثناء', title: 'Back pay and a leaver', title_ar: 'الفروقات وموظف مغادر',
+    summary: 'ROSHN enters a raise dated three months back, before tomorrow\'s cut-off. Hisab recalculates the three closed months and adds the back pay, with its GOSI, to this month\'s run; both provisions are re-measured. A colleague resigns after about seven years: the final settlement pays two thirds of the award, the unused leave and recovers the advance still owed. No closed month is reopened.', summary_ar: 'تُدخل روشن زيادة بأثر رجعي ثلاثة أشهر فيعيد حساب الأشهر المغلقة ويضيف الفروقات إلى رواتب هذا الشهر؛ ويستقيل زميل بعد سبع سنوات فتُدفع له ثلثا المكافأة والإجازة ويُسترد رصيد السلفة.',
+    record: async (c) => backpayRecord(c),
+    steps: [
+      S('b1', 'A raise dated three months back', 'زيادة بأثر رجعي', 'HRMS event: Oracle HCM (WF-35)', 'tasama-specialist', 'payroll-inbox', { kind: 'start', starter: 'raise', as: 'bp' },
+        async (c) => { const k = await caseOf(c.refs.bp); const r = k?.result?.backpay; return `ROSHN entered ${c.out.raise?.who}'s raise in Oracle HCM today, dated ${fmtDate(c.out.raise?.effective)}: basic SAR ${Number(c.out.raise?.from ?? 0).toLocaleString('en-US')} → SAR ${Number(c.out.raise?.to ?? 0).toLocaleString('en-US')}. Hisab recalculated the ${r?.months?.length ?? 3} closed months: ${r ? sar(r.total) : ''} of back pay and ${r ? sar(r.gosiEe) : ''} of employee GOSI on it. End of service re-measured +${r ? sar(r.catchUp.eos) : ''}. The closed months stay as paid.`; }, 'case:bp',
+        { chat: async (c) => [system('Oracle HCM', `Pay change recorded for ${c.out.raise?.who}, effective ${fmtDate(c.out.raise?.effective)}.`, 'HRMS event'), agent('Hisab', 'This change reaches three closed months. The back pay is worked out month by month; none of those months is reopened.', 'To Tasama payroll')] }),
+      S('b2', 'Nasser adds it to this month\'s run', 'ناصر يضيفها إلى رواتب هذا الشهر', 'Human step: Payroll specialist', 'tasama-specialist', 'payroll-runs', { kind: 'decide', ref: 'bp', decision: 'APPROVED', reason: 'Recalculation checked', edits: { added_by_name: 'Nasser AlFarraj' } },
+        async (c) => { const k = await caseOf(c.refs.bp); const r = k?.result?.backpay; return `Nasser added the back pay to this month's run (${by(c, 'bp')}): one line per closed month and the GOSI on them${r ? `, ${sar(r.total)} in all` : ''}. It is validated and approved with the run, like every other line.`; }, 'case:bp'),
+      S('b3', 'A colleague resigns after seven years', 'زميل يستقيل بعد سبع سنوات', 'Resignation (WF-19)', 'tasama-specialist', 'payroll-runs', { kind: 'start', starter: 'resign', as: 'res' },
+        (c) => { const st = c.out.resign?.settlement; const line = (code: string) => st?.lines?.find((l: any) => l.code === code); return `${c.out.resign?.who} resigned after ${st?.years ?? 'about seven'} years; the last day is ${fmtDate(c.out.resign?.lastDay)}. Wadaa's final settlement, from the payroll engine: ${line('GRATUITY') ? `the end-of-service award ${sar(line('GRATUITY').amount)} (${line('GRATUITY').rule.split(': ').pop()})` : 'the end-of-service award'}, ${line('LEAVE_ENCASH') ? `unused leave ${sar(line('LEAVE_ENCASH').amount)}` : 'unused leave'}, and the advance still owed recovered${line('ADVANCE_RECOVERY') ? ` (${sar(Math.abs(line('ADVANCE_RECOVERY').amount))})` : ''}. It is paid in this month's run.`; }, 'case:res'),
+      S('b4', 'The run explains both', 'الرواتب تفسّر الأمرين', 'Payroll › Runs › Differences', 'tasama-specialist', 'payroll-runs', SHOW,
+        async () => { const d = await draftRun(pool); if (!d) return ''; const x = await explain(pool, d.period); const get = (k: string) => x.steps.find((s: any) => s.key === k)?.amount ?? 0; return `Mutabaqa splits ROSHN's change from last month: back pay ${sar(get('backpay'))}, pay change ${sar(get('pay'))}, leaving ${sar(get('left'))}, and the rest. Every riyal has its cause; no closed month was reopened.`; }, undefined,
+        { focus: { fact: 'Corrected without reopening: back pay for three closed months and the final settlement, both in this month\'s run.' } }),
     ] },
   { key: 'attendance-month', level: 'tasama', client: 'saudicoffee', shape: 'Exception', shape_ar: 'استثناء', title: 'A month of attendance', title_ar: 'شهر من الحضور',
     summary: 'Saudi Coffee\'s attendance devices export last month\'s attendance. Hudoor reads it against schedules and approved leave, an employee explains one late morning, and HR operations confirms. One barista\'s lateness fines would pass five days\' wage: they stop at the legal cap, and the barista\'s day absent without leave is unpaid on its own line, not counted as a fine.', summary_ar: 'تصدّر أجهزة الحضور في الشركة السعودية للقهوة حضور الشهر الماضي؛ يقرؤه حضور مقابل الجداول والإجازات، وتشرح موظفة تأخراً، وتؤكد عمليات الموارد البشرية. غرامات أحد الموظفين تتوقف عند حد أجر خمسة أيام.',

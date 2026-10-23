@@ -516,17 +516,17 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
   if (!c) return <div className="p-6 text-sm text-muted-foreground">{t('Loading…')}</div>;
   const escalated = c.status === 'ESCALATED';
   const open = ['WAITING', 'ESCALATED'].includes(c.status);
-  const mine = c.workflow_id !== 'WF-36' && !!persona && (c.requester_person_id === persona.person_id || c.subject_person_id === persona.person_id) && !c.canDecide;
+  const mine = !['WF-36', 'WF-30', 'WF-27'].includes(c.workflow_id) && !!persona && (c.requester_person_id === persona.person_id || c.subject_person_id === persona.person_id) && !c.canDecide;
   const isHR = !!persona?.roles.some((r) => ['HRBP', 'TA', 'PAYROLL', 'CHRO', 'TASAMA', 'HR_OPS'].includes(r));
   const onBehalf = persona?.key === 'tasama';
   const card = caseCard(c, { t, bi, lang, mine });
   const rec = card.rec;
   const waitingStep = c.steps?.find((s: any) => s.status === 'WAITING');
-  const question = ['WF-36', 'WF-27', 'WF-28'].includes(c.workflow_id);
+  const question = ['WF-36', 'WF-27', 'WF-28', 'WF-30', 'WF-35'].includes(c.workflow_id);
   const late = c.workflow_id === 'WF-27' && c.type === 'LATE_CHANGE';
   const nextMonthName = c.payload?.next ? new Date(`${c.payload.next}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
-  const approveLabel = escalated ? t('Resume the case') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t('Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
-  const declineLabel = escalated ? t('Close the case') : late ? t('Ask Tasama for an off-cycle payment') : c.workflow_id === 'WF-28' ? t('Return to Tasama') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : t('Decline');
+  const approveLabel = escalated ? t('Resume the case') : c.workflow_id === 'WF-30' ? t(c.current_step === 'prepare' ? 'Send for validation' : c.current_step === 'validate' ? 'Validate' : 'Approve the run') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t('Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
+  const declineLabel = escalated ? t('Close the case') : c.workflow_id === 'WF-30' ? t('Return to Tasama') : late ? t('Ask Tasama for an off-cycle payment') : c.workflow_id === 'WF-28' ? t('Return to Tasama') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : t('Decline');
   const needsReason = (d: 'APPROVED' | 'REJECTED') => onBehalf || (d === 'APPROVED' && rec?.verdict === 'DECLINE') || (d === 'REJECTED' && (rec?.verdict === 'APPROVE' || !escalated));
   const decide = async (decision: 'APPROVED' | 'REJECTED') => {
     if (needsReason(decision) && asking !== decision) { setAsking(decision); setErr(null); return; }
@@ -534,6 +534,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
     if (decision === 'APPROVED' && question && c.payload?.kind === 'GOSI_REGISTRATION' && !edits.registered_on) { setErr(t('Give the registration date.')); return; }
     const text = reason.trim() || (decision === 'REJECTED' ? bi(...((REJECT_REASONS.find((r) => r[0] === reasonCode) ?? ['', '', '']).slice(1) as [string, string])) : '');
     if (needsReason(decision) && !text && !question) { setErr(t('Give a reason.')); return; }
+    if (decision === 'REJECTED' && c.workflow_id === 'WF-30' && !text) { setErr(t('Say what Tasama should change.')); return; }
     setBusy(true); setErr(null);
     try {
       const e = { ...edits };
@@ -556,7 +557,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
         <span className="ms-auto">{open && c.sla_due && !mine ? <Chip tone={overdue ? 'danger' : 'warn'}>{until(c.sla_due, lang)}</Chip> : <StatusChip status={c.status} />}</span>
       </div>
       <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : ['WF-27', 'WF-28'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
+      {<p className="mt-1.5 text-sm text-muted-foreground">{`${mine ? t('You asked on') : c.workflow_id === 'WF-36' ? `${t('Asked by')} ${c.payload?.asked_by ?? ''}, Tasama, ${t('on')}` : ['WF-27', 'WF-28', 'WF-30'].includes(c.workflow_id) ? t('Opened on') : c.requester_person_id !== c.subject_person_id ? `${t('Raised by')} ${c.requester_name} ${t('on')}` : t('Asked on')} ${date(c.created_at, lang)}${open ? ` · ${t('now with')} ${holder}` : c.closed_at ? ` · ${t(c.status === 'COMPLETED' ? 'completed' : 'closed')} ${date(c.closed_at, lang)}` : ''}`}</p>}
     </div>
   );
 
@@ -590,13 +591,13 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
               {REJECT_REASONS.map(([k, en, ar]) => <option key={k} value={k}>{bi(en, ar)}</option>)}
             </select>
           ) : null}
-          <input className={`input h-10 text-sm ${asking === 'REJECTED' && !escalated && !question ? '' : 'sm:col-span-2'}`} autoFocus placeholder={asking === 'REJECTED' ? t(question ? (c.workflow_id === 'WF-36' ? 'When it will be done, for Tasama (optional)' : 'A note for Tasama (optional)') : 'A note for the requester (optional)') : t('Your reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <input className={`input h-10 text-sm ${asking === 'REJECTED' && !escalated && !question ? '' : 'sm:col-span-2'}`} autoFocus placeholder={asking === 'REJECTED' ? t(question ? (c.workflow_id === 'WF-36' ? 'When it will be done, for Tasama (optional)' : c.workflow_id === 'WF-30' ? 'What Tasama should change' : 'A note for Tasama (optional)') : 'A note for the requester (optional)') : t('Your reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       ) : null}
       {err ? <p className="text-sm text-danger">{err}</p> : null}
       <DecisionBar prompt={asking ? (asking === 'REJECTED' ? t(question ? (c.workflow_id === 'WF-36' ? 'Tell Tasama when it will be done, then confirm.' : 'Add a note for Tasama if you want, then confirm.') : 'Declining: choose a reason, then confirm.') : t('This goes against the recommendation: give your reason.')) : undefined}>
         {asking ? <Btn onClick={() => { setAsking(null); setErr(null); }} disabled={busy}>{t('Cancel')}</Btn> : null}
-        {asking !== 'APPROVED' && !(c.workflow_id === 'WF-27' && c.type === 'MONTH') ? <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{asking === 'REJECTED' ? t(question ? 'Confirm' : 'Confirm the decline') : declineLabel}</Btn> : null}
+        {asking !== 'APPROVED' && !(c.workflow_id === 'WF-27' && c.type === 'MONTH') && !(c.workflow_id === 'WF-30' && c.current_step !== 'approve') ? <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{asking === 'REJECTED' ? t(question ? 'Confirm' : 'Confirm the decline') : declineLabel}</Btn> : null}
         {asking !== 'REJECTED' ? <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={busy}>{busy ? t('Working…') : approveLabel}</Btn> : null}
       </DecisionBar>
     </div>

@@ -180,6 +180,8 @@ export const ELEMENT_TYPES = [
   ['OT_HOURS', 'Overtime hours worked', 'ساعات العمل الإضافي', 'INFORMATION', false],
   ['ABSENT_DAYS', 'Unexcused absence (days)', 'غياب بدون عذر (أيام)', 'INFORMATION', false],
   ['LATE_FINE', 'Lateness fine', 'غرامة التأخير', 'DEDUCTION', false],
+  ['BACK_PAY', 'Back pay', 'فروقات رواتب', 'EARNING', false],
+  ['GOSI_ARREARS', 'GOSI on back pay', 'التأمينات على الفروقات', 'DEDUCTION', false],
   ['BONUS', 'Performance bonus', 'مكافأة الأداء', 'EARNING', false],
   ['ADVANCE_PAY', 'Salary advance payment', 'دفعة السلفة', 'EARNING', false],
   ['ADVANCE_REC', 'Salary advance recovery', 'استرداد السلفة', 'DEDUCTION', true],

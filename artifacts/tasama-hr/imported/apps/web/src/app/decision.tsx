@@ -14,7 +14,7 @@ import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { aed, aedShort, date, dateShort, month, num, until } from '../lib/format';
 import type { Lang } from '../lib/format';
-import { CapBar, CoverStrip, RangeBar, SegmentBar, Progress, Slope, Waterfall } from './viz';
+import { ChangeWaterfall, CapBar, CoverStrip, RangeBar, SegmentBar, Progress, Slope, Waterfall } from './viz';
 const addDays = (d: string, n: number) => new Date(new Date(`${d}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
 
 export type Fact = { k: string; v: ReactNode; note?: string; tone?: 'warn' | 'danger' | 'success'; viz?: ReactNode; wide?: boolean };
@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-35': 'Back pay',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -272,6 +272,39 @@ export function caseCard(c: any, x: T): Card {
         { k: t('Explained by employees'), v: num(at.explained ?? 0), wide: Boolean(at.explanations?.length), note: at.explanations?.length ? `${at.explanations[0].name}, ${date(at.explanations[0].day, lang)}${at.explanations[0].minutes_late ? ` (${at.explanations[0].minutes_late} ${t('minutes late')})` : ''}: “${at.explanations[0].text}” ${t('An explained day is excused unless you decide otherwise.')}` : t('An explained day is excused unless you decide otherwise.') },
       ];
       return { kind, headline: `${month}${t('’s attendance')}: ${at.fined} ${t(at.fined === 1 ? 'fine' : 'fines')} ${t('and')} ${at.unpaidDays} ${c.status === 'COMPLETED' ? t(at.unpaidDays === 1 ? 'unpaid day, confirmed' : 'unpaid days, confirmed') : t(at.unpaidDays === 1 ? 'unpaid day to confirm' : 'unpaid days to confirm')}`, facts, rec: recOf(c) };
+    }
+    case 'WF-35': {
+      const bp = r.backpay;
+      if (!bp) return base;
+      const mon = (pn: string) => new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+      const facts: Fact[] = [
+        { k: t('Closed months recalculated'), v: aed(bp.total, lang), wide: true, note: bp.months.map((m: any) => `${mon(m.period)} ${aed(m.amount, lang)}`).join(' · ') },
+        { k: t('GOSI on the back pay'), v: aed(bp.gosiEe, lang), note: `${t('employer')} ${aed(bp.gosiEr, lang)}` },
+        { k: t('Provisions re-measured'), v: `${t('End of service')} +${aed(bp.catchUp.eos, lang)}`, note: `${t('leave')} +${aed(bp.catchUp.leave, lang)}` },
+      ];
+      return { kind, headline: c.status === 'COMPLETED' ? `${p.person_name}${t('’s back pay is in')} ${mon(bp.open)}${t('’s run')}` : `${p.person_name}${t('’s raise reaches')} ${bp.months.length} ${t(bp.months.length === 1 ? 'closed month:' : 'closed months:')} ${aed(bp.total, lang)} ${t('of back pay, no month reopened')}`, facts, rec: recOf(c) };
+    }
+    case 'WF-30': {
+      const ck = r.check ?? {}, dx = r.differences;
+      const month = p.period ? new Date(`${p.period}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
+      const sar = (v: number) => aed(v, lang);
+      const step = c.current_step;
+      const facts: Fact[] = [];
+      if (dx && ['approve', 'write', 'payslips', null, undefined].includes(step)) {
+        facts.push({ k: t('Why net pay moved'), v: `${dx.thisNet - dx.lastNet >= 0 ? '+' : '−'}${sar(Math.abs(dx.thisNet - dx.lastNet))}`, wide: true,
+          note: dx.unexplained ? t('Part of the change is not explained.') : `${dx.people} ${t('people paid differently; every difference explained')}`,
+          viz: <ChangeWaterfall from={dx.lastNet} to={dx.thisNet} fromLabel={t('Last month')} toLabel={month} steps={dx.steps.map((x: any) => ({ label: t(x.label), amount: x.amount }))} format={(v) => sar(v)} /> });
+      } else {
+        facts.push({ k: t('Net pay'), v: sar(ck.net ?? 0), note: `${ck.people ?? '—'} ${t('people')} · ${t('gross')} ${sar(ck.gross ?? 0)}` });
+        facts.push({ k: t('Checks'), v: ck.blocks ? `${ck.blocks} ${t(ck.blocks === 1 ? 'stops the run' : 'stop the run')}` : t('Nothing stops the run'), tone: ck.blocks ? 'danger' : undefined, note: ck.blocks ? t('Cleared on Runs › Checks, each with who settles it') : undefined });
+      }
+      facts.push({ k: t('Prepared by'), v: p.prepared_by_name ?? '—', note: p.validated_by_name ? `${t('Validated by')} ${p.validated_by_name}` : step === 'validate' ? t('Validated by someone else') : undefined });
+      const done = c.status === 'COMPLETED';
+      const headline = done ? `${month} ${t('payroll approved, written and paid out in')} ${r.payslips ?? ''} ${t('payslips')}`
+        : step === 'approve' ? `${month} ${t('payroll:')} ${sar(dx?.thisNet ?? 0)} ${t('net, every difference from last month explained')}`
+        : step === 'validate' ? `${month} ${t('payroll is prepared by')} ${p.prepared_by_name ?? t('the specialist')}${t(': validate it')}`
+        : ck.blocks ? `${month} ${t('payroll:')} ${ck.blocks} ${t(ck.blocks === 1 ? 'check stops it' : 'checks stop it')}` : `${month} ${t('payroll is ready to send for validation')}`;
+      return { kind, headline, facts, rec: recOf(c) };
     }
     case 'WF-27': {
       const mon = (pn: string) => pn ? new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';

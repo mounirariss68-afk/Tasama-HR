@@ -16,9 +16,12 @@ import { readHandbook, dimensionName } from '../agents/nizam.js';
 import { saveVersion, nextVersion, activeVersion, READINGS, RECOMMENDED } from '../payroll/policy.js';
 import { readUpload, confirmMonth } from '../attendance/service.js';
 import { applyAnswer } from '../payroll/checks.js';
+import { check as runCheck, freeze, explainRun, writeRun, issuePayslips } from '../payroll/runs.js';
+import { write } from '../hcm/connector.js';
 import { prefill, applyMonth, priceLateChange, openPeriod, monthWord, nextPeriod } from '../payroll/inputs.js';
 import { gosiContribution } from '../domain/payroll/gosi.js';
-import { draftRun } from '../payroll/run.js';
+import { draftRun, engineInputs } from '../payroll/run.js';
+import { backPay, runPayroll } from '../domain/payroll/engine.js';
 import { external } from '../hcm/connector.js';
 import { addDays, pol } from '../domain/rules.js';
 
@@ -89,6 +92,98 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     await h.setResult({ attendance: summary });
     return { status: 'DONE', decision: `${summary.fined} fines, ${summary.unpaidDays} unpaid days proposed`, outputs: summary,
       recommend: { verdict: 'APPROVE', summary: `confirm ${summary.fined} fines totalling SAR ${Math.round(summary.fines).toLocaleString('en-US')} and ${summary.unpaidDays} unpaid days, after reading each employee's explanation` } };
+  },
+
+  // ---------------------------------------------------------- WF-30 payroll run (§18)
+  'WF-30:check': async (h) => {
+    const r = await runCheck(h.c, h.req.id);
+    const sar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
+    await h.patch({ period: r.d.period.name });
+    await h.setResult({ check: { people: r.d.rows.length, net: r.d.totals.net, gross: r.d.totals.gross, blocks: r.blocks, asks: r.asks } });
+    await h.trail({ act: 'CHECK', summary: `Prepared ${r.d.period.name}: ${r.d.rows.length} people, ${sar(r.d.totals.gross)} gross, ${sar(r.d.totals.net)} net, on ${r.d.version ? `policy ${r.d.version}` : 'the law'}. ${r.blocks ? `${r.blocks} ${r.blocks === 1 ? 'check stops' : 'checks stop'} the run, each with who settles it.` : 'Nothing stops the run.'}` });
+    return { status: 'DONE', decision: r.blocks ? `${r.blocks} stop the run` : 'Clear', outputs: { blocks: r.blocks, asks: r.asks },
+      recommend: r.blocks ? { verdict: 'REVIEW', summary: `clear the ${r.blocks} ${r.blocks === 1 ? 'check' : 'checks'} on Runs › Checks, then send the run for validation` } : { verdict: 'APPROVE', summary: 'send the run for validation: nothing stops it' } };
+  },
+  'WF-30:freeze': async (h) => {
+    const r = await freeze(h.c, h.req.id, h.req.payload.prepared_by_name ?? 'Payroll specialist');
+    await h.trail({ act: 'WRITE', summary: `Froze ${r.d.rows.length} people's lines as prepared by ${h.req.payload.prepared_by_name ?? 'the payroll specialist'}: what is approved is what is paid.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
+    return { status: 'DONE', decision: 'Frozen' };
+  },
+  'WF-30:explain': async (h) => {
+    const { x, d } = await explainRun(h.c, h.req.id, h.req.payload.validated_by_name ?? 'Payroll lead');
+    const sar = (n: number) => `SAR ${Math.round(Math.abs(n)).toLocaleString('en-US')}`;
+    const moved = x.people.length;
+    const top = x.steps.filter((s) => s.key !== 'other').sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 3).map((s) => `${s.label.toLowerCase()} ${s.amount >= 0 ? '+' : '−'}${sar(s.amount)}`).join(', ');
+    // Approval is due four days before pay day (§18).
+    const due = new Date(Date.parse(`${d.period.pay}T00:00:00Z`) - 4 * 864e5 + 18 * 3600e3);
+    await h.patch({ due: due.toISOString(), approval_due: due.toISOString().slice(0, 10) });
+    await h.setResult({ differences: { lastNet: x.lastNet, thisNet: x.thisNet, people: moved, steps: x.steps, unexplained: x.unexplained } });
+    await h.trail({ act: 'CHECK', summary: `${moved} people are paid differently from last month; net moves ${x.thisNet - x.lastNet >= 0 ? 'up' : 'down'} ${sar(x.thisNet - x.lastNet)}${top ? `: ${top}` : ''}. ${x.unexplained ? 'Part of the change is not explained, so the approval should wait.' : 'Every difference is explained.'}` });
+    return { status: 'DONE', decision: `${moved} differences explained`, outputs: { people: moved },
+      recommend: x.unexplained ? { verdict: 'REVIEW', summary: 'return the run: part of the change is not explained' } : { verdict: 'APPROVE', summary: `approve: every one of the ${moved} differences from last month is explained` } };
+  },
+  'WF-30:write': async (h) => {
+    const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.step_key='approve' AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'the CHRO';
+    const r = await write(h.conn, 'POST', 'payrollResults', `Write the approved ${h.req.payload.period} run`, () => writeRun(h.c, h.req.id, who));
+    await h.trail({ act: 'WRITE', summary: `Wrote ${r.rows} people's results for ${r.period} to ${client().hrmsLabel}, as approved by ${who}.`, actor_type: 'SYSTEM', actor_name: 'Connector', autonomy: null });
+    return { status: 'DONE', decision: `${r.rows} written` };
+  },
+  'WF-30:payslips': async (h) => {
+    const n = await issuePayslips(h.c, h.req.id);
+    await h.setResult({ payslips: n });
+    await h.trail({ act: 'NOTIFY', summary: `Issued ${n} payslips; each employee was told, and My HR › Pay shows every line with the rule behind it.` });
+    return { status: 'DONE', decision: `${n} payslips` };
+  },
+
+  // ---------------------------------------------------------- WF-35 back pay (§18)
+  'WF-35:calc': async (h) => {
+    const p = h.req.payload;
+    const sar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
+    const months = (await h.c.query(`SELECT * FROM hcm.payroll_periods WHERE status='CLOSED' AND end_date >= $1 ORDER BY start_date`, [p.effective])).rows;
+    const open = (await h.c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const per: any[] = [];
+    let total = 0, gosiEe = 0, gosiEr = 0, terms: any = null;
+    for (const m of months) {
+      const x = await engineInputs(h.c, m);
+      terms = x.terms;
+      const after = x.input.find((e) => Number(e.ref) === p.person_id);
+      if (!after) continue;
+      const before = { ...after, elements: { ...after.elements, ...p.old } };
+      const mm = { start: x.ps, end: x.pe };
+      const bp = backPay([mm], x.terms, before, after);
+      const a = runPayroll(mm, x.terms, [before]).employees[0], b = runPayroll(mm, x.terms, [after]).employees[0];
+      const ee = Math.round((b.gosi.employee - a.gosi.employee) * 100) / 100, er = Math.round((b.gosi.employer - a.gosi.employer) * 100) / 100;
+      total += bp.total; gosiEe += ee; gosiEr += er;
+      per.push({ period: m.period_name, amount: bp.total, gosi: ee, rule: bp.lines[0]?.rule ?? '' });
+    }
+    // Both provisions re-measured on the new wage: the catch-up is the jump beyond a normal month (CAL-30).
+    const xo = await engineInputs(h.c, open);
+    const now_ = xo.input.find((e) => Number(e.ref) === p.person_id);
+    let catchUp = { eos: 0, leave: 0 };
+    if (now_) {
+      const po = { start: xo.ps, end: xo.pe };
+      const a = runPayroll(po, xo.terms, [{ ...now_, elements: { ...now_.elements, ...p.old } }]).employees[0], b = runPayroll(po, xo.terms, [now_]).employees[0];
+      catchUp = { eos: Math.round((b.provisions.eos.accrued - a.provisions.eos.accrued) * 100) / 100, leave: Math.round((b.provisions.leave.accrued - a.provisions.leave.accrued) * 100) / 100 };
+    }
+    void terms;
+    const r = { months: per, total: Math.round(total * 100) / 100, gosiEe: Math.round(gosiEe * 100) / 100, gosiEr: Math.round(gosiEr * 100) / 100, catchUp, open: open.period_name };
+    await h.setResult({ backpay: r });
+    await h.trail({ act: 'CHECK', summary: `${p.person_name}'s ${String(p.what ?? 'pay change').toLowerCase()} is dated ${p.effective}, ${per.length} closed ${per.length === 1 ? 'month' : 'months'} ago. Recalculated each: ${per.map((x) => `${x.period} ${sar(x.amount)}`).join(', ')}; ${sar(r.total)} of back pay and ${sar(r.gosiEe)} of employee GOSI on it. End of service re-measured ${r.catchUp.eos >= 0 ? '+' : '−'}${sar(Math.abs(r.catchUp.eos))}, leave ${r.catchUp.leave >= 0 ? '+' : '−'}${sar(Math.abs(r.catchUp.leave))}. The closed months stay as paid.` });
+    return { status: 'DONE', decision: `${sar(r.total)} back pay`, outputs: r, recommend: { verdict: 'APPROVE', summary: `add ${sar(r.total)} of back pay to the ${open.period_name} run; no closed month reopens` } };
+  },
+  'WF-35:apply': async (h) => {
+    const p = h.req.payload, r = h.req.result.backpay;
+    const open = (await h.c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const ps = String(open.start_date instanceof Date ? open.start_date.toISOString() : open.start_date).slice(0, 10), pe = String(open.end_date instanceof Date ? open.end_date.toISOString() : open.end_date).slice(0, 10);
+    const n = (await h.c.query(`SELECT count(*)::int n FROM hcm.element_entries WHERE person_id=$1`, [p.person_id])).rows[0].n;
+    let i = n;
+    for (const m of r.months) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'BACK_PAY',$3,$4,$5,'RAFEEQ',$6)`,
+      [`BP-${p.person_id}-${++i}`, p.person_id, m.amount, ps, pe, `Back pay, ${new Date(`${m.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })}`]);
+    if (r.gosiEe) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'GOSI_ARREARS',$3,$4,$5,'RAFEEQ','GOSI on back pay')`, [`BP-${p.person_id}-${++i}`, p.person_id, r.gosiEe, ps, pe]);
+    await h.c.query(`INSERT INTO layer.pay_inputs (period_name, person_id, kind, label, amount, effective, source, state, request_id, confirmed_by, confirmed_at) VALUES ($1,$2,'BACK_PAY',$3,$4,$5,'HRMS_EVENT','CONFIRMED',$6,$7,now())`,
+      [open.period_name, p.person_id, `Back pay for ${r.months.length} closed ${r.months.length === 1 ? 'month' : 'months'}`, r.total, p.effective, h.req.id, p.added_by_name ?? 'Tasama payroll']);
+    await h.trail({ act: 'WRITE', summary: `Entered ${r.months.length} back-pay lines and the GOSI on them in ${open.period_name}. The closed months were not reopened.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
+    return { status: 'DONE', decision: 'In the open run' };
   },
 
   // ---------------------------------------------------------- WF-27 monthly inputs and cut-off (§17)

@@ -12,7 +12,7 @@ import { AgentTag, Bar, Btn, Chip, Empty, Hero, Person, Screen, StatusChip, Tabl
 import { InputRows, InputsBar } from '../app/inputs';
 import { roleName } from '../app/case';
 import { plain } from '../app/decision';
-import { ClockBar, SegmentBar } from '../app/viz';
+import { ChangeWaterfall, ClockBar, Columns, SegmentBar } from '../app/viz';
 
 /**
  * HR Workspace › Payroll for the client's HR operations and CHRO (design/payroll-addendum.md §3, §17).
@@ -21,8 +21,64 @@ import { ClockBar, SegmentBar } from '../app/viz';
  */
 export function HrPayroll() {
   const [tab, setTab] = useState('month');
-  const tabs = <TabStrip items={[{ id: 'month', label: 'This month' }, { id: 'precheck', label: 'Pre-run check' }]} value={tab} onChange={setTab} />;
-  return tab === 'month' ? <PayrollThisMonth tabs={tabs} /> : <HrPayrollPrecheck tabs={tabs} />;
+  const tabs = <TabStrip items={[{ id: 'month', label: 'This month' }, { id: 'approval', label: 'Approval' }, { id: 'reports', label: 'Reports' }]} value={tab} onChange={setTab} />;
+  return tab === 'month' ? <PayrollThisMonth tabs={tabs} /> : tab === 'approval' ? <PayrollApproval tabs={tabs} /> : <PayrollReports tabs={tabs} />;
+}
+
+/** The run as the client approves it: why net pay moved, who prepared and validated it (§18). */
+function PayrollApproval({ tabs }: { tabs: ReactNode }) {
+  const { t, lang } = useLang();
+  const { openCase, has } = useApp();
+  const { data } = useApi<any>('/payroll/approval', { poll: 8000 });
+  if (!data?.period) return null;
+  const run = data.run, dx = data.differences;
+  const monthName = new Date(`${data.period.name}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' });
+  const mine = run?.state === 'VALIDATED' && has('CHRO');
+  const sar = (v: number) => `SAR ${Math.round(v).toLocaleString('en-US')}`;
+  const title = !run ? `${monthName}${t('’s run is prepared after the cut-off on')} ${date(data.period.cutoff, lang)}`
+    : run.state === 'APPROVED' ? `${monthName}${t('’s payroll was approved by')} ${run.approver} ${t('on')} ${date(run.approved_at, lang)}`
+    : run.state === 'VALIDATED' ? `${monthName}${t('’s payroll waits for approval:')} ${sar(run.totals.net)} ${t('net to')} ${run.people} ${t('people')}`
+    : run.state === 'RETURNED' ? `${monthName}${t('’s run was returned to Tasama')}` : `${monthName}${t('’s run is with Tasama payroll')}`;
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={title}
+      lede={t('Tasama prepares and validates the run; Mutabaqa explains every difference from last month; your CHRO approves it before anything is paid.')}
+      actions={run && ['VALIDATED', 'APPROVED'].includes(run.state) ? <Btn kind={mine ? 'primary' : undefined} onClick={() => openCase(run.ref)}>{t(mine ? 'Review and approve' : 'Open the run')}</Btn> : undefined} />}>
+      {tabs}
+      {dx ? (
+        <Panel icon={<Banknote size={16} />} title={`${dx.people.length} ${t('people are paid differently from last month, and why')}`} action={<AgentTag id="mutabaqa" />}>
+          <ChangeWaterfall from={dx.lastNet} to={dx.thisNet} fromLabel={`${t('Last month')}, ${t('net')}`} toLabel={`${monthName}, ${t('net')}`} steps={dx.steps.map((x: any) => ({ label: t(x.label), amount: x.amount }))} format={(v) => `SAR ${Math.round(v).toLocaleString('en-US')}`} />
+        </Panel>
+      ) : <Panel icon={<Banknote size={16} />} title={t('The explanation comes once Tasama has validated the run')}><Empty>{t('Nothing to approve yet.')}</Empty></Panel>}
+      {run ? (
+        <Panel icon={<ShieldCheck size={16} />} title={t('Three people, three steps')}>
+          <div className="grid gap-3 md:grid-cols-3">{[['Prepared', run.preparer, run.prepared_at, 'Tasama payroll specialist'], ['Validated', run.validator, run.validated_at, 'Tasama payroll lead'], ['Approved', run.approver, run.approved_at, 'Your CHRO']].map(([k, who, at, role]: any) => (
+            <div key={k} className="rounded-xl glass-l3 p-3"><p className="text-xs text-muted-foreground">{t(k)}</p><p className="mt-0.5 text-sm font-semibold">{who ?? t('Waiting')}</p><p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p></div>))}</div>
+        </Panel>
+      ) : null}
+    </Screen>
+  );
+}
+
+/** Net pay and employer cost by month. */
+function PayrollReports({ tabs }: { tabs: ReactNode }) {
+  const { t, lang } = useLang();
+  const { data } = useApi<any>('/payroll/reports');
+  if (!data) return null;
+  const m: any[] = data.months;
+  const last = m.at(-1), first = m[0];
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={last && first ? `${t('Net pay moved from')} ${aedShort(first.net, lang)} ${t('to')} ${aedShort(last.net, lang)} ${t('over')} ${m.length} ${t('months')}` : t('Payroll reports')}
+      lede={t('Every approved month, as written to the employee master: what people were paid, and what the company paid on top.')} />}>
+      {tabs}
+      <Panel icon={<Banknote size={16} />} title={t('Net pay by month')}>
+        <Columns values={m.map((x) => x.net)} labels={m.map((x) => month(x.period_name, lang).split(' ')[0])} format={(v) => aedShort(v, lang)} markLast height={96} />
+      </Panel>
+      <Panel icon={<Landmark size={16} />} title={t('Each month')}>
+        <Table><thead><tr><th>{t('Month')}</th><th className="text-end">{t('People')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Net')}</th><th className="text-end">{t('Employer cost on top')}</th></tr></thead>
+          <tbody>{[...m].reverse().map((x) => <tr key={x.period_name}><td>{month(x.period_name, lang)}</td><td className="text-end tabular-nums">{x.people}</td><td className="text-end tabular-nums">{aed(x.gross, lang)}</td><td className="text-end tabular-nums">{aed(x.net, lang)}</td><td className="text-end tabular-nums">{aed(x.employer, lang)}</td></tr>)}</tbody></Table>
+      </Panel>
+    </Screen>
+  );
 }
 
 function PayrollThisMonth({ tabs }: { tabs: ReactNode }) {
@@ -56,58 +112,6 @@ function PayrollThisMonth({ tabs }: { tabs: ReactNode }) {
         <InputsBar counts={data.counts} />
         <div className="mt-3"><InputRows rows={done} client /></div>
       </Panel>
-    </Screen>
-  );
-}
-
-function HrPayrollPrecheck({ tabs }: { tabs: ReactNode }) {
-  const { t, bi, lang } = useLang();
-  const { openCase, has } = useApp();
-  const { data } = useApi<any>('/payroll');
-  const [busy, setBusy] = useState(false);
-  if (!data) return null;
-  const pc = data.precheck;
-  const blockers = pc.findings.filter((f: any) => f.severity === 'BLOCKER').length;
-  const high = pc.findings.filter((f: any) => f.severity === 'HIGH').length;
-  const closed = data.periods.filter((p: any) => p.status === 'CLOSED');
-  const maxG = Math.max(...closed.map((p: any) => p.gross ?? 0), 1);
-  const caseOpen = data.openCase && ['WAITING', 'ESCALATED', 'RUNNING'].includes(data.openCase.status);
-  const start = async () => { setBusy(true); try { const r = await post('/requests', { type: 'PRECHECK' }); bump(); openCase(r.ref); } finally { setBusy(false); } };
-  return (
-    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={pc.blocked ? `${month(pc.period.period_name, lang).split(' ')[0]} ${t('payroll is held by')} ${blockers} ${t(blockers === 1 ? 'blocker' : 'blockers')}` : `${month(pc.period.period_name, lang)} ${t('payroll is clear to release')}`} lede={`${t('Cut-off')} ${date(pc.period.cutoff_date, lang)} · ${t('pay date')} ${date(pc.period.pay_date, lang)}.`}
-      actions={has('PAYROLL') ? (caseOpen ? <Btn kind="primary" onClick={() => openCase(data.openCase.ref)}>{t('Open the pre-run case')}</Btn> : <Btn kind="primary" onClick={start} disabled={busy}><Play className="h-4 w-4" />{t('Start the pre-run check')}</Btn>) : undefined}
-      feature={<HeroFeature label="Findings in the draft" value={pc.findings.length} support={<div className="w-60"><SegmentBar segments={[{ label: t('Blocker'), value: blockers, tone: 'danger' }, { label: t('High'), value: high, tone: 'warn' }, { label: t('Other'), value: pc.findings.length - blockers - high, tone: 'muted' }]} /></div>} />}
-      />}>
-      {tabs}
-      <StatRow>
-        <StatTile label="Employees on the run" value={num(pc.totals.headcount)} trend={{ direction: 'flat', label: `${pc.last?.n ?? '—'} ${t('last month')}` }} />
-        <StatTile label="Draft gross" value={aedShort(pc.totals.gross, lang)} trend={{ direction: pc.totals.gross >= (pc.last?.gross ?? 0) ? 'up' : 'down', label: `${aed(pc.totals.gross - (pc.last?.gross ?? 0), lang)} ${t('on last month')}` }} />
-        <StatTile label="Draft net" value={aedShort(pc.totals.net, lang)} />
-        <StatTile label="Employer contributions" value={aedShort(pc.totals.employer, lang)} trend={{ direction: 'flat', label: t('GOSI and end-of-service provision') }} />
-      </StatRow>
-      <Panel icon={<AlertTriangle size={16} />} title={t('Each finding is fixed or explained before the wage file goes to Mudad')} action={<AgentTag id="hisab" />}>
-        <Table><thead><tr><th>{t('Severity')}</th><th>{t('Finding')}</th><th>{t('Employee')}</th><th>{t('Detail')}</th><th className="text-end">{t('At stake')}</th></tr></thead>
-          <tbody>{pc.findings.map((f: any) => <tr key={f.id}><td><StatusChip status={f.severity} /></td><td className="text-sm font-medium">{bi(f.title, f.title_ar)}</td><td className="whitespace-nowrap text-sm">{bi(f.name, f.name_ar)}</td><td className="max-w-[360px] text-xs">{plain(f.detail)}<span className="block text-muted-foreground">{t('Fix')}: {plain(f.fix)}</span></td><td className="text-end tabular-nums">{aed(f.amount, lang)}</td></tr>)}</tbody></Table>
-      </Panel>
-      <PageColumns aside={<>
-        <Panel icon={<Landmark size={16} />} title="End-of-service position">
-          {data.eos.map((e: any) => <StatusRow key={e.basis} name={t('End-of-service award')} detail={`${t('liability today')} ${aed(data.gratuityLiability, lang)}`} status={<span className="font-mono text-xs">{e.n}</span>} />)}
-          <p className="mt-2 text-xs text-muted-foreground">{t('Liability on the termination basis: half a month of the last wage for each of the first five years, a full month for each year after. Saudi employees are also covered by GOSI annuities and SANED, paid separately.')}</p>
-        </Panel>
-        <Panel icon={<Wallet size={16} />} title="Salary advances book">
-          {data.advances.slice(0, 8).map((a: any) => <StatusRow key={a.advance_number} name={`${a.display_name} · ${aed(a.amount, lang)}`} detail={`${aed(a.monthly_recovery, lang)} × ${a.months} · ${t('outstanding')} ${aed(a.outstanding, lang)}`} status={<StatusChip status={a.status} />} />)}
-        </Panel>
-      </>}>
-        <Panel icon={<Banknote size={16} />} title="Payroll runs">
-          {/* Monthly gross barely moves, so bars would only decorate: the months as a table, paid on time. */}
-          <Table><thead><tr><th>{t('Month')}</th><th className="text-end">{t('Employees')}</th><th className="text-end">{t('Gross')}</th><th></th></tr></thead>
-            <tbody>{[...closed].reverse().slice(0, 6).map((p: any) => <tr key={p.id}><td>{month(p.period_name, lang)}</td><td className="text-end tabular-nums">{p.lines}</td><td className="text-end tabular-nums">{aed(p.gross, lang)}</td><td><Chip tone="success">{t('Paid through Mudad')}</Chip></td></tr>)}</tbody></Table>
-        </Panel>
-        <Panel icon={<RefreshCw size={16} />} title="Pay changes made through Tasama HR">
-          <Table><thead><tr><th>{t('Employee')}</th><th>{t('Element')}</th><th className="text-end">{t('Amount')}</th><th>{t('From')}</th></tr></thead>
-            <tbody>{data.changes.slice(0, 15).map((e: any) => <tr key={e.id}><td className="text-sm">{e.display_name}</td><td className="text-sm">{e.element}</td><td className="text-end tabular-nums">{aed(e.amount, lang)}</td><td>{date(e.effective_start, lang)}</td></tr>)}</tbody></Table>
-        </Panel>
-      </PageColumns>
     </Screen>
   );
 }

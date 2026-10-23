@@ -45,7 +45,14 @@ export async function seedInputs(c: PoolClient, base: BaseResult, cl: ClientConf
   for (const e of expected) await c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'OT_HOURS',$3,$4,$5,'HRMS','Overtime sheet')`, [`OTH-${ls.slice(0, 7)}-${e.person_id}`, e.person_id, e.hours, ls, le]);
   const rest = pool.filter((r: any) => !expected.some((e) => e.person_id === r.person_id));
   const late = cl.key === 'riyadhair' ? rest[Math.floor(rest.length / 3)]?.person_id ?? null : null;
-  await c.query(`INSERT INTO layer.meta (key, value) VALUES ('inputs', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify({ expected, late })]);
+  // D9 at ROSHN (§18): a raise dated three months back, and a resignation after about seven years.
+  let raise: number | null = null, resigner: number | null = null;
+  if (cl.key === 'roshn') {
+    raise = rest[Math.floor(rest.length / 2)]?.person_id ?? null;
+    const seven = (await c.query(`SELECT person_id FROM hcm.work_relationships WHERE worker_type='E' AND end_date IS NULL AND start_date BETWEEN $1::date - 2900 AND $1::date - 2450 ORDER BY person_id`, [per.start])).rows.map((r: any) => r.person_id).filter((id: number) => rest.some((r: any) => r.person_id === id) && id !== raise);
+    resigner = seven[0] ?? null;
+  }
+  await c.query(`INSERT INTO layer.meta (key, value) VALUES ('inputs', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify({ expected, late, raise, resigner })]);
 
   // WF-27: the month opens ten days before the cut-off.
   const ops = base.persona.payroll;

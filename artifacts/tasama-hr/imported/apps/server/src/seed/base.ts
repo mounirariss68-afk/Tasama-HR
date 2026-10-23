@@ -466,26 +466,7 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   const allEntries = (await c.query(`SELECT e.*, t.classification, t.name FROM hcm.element_entries e JOIN hcm.element_types t ON t.code = e.element_code`)).rows;
   const wrAll = new Map((await c.query('SELECT person_id, start_date, end_date FROM hcm.work_relationships')).rows.map((w: any) => [w.person_id, w]));
   const results: any[] = [];
-  // Clients on Oracle: the HRMS's own results, as before. Clients held in Tasama HR: the payroll engine, after the leave data below.
-  if (client.hrms !== 'PLATFORM') for (const p of periodIds.slice(0, -1)) {
-    for (const [pid, w] of wrAll) {
-      if (pid === persona.joiner) continue;
-      if (w.start_date > p.end_date || (w.end_date && w.end_date < p.start_date)) continue;
-      const start = w.start_date > p.start_date ? w.start_date : p.start_date;
-      const end = w.end_date && w.end_date < p.end_date ? w.end_date : p.end_date;
-      const days = Math.min(30, daysBetween(start, end) + 1);
-      // for the payroll results of the planted promotee/leaver last month, use what was actually paid: old entries
-      const lines = allEntries.filter((e: any) => e.person_id === pid && e.effective_start <= p.end_date && e.effective_end >= p.start_date && !['ADVANCE_REC', 'OVERTIME'].includes(e.element_code));
-      let gross = 0, ded = 0, er = 0;
-      const out = lines.map((e: any) => {
-        const amt = e.classification === 'EARNING' ? round2(e.amount * days / 30) : e.amount;
-        if (e.classification === 'EARNING') gross += amt; else if (e.classification === 'DEDUCTION') ded += amt; else er += amt;
-        return { code: e.element_code, name: e.name, amount: amt, kind: e.classification };
-      });
-      if (!out.length) continue;
-      results.push({ period_id: p.id, person_id: pid, days_paid: days, gross: round2(gross), deductions: round2(ded), employer_contributions: round2(er), net: round2(gross - ded), lines: out, wps_status: 'PAID' });
-    }
-  }
+  // Every client's closed months come from the payroll engine, after the leave data below (§1, §18).
   await insertMany(c, 'hcm.payroll_results', results);
 
   // ------------------------------------------------------------ absence
@@ -524,8 +505,8 @@ export async function seedBase(c: PoolClient, anchor: Date, client: ClientConfig
   await insertMany(c, 'hcm.absence_balances', balRows);
   await insertMany(c, 'hcm.absences', absRows);
 
-  // ------------------------------------------------------------ closed months from the payroll engine (Tasama HR clients)
-  if (client.hrms === 'PLATFORM') {
+  // ------------------------------------------------------------ closed months from the payroll engine (every client, §18)
+  {
     const rules = readRules(client, policiesFor(client)).map((r) => ({ key: r.key, dim: r.dim, value: r.value, num: r.num, flag: r.flag }));
     const terms = termsFromRules(`${client.short} policy 1.0`, rules);
     const absorbedGrades = new Set(gosiAbsorbedGrades(rules));

@@ -12,6 +12,8 @@ import { activeVersion, rulesOf } from '../payroll/policy.js';
 import { draftRun, provisionHistory } from '../payroll/run.js';
 import { runChecks, reschedule, ask } from '../payroll/checks.js';
 import { monthView } from '../payroll/inputs.js';
+import { currentRun, frozenRows } from '../payroll/runs.js';
+import { explain } from '../payroll/differences.js';
 import { tasamaTrail } from '../tasama/service.js';
 import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
 import { PENALTY_TABLE, FINE_CAP_DAYS } from '../domain/attendance.js';
@@ -132,12 +134,12 @@ payroll.get('/payroll/runs', async (req, res) => {
   if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
   const rows = await forEachClient(async (key) => {
     const c = clientByKey(key)!;
-    if (c.hrms !== 'PLATFORM') return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: null };
     const d = await draftRun(pool);
+    const run = await currentRun(pool);
     if (!d) return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: null };
     const blocks = (await runChecks(pool, d)).checks.filter((x) => x.severity === 'BLOCK').length;
     const prevNet = d.rows.reduce((n, r) => n + (r.prev_net ?? 0), 0);
-    return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, draft: { period: d.period, people: d.rows.length, gross: d.totals.gross, net: d.totals.net, prev_net: Math.round(prevNet * 100) / 100, blocks, version: d.version } };
+    return { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, run: run ? { state: run.state, ref: run.ref } : null, draft: { period: d.period, people: d.rows.length, gross: d.totals.gross, net: d.totals.net, prev_net: Math.round(prevNet * 100) / 100, blocks, version: d.version } };
   });
   res.json({ clients: rows });
 });
@@ -148,10 +150,13 @@ payroll.get('/payroll/runs/:client', async (req, res) => {
   if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
   const c = clientByKey(req.params.client);
   if (!c) return res.status(404).json({ error: 'No such client' });
-  if (c.hrms !== 'PLATFORM') return res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, draft: null });
   const out = await withClient(c.key, async () => {
-    const draft = await draftRun(pool);
-    return { draft, history: await provisionHistory(pool), review: draft ? await runChecks(pool, draft) : null };
+    const run = await currentRun(pool);
+    let draft = await draftRun(pool);
+    // From "Send for validation" on, the run shows its frozen lines: what is approved is what is paid (§18).
+    if (draft && run && !['DRAFT', 'RETURNED'].includes(run.state)) draft = { ...draft, rows: await frozenRows(pool, run.id), totals: run.totals };
+    const differences = run?.differences ?? (draft ? await explain(pool, draft.period) : null);
+    return { draft, run, differences, history: await provisionHistory(pool), review: draft ? await runChecks(pool, draft) : null };
   });
   res.json({ client: { key: c.key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, ...out });
 });
@@ -161,7 +166,7 @@ payroll.post('/payroll/runs/:client/checks/:person/:action', async (req, res) =>
   const p = await personaOf(req);
   if (!isPayrollTeam(p)) return res.status(403).json({ error: 'Only Tasama payroll acts on a run\'s checks.' });
   const c = clientByKey(req.params.client);
-  if (!c || c.hrms !== 'PLATFORM') return res.status(404).json({ error: 'No such client run' });
+  if (!c) return res.status(404).json({ error: 'No such client run' });
   const personId = Number(req.params.person);
   try {
     const out = await withClient(c.key, () => tx(async (db) => {
@@ -173,6 +178,25 @@ payroll.post('/payroll/runs/:client/checks/:person/:action', async (req, res) =>
     }));
     await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: req.params.action === 'ask' ? 'NUDGE' : 'WRITE', summary: out.summary, summary_ar: out.summary, ref: (out as any).ref ?? null });
     res.json(out);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/** Start the month's run once the cut-off has passed (WF-30, §18). */
+payroll.post('/payroll/runs/:client/start', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isPayrollTeam(p)) return res.status(403).json({ error: 'Only Tasama payroll starts a run.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  try {
+    const out = await withClient(c.key, async () => {
+      const run = await currentRun(pool);
+      if (run && run.state !== 'RETURNED') throw new Error(`This month's run is already ${run.state.toLowerCase()} (${run.ref}).`);
+      const per = (await pool.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+      const ops = (await pool.query(`SELECT value FROM layer.meta WHERE key='people'`)).rows[0].value.persona.payroll;
+      const month = new Date(`${per.period_name}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+      return tx((db) => startCase(db, { workflowId: 'WF-30', type: 'RUN', title: `${c.short} payroll, ${month}`, title_ar: `رواتب ${c.name_ar}`, requester: ops, subject: ops, channel: 'FORM', payload: { period: per.period_name } }));
+    });
+    res.json({ ref: out.ref });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
@@ -197,6 +221,24 @@ payroll.get('/payroll/this-month', async (req, res) => {
   if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
   const v = await monthView(pool);
   res.json({ today: new Date().toISOString().slice(0, 10), ...(v ?? {}) });
+});
+
+/** The client's view of this month's run and why it differs from last month (HR Workspace › Payroll › Approval). */
+payroll.get('/payroll/approval', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
+  const run = await currentRun(pool);
+  const d = await draftRun(pool);
+  res.json({ period: d?.period ?? null, run, totals: run?.totals ?? d?.totals ?? null, differences: run?.differences ?? null });
+});
+
+/** Net pay and employer cost by month (HR Workspace › Payroll › Reports). */
+payroll.get('/payroll/reports', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
+  const rows = (await pool.query(`SELECT pp.period_name, COUNT(r.*)::int people, SUM(r.gross)::float gross, SUM(r.net)::float net, SUM(r.employer_contributions)::float employer
+      FROM hcm.payroll_periods pp JOIN hcm.payroll_results r ON r.period_id=pp.id GROUP BY pp.period_name, pp.start_date ORDER BY pp.start_date`)).rows;
+  res.json({ months: rows });
 });
 
 /* ------------------------------------------------------------------ Attendance (WF-29) */

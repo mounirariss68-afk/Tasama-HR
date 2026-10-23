@@ -14,6 +14,7 @@ import { useApp } from '../app/state';
 import { Btn, Chip, Empty, Hero, Screen, StatRow, TabStrip, Table } from '../app/ui';
 import { CaseRow, CaseView } from '../app/case';
 import { InputRows, InputsBar, cutoffWords } from '../app/inputs';
+import { ChangeWaterfall, ClockBar, Progress } from '../app/viz';
 
 const DAY = 86_400_000;
 const d0 = (s: string) => new Date(`${s.slice(0, 10)}T00:00:00Z`).getTime();
@@ -350,11 +351,11 @@ function CheckCard({ c, client, reload }: { c: any; client: string; reload: () =
 
 export function PayrollRuns() {
   const { t, bi, lang } = useLang();
-  const { route, session, go } = useApp();
+  const { route, session, go, openCase } = useApp();
   const { data: all } = useApi<any>('/payroll/runs', { poll: 20000 });
   const platform = (all?.clients ?? []).filter((c: any) => c.draft);
   const [key, setKey] = useState<string | null>(route.param);
-  useEffect(() => { setKey(route.param ?? (session?.client.hrms === 'PLATFORM' ? session.client.key : null)); }, [route.param, session?.client.key]);
+  useEffect(() => { setKey(route.param ?? session?.client.key ?? null); }, [route.param, session?.client.key]);
   const current = key ?? platform[0]?.key ?? null;
   const { data, reload } = useApi<any>(current ? `/payroll/runs/${current}` : null, { poll: 20000 });
   const [tab, setTab] = useState('draft');
@@ -374,18 +375,28 @@ export function PayrollRuns() {
   const listed = showAll ? rows : rows.filter((r) => checkOf(r.person_id).length || (r.change != null && Math.abs(r.change) >= 1) || r.prev_net == null);
   const hist: any[] = data?.history ?? [];
   const mon = (pn: string) => new Date(`${pn}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'short', timeZone: 'UTC' });
-  const points = [...hist.map((h) => ({ label: mon(h.period_name), eos: h.eos, leave: h.leave })), ...(d ? [{ label: mon(d.period.name), eos: rows.reduce((s, r) => s + r.eos.accrued, 0), leave: rows.reduce((s, r) => s + r.leave.accrued, 0), draft: true }] : [])];
+  const run = data?.run;
+  const dx = data?.differences;
+  // One baseline everywhere: Mutabaqa's last month, which counts last month's leavers too.
+  const base = dx ? { last: dx.lastNet, change: dx.thisNet - dx.lastNet, people: dx.people.length } : { last: prevNet, change: (d?.totals.net ?? 0) - prevNet, people: changed.length + joiners.length };
+  const [busyRun, setBusyRun] = useState(false);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  const cutPassed = d ? d.period.cutoff < new Date().toISOString().slice(0, 10) : false;
+  const startRun = async () => { setBusyRun(true); try { const r: any = await post(`/payroll/runs/${current}/start`); bump(); reload(); openCase(r.ref, current!); } catch (e: any) { setRunErr(e.message); } finally { setBusyRun(false); } };
+  const STATE: Record<string, [string, 'success' | 'warn' | 'primary' | 'danger' | undefined]> = { DRAFT: ['Being prepared', 'warn'], PREPARED: ['Waiting for validation', 'primary'], VALIDATED: ['With the client for approval', 'primary'], APPROVED: ['Approved and written', 'success'], RETURNED: ['Returned by the client', 'danger'] };
+  const points = [...hist.filter((h) => !d || h.period_name !== d.period.name).map((h) => ({ label: mon(h.period_name), eos: h.eos, leave: h.leave })), ...(d ? [{ label: mon(d.period.name), eos: rows.reduce((s, r) => s + r.eos.accrued, 0), leave: rows.reduce((s, r) => s + r.leave.accrued, 0), draft: true }] : [])];
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll"
-      title={d ? `${name}'s ${monthWord} ${t('run pays')} SAR ${sarK(d.totals.net)} ${t('to')} ${rows.length} ${t('people')}${blocks.length ? `; ${blocks.length} ${t(blocks.length === 1 ? 'check stops it' : 'checks stop it')}` : `; ${t('nothing stops it')}`}` : t('Runs')}
+      title={d ? `${name}'s ${monthWord} ${t('run pays')} SAR ${sarK(d.totals.net)} ${t('to')} ${rows.length} ${t('people')}${run?.state === 'APPROVED' ? `; ${t('approved by')} ${run.approver}` : blocks.length ? `; ${blocks.length} ${t(blocks.length === 1 ? 'check stops it' : 'checks stop it')}` : `; ${t('nothing stops it')}`}` : t('Runs')}
+      actions={d ? (run && run.state !== 'RETURNED' ? <Btn kind="primary" onClick={() => openCase(run.ref, current!)}>{t(STATE[run.state]?.[0] ?? run.state)} · {t('open the run')}</Btn> : cutPassed ? <span className="flex items-center gap-2"><Btn kind="primary" disabled={busyRun} onClick={startRun}>{t(run?.state === 'RETURNED' ? 'Prepare the run again' : 'Start the run')}</Btn>{runErr ? <span className="text-xs text-danger">{runErr}</span> : null}</span> : <Chip tone="primary">{t('Draft until the cut-off on')} {date(d.period.cutoff, lang)}</Chip>) : undefined}
       lede={t('The draft is the engine\'s calculation from the employee master, the month\'s confirmed changes and the client\'s active policy. Every line names the rule behind it. Nothing is paid until the client approves.')}
-      feature={d ? <HeroFeature label="Net pay against last month" value={`${d.totals.net - prevNet >= 0 ? '+' : '−'}SAR ${sarK(Math.abs(d.totals.net - prevNet))}`} support={<span className="text-xs text-muted-foreground">{changed.length} {t('people paid differently')} · {joiners.length} {t('new')}</span>} /> : undefined} />}>
+      feature={d ? <HeroFeature label="Net pay against last month" value={`${base.change >= 0 ? '+' : '−'}SAR ${sarK(Math.abs(base.change))}`} support={<span className="text-xs text-muted-foreground">{base.people} {t('people paid differently')}</span>} /> : undefined} />}>
       <div className="flex flex-wrap gap-2">
         {(all?.clients ?? []).map((c: any) => (
           <button key={c.key} type="button" disabled={!c.draft} onClick={() => { setKey(c.key); setShowAll(false); }}
             className={`min-w-[9.5rem] rounded-xl border px-3 py-2 text-start transition-colors ${current === c.key ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-primary/40'} disabled:cursor-default disabled:opacity-60 disabled:hover:border-border/60`}>
             <p className="text-sm font-semibold">{bi(c.short, c.name_ar)}</p>
-            <p className="text-[11px] text-muted-foreground">{c.draft ? `${c.draft.people} ${t('people')} · ${c.draft.blocks ? `${c.draft.blocks} ${t('stop the run')}` : t('ready to check')}` : t('Runs in Oracle HCM')}</p>
+            <p className="text-[11px] text-muted-foreground">{c.draft ? `${c.draft.people} ${t('people')} · ${c.run?.state === 'APPROVED' ? t('approved') : c.run?.state === 'VALIDATED' ? t('with the client') : c.run?.state === 'PREPARED' ? t('to validate') : c.draft.blocks ? `${c.draft.blocks} ${t('stop the run')}` : t('ready to check')}` : '—'}</p>
           </button>
         ))}
       </div>
@@ -394,11 +405,11 @@ export function PayrollRuns() {
           <StatRow>
             <StatTile label="Gross pay" value={`SAR ${sarK(d.totals.gross)}`} trend={{ direction: 'flat', label: `${t('policy')} v${d.version ?? '—'}` }} />
             <StatTile label="Deductions" value={`SAR ${sarK(d.totals.deductions)}`} trend={{ direction: 'flat', label: `GOSI SAR ${sarK(d.totals.gosiEmployee ?? 0)}` }} />
-            <StatTile label="Net pay" value={`SAR ${sarK(d.totals.net)}`} trend={{ direction: d.totals.net >= prevNet ? 'up' : 'down', label: `${t('last month')} SAR ${sarK(prevNet)}` }} />
+            <StatTile label="Net pay" value={`SAR ${sarK(d.totals.net)}`} trend={{ direction: base.change >= 0 ? 'up' : 'down', label: `${t('last month')} SAR ${sarK(base.last)}` }} />
             <StatTile label="Cut-off · pay day" value={`${date(d.period.cutoff, lang).split(' ').slice(0, 2).join(' ')} · ${date(d.period.pay, lang).split(' ').slice(0, 2).join(' ')}`} />
           </StatRow>
-          <Panel icon={<FileText size={16} />} title={tab === 'checks' ? (blocks.length ? `${blocks.length} ${t(blocks.length === 1 ? 'check stops the run until it is fixed' : 'checks stop the run until they are fixed')}` : t('No check stops the run')) : tab === 'provisions' ? `${t('End of service owed reaches')} SAR ${sarK(points.at(-1)?.eos ?? 0)} ${t('at the end of')} ${monthWord}` : changed.length ? `${changed.length} ${t('people are paid differently from last month')}` : t('Everyone is paid as last month')}>
-            <TabStrip items={[{ id: 'draft', label: 'Draft' }, { id: 'checks', label: 'Checks' }, { id: 'provisions', label: 'Provisions' }]} value={tab} onChange={setTab} />
+          <Panel icon={<FileText size={16} />} title={tab === 'differences' ? (dx ? `${dx.people.length} ${t('people are paid differently, and every difference is explained')}` : t('Differences')) : tab === 'approval' ? (run ? `${t(STATE[run.state]?.[0] ?? run.state)}` : t('The run has not started')) : tab === 'payslips' ? (run?.payslips ? `${run.payslips} ${t('payslips issued')}` : t('No payslips yet')) : tab === 'checks' ? (blocks.length ? `${blocks.length} ${t(blocks.length === 1 ? 'check stops the run until it is fixed' : 'checks stop the run until they are fixed')}` : t('No check stops the run')) : tab === 'provisions' ? `${t('End of service owed reaches')} SAR ${sarK(points.at(-1)?.eos ?? 0)} ${t('at the end of')} ${monthWord}` : changed.length ? `${changed.length} ${t('people are paid differently from last month')}` : t('Everyone is paid as last month')}>
+            <TabStrip items={[{ id: 'draft', label: 'Draft' }, { id: 'checks', label: 'Checks' }, { id: 'differences', label: 'Differences' }, { id: 'approval', label: 'Approval' }, { id: 'payslips', label: 'Payslips' }, { id: 'provisions', label: 'Provisions' }]} value={tab} onChange={setTab} />
             <div className="mt-4">
               {tab === 'draft' ? (
                 <div className="space-y-5">
@@ -417,6 +428,39 @@ export function PayrollRuns() {
                       </tr>))}</tbody></Table>
                   {!showAll && listed.length < rows.length ? <Btn small onClick={() => setShowAll(true)}>{t('Show everyone')} ({rows.length})</Btn> : null}
                 </div>
+              ) : tab === 'differences' ? (
+                dx ? (
+                  <div className="space-y-5">
+                    <ChangeWaterfall from={dx.lastNet} to={dx.thisNet} fromLabel={`${t('Last month')}, ${t('net')}`} toLabel={`${monthWord}, ${t('net')}`} steps={dx.steps.map((x: any) => ({ label: t(x.label), amount: x.amount }))} format={(v) => `SAR ${num(Math.round(v))}`} />
+                    <Table><thead><tr><th>{t('Person')}</th><th className="text-end">{t('Last month')}</th><th className="text-end">{t('This month')}</th><th>{t('Why')}</th></tr></thead>
+                      <tbody>{dx.people.slice(0, showAll ? 999 : 15).map((x: any) => <tr key={x.person_id}><td className="text-sm">{x.name}</td><td className="text-end tabular-nums text-muted-foreground">{num(x.from, 2)}</td><td className="text-end tabular-nums">{num(x.to, 2)}</td>
+                        <td className="text-xs">{Object.entries(x.causes).map(([k, v]: any) => <span key={k} className="me-2 inline-block">{t(dx.steps.find((s: any) => s.key === k)?.label ?? k)} <span className={v >= 0 ? 'text-success' : 'text-danger'}>{v >= 0 ? '+' : '−'}{num(Math.abs(v), 2)}</span></span>)}</td></tr>)}</tbody></Table>
+                    {!showAll && dx.people.length > 15 ? <Btn small onClick={() => setShowAll(true)}>{t('Show everyone')} ({dx.people.length})</Btn> : null}
+                    <p className="text-xs text-muted-foreground">{t('Mutabaqa recalculates last month on the engine and replaces one input at a time with this month\'s, so each cause gets its exact share and the causes add up to the change.')}</p>
+                  </div>
+                ) : <Empty>{t('No last month to compare with.')}</Empty>
+              ) : tab === 'approval' ? (
+                run ? (
+                  <div className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-3">{[
+                      ['Prepared', run.preparer, run.prepared_at, 'Payroll specialist, Tasama'],
+                      ['Validated', run.validator, run.validated_at, 'Payroll lead, Tasama'],
+                      ['Approved', run.approver, run.approved_at, `CHRO, ${name}`],
+                    ].map(([k, who, at, role]: any) => (
+                      <div key={k} className="rounded-xl glass-l3 p-3">
+                        <p className="text-xs text-muted-foreground">{t(k)}</p>
+                        <p className="mt-0.5 text-sm font-semibold">{who ?? (run.state === 'RETURNED' ? '—' : `${t('Waiting')}${run.waiting_on && !who ? `: ${run.waiting_on}` : ''}`)}</p>
+                        <p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p>
+                      </div>))}</div>
+                    {run.state === 'RETURNED' ? <p className="text-sm text-danger">{t('Returned by')} {run.returned_by ?? t('the client')}: {run.returned_reason ?? '—'}</p> : null}
+                    {run.state !== 'APPROVED' && d ? <div><p className="mb-1 text-xs text-muted-foreground">{t('Approval due')} {date(new Date(Date.parse(d.period.pay) - 4 * 864e5).toISOString(), lang)}</p><ClockBar start={run.created_at} due={new Date(Date.parse(d.period.pay) - 4 * 864e5 + 18 * 3600e3).toISOString()} /></div> : null}
+                    <p className="text-xs text-muted-foreground">{t('The payroll lead never validates a run she prepared; the client\'s CHRO approves every run.')}</p>
+                  </div>
+                ) : <Empty>{cutPassed ? t('Start the run to prepare it for validation.') : `${t('The run starts after the cut-off on')} ${date(d.period.cutoff, lang)}.`}</Empty>
+              ) : tab === 'payslips' ? (
+                run?.state === 'APPROVED' ? (
+                  <div className="space-y-2"><Progress done={run.payslips} total={run.people} /><p className="text-sm">{run.payslips} {t('of')} {run.people} {t('payslips issued; each employee was told and sees every line in My HR › Pay.')}</p></div>
+                ) : <Empty>{t('Payslips are issued once the client has approved the run.')}</Empty>
               ) : tab === 'checks' ? (
                 <div className="space-y-3">
                   {checks.length ? checks.map((c, i) => <CheckCard key={i} c={c} client={current!} reload={reload} />)

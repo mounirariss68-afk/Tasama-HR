@@ -232,6 +232,23 @@ export const WORKFLOWS: WorkflowDef[] = [
       S('confirm', 'HUMAN', 'PAYROLL', 'The client\'s HR operations confirms, after employees have explained', 'عمليات الموارد البشرية لدى العميل تؤكد بعد سماع الموظفين', 'The proposed amounts and the explanations', 'Each explanation accepted or not; the amounts confirmed', 'Confirm the deductions'),
       S('apply', 'SYSTEM', 'platform', 'Enter the confirmed amounts in the open payroll month', 'إدخال المبالغ المؤكدة في شهر الرواتب المفتوح', 'Confirmed amounts', 'Unpaid days and fines as entries in the open month', 'None'),
     ] },
+  { id: 'WF-30', num: 30, name: 'Payroll run', name_ar: 'تشغيل الرواتب', stage: 'Pay', coverage: 'implemented', trigger: 'The cut-off has passed', agents: ['hisab', 'mutabaqa', 'wathiqa'], decision_by: 'Payroll specialist prepares, payroll lead validates, the client\'s CHRO approves',
+    steps: [
+      S('check', 'AGENT', 'hisab', 'Prepare the draft run and run the pre-run checks', 'إعداد مسودة الرواتب وتشغيل فحوصات ما قبل التشغيل', 'The master, confirmed inputs, the active policy', 'Every person\'s lines, and the checks with who settles each', 'Whether anything stops the run'),
+      S('prepare', 'HUMAN', 'TASAMA_PAYROLL', 'The payroll specialist sends the run for validation', 'أخصائي الرواتب يرسل الرواتب للمراجعة', 'The draft and its checks', 'The run as prepared', 'Send for validation'),
+      S('freeze', 'SYSTEM', 'platform', 'Freeze every line as calculated', 'تثبيت كل سطر كما حُسب', 'The draft', 'The frozen run', 'None'),
+      S('validate', 'HUMAN', 'TASAMA_PAYROLL_LEAD', 'The payroll lead validates, never the preparer', 'قائدة الرواتب تراجع، وليست من أعدّ الرواتب', 'The frozen run', 'The validated run', 'Validate'),
+      S('explain', 'AGENT', 'mutabaqa', 'Explain every difference from last month', 'تفسير كل فرق عن الشهر الماضي', 'This run and last month', 'Each person\'s change split into its causes', 'Whether any difference is not explained'),
+      S('approve', 'HUMAN', 'CHRO', 'The client\'s CHRO approves the run', 'الرئيس التنفيذي للموارد البشرية لدى العميل يعتمد الرواتب', 'The run and its differences', 'Approved, or returned with a reason', 'Approve the run'),
+      S('write', 'SYSTEM', 'connector', 'Write the approved run to the master', 'كتابة الرواتب المعتمدة في السجل الرئيسي', 'The approved run', 'Payroll results in Oracle HCM or Tasama HR', 'None'),
+      S('payslips', 'AGENT', 'wathiqa', 'Issue every payslip', 'إصدار قسائم الرواتب', 'The written run', 'A payslip for each person, and a notification', 'None'),
+    ] },
+  { id: 'WF-35', num: 35, name: 'Back pay and off-cycle', name_ar: 'الفروقات والدفعات خارج الدورة', stage: 'Pay', coverage: 'implemented', trigger: 'A change dated in a closed month, or an off-cycle request', agents: ['hisab'], decision_by: 'Payroll specialist adds it to the open run; the run is validated and approved as usual',
+    steps: [
+      S('calc', 'AGENT', 'hisab', 'Recalculate each closed month under the change', 'إعادة احتساب كل شهر مغلق بالتغيير', 'The change, what was paid each month, the policy', 'Back pay per month, GOSI on it, and the provisions re-measured', 'Which months the change reaches'),
+      S('confirm', 'HUMAN', 'TASAMA_PAYROLL', 'The payroll specialist adds it to this month\'s run', 'أخصائي الرواتب يضيفها إلى رواتب هذا الشهر', 'The recalculation', 'Back pay in the open run', 'Add to this month\'s run'),
+      S('apply', 'SYSTEM', 'platform', 'Enter the back pay in the open month; closed months stay as paid', 'إدخال الفروقات في الشهر المفتوح؛ تبقى الأشهر المغلقة كما صُرفت', 'The confirmed back pay', 'Entries in the open month', 'None'),
+    ] },
   { id: 'WF-36', num: 36, name: 'Run question to the client', name_ar: 'سؤال الرواتب إلى العميل', stage: 'Pay', coverage: 'implemented', trigger: 'Tasama payroll asks the client to settle a check on the draft run', agents: [], decision_by: 'The client\'s HR operations',
     steps: [
       S('answer', 'HUMAN', 'PAYROLL', 'The client\'s HR operations answers', 'عمليات الموارد البشرية لدى العميل تجيب', 'The check on the draft run and what it costs', 'The registration date, or whether the held hours are paid', 'Answer'),

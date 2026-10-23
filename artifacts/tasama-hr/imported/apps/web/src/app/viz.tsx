@@ -285,3 +285,34 @@ export function Slope({ from, to, fromLabel, toLabel, format = (v: number) => St
     </div>
   );
 }
+
+/**
+ * Why a total moved: last month at the top, each cause as a bar from where the running total
+ * stands, this month at the bottom (design/payroll-addendum.md §18). Bars are scaled to the
+ * largest step, not to the totals, so a SAR 5,000 cause is visible next to a SAR 3M payroll.
+ */
+export function ChangeWaterfall({ from, to, fromLabel, toLabel, steps, format = (v: number) => String(v) }: { from: number; to: number; fromLabel: string; toLabel: string; steps: { label: string; amount: number }[]; format?: (v: number) => string }) {
+  const on = useGrow();
+  let run = 0;
+  const rows = steps.map((s) => { const r = { ...s, a: run, b: run + s.amount }; run += s.amount; return r; });
+  const lo = Math.min(0, ...rows.map((r) => Math.min(r.a, r.b))), hi = Math.max(0, ...rows.map((r) => Math.max(r.a, r.b)));
+  const span = Math.max(1, hi - lo);
+  const x = (v: number) => ((v - lo) / span) * 100;
+  return (
+    <div className="space-y-1.5 text-sm">
+      <div className="grid grid-cols-[12rem_1fr_8rem] items-center gap-3"><span className="text-muted-foreground">{fromLabel}</span><span /><span className="text-end font-medium tabular-nums">{format(from)}</span></div>
+      {rows.map((r, i) => (
+        <div key={r.label} className="grid grid-cols-[12rem_1fr_8rem] items-center gap-3">
+          <span>{r.label}</span>
+          <div className="relative h-4 rounded bg-muted/40">
+            <div className="absolute inset-y-0 w-px bg-border" style={{ left: `${x(0)}%` }} />
+            <div className={cn('absolute inset-y-0.5 rounded-[3px] transition-[width] duration-700 ease-out motion-reduce:transition-none', r.amount >= 0 ? 'bg-success' : 'bg-danger')}
+              style={{ left: `${x(Math.min(r.a, r.b))}%`, width: on ? `${Math.max(0.6, (Math.abs(r.amount) / span) * 100)}%` : '0%', transitionDelay: `${i * 90}ms` }} title={`${r.label}: ${format(r.amount)}`} />
+          </div>
+          <span className={cn('text-end tabular-nums', r.amount >= 0 ? 'text-success' : 'text-danger')}>{r.amount >= 0 ? '+' : '−'}{format(Math.abs(r.amount))}</span>
+        </div>
+      ))}
+      <div className="grid grid-cols-[12rem_1fr_8rem] items-center gap-3 border-t border-border/60 pt-1.5"><span className="font-medium">{toLabel}</span><span className="text-xs text-muted-foreground">{to - from >= 0 ? '+' : '−'}{format(Math.abs(to - from))}</span><span className="text-end font-semibold tabular-nums">{format(to)}</span></div>
+    </div>
+  );
+}

@@ -12,13 +12,14 @@ import { seedBase } from './base.js';
 import { seedLayer } from './layer.js';
 import { seedAttendance } from './attendance.js';
 import { seedInputs } from './inputs.js';
+import { seedRuns } from './runs.js';
 import { seedHistory } from './history.js';
 import { seedTasama } from './tasama.js';
 import { seedIssues } from './issues.js';
 import { basiraScan } from '../tasama/basira.js';
 
 /** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
-export const SEED_VERSION = 6;
+export const SEED_VERSION = 7;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
@@ -56,6 +57,7 @@ export async function reseed(log: (s: string) => void = console.log) {
             const open = await seedHistory(c, base, cl);
             setClock(null);
             await seedInputs(c, base, cl);
+            await seedRuns(c, base, cl);
             await seedIssues(c, cl, anchor);
             await scan(c, iso(new Date()));
             await c.query(`DELETE FROM layer.integration_log WHERE id NOT IN (SELECT id FROM layer.integration_log ORDER BY at DESC LIMIT 4000)`);

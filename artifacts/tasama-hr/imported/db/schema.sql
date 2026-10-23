@@ -882,6 +882,32 @@ CREATE TABLE layer.attendance_punches (
   device         text
 );
 CREATE INDEX ON layer.attendance_punches (upload_id, person_id);
+-- Each payroll run, prepared, validated, approved and written (design/payroll-addendum.md §18).
+CREATE TABLE layer.pay_runs (
+  id            serial PRIMARY KEY,
+  period_name   text NOT NULL,
+  kind          text NOT NULL DEFAULT 'REGULAR',   -- REGULAR | OFF_CYCLE
+  request_id    int,
+  state         text NOT NULL,                     -- DRAFT | PREPARED | VALIDATED | APPROVED
+  preparer      text, prepared_at  timestamptz,
+  validator     text, validated_at timestamptz,
+  approver      text, approved_at  timestamptz,
+  totals        jsonb,
+  people        int,
+  differences   jsonb,
+  written_at    timestamptz,
+  payslips      int NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+-- Each person's lines as frozen when the run was sent for validation: what is approved is what is paid.
+CREATE TABLE layer.pay_lines (
+  id        bigserial PRIMARY KEY,
+  run_id    int NOT NULL,
+  person_id int NOT NULL,
+  row       jsonb NOT NULL
+);
+CREATE INDEX ON layer.pay_lines (run_id);
+
 -- The month's changes per employee, listed by Wared before the cut-off (design/payroll-addendum.md §17).
 CREATE TABLE layer.pay_inputs (
   id            bigserial PRIMARY KEY,

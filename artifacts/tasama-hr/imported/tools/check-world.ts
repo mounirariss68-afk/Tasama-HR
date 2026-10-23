@@ -70,8 +70,8 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: thirteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 13, `${d.length}`]; });
-  await check('API: twenty-four agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 24 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
+  await check('API: fifteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 15, `${d.length}`]; });
+  await check('API: twenty-five agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 25 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
   await check('API: the server refuses a decision that is not yours', async () => {
@@ -170,6 +170,18 @@ async function main() {
     const after = await (await fetch(`${BASE}/api/payroll/this-month`, { headers: H })).json();
     const e = await q1(`SELECT amount::float a FROM hcm_roshn.element_entries WHERE element_code='OT_HOURS' AND person_id=$1 AND source='RAFEEQ'`, [exp[0].person_id]);
     return [shape && after.counts.expected === 0 && after.counts.dropped === 1 && e[0]?.a === 20, `riyadhair ${by.riyadhair.month.status}, roshn ${by.roshn.counts.expected} expected → ${after.counts.expected}; entry ${e[0]?.a}`];
+  });
+
+  await check('Runs: Riyadh Air approved and written; the causes add up to the change; a preparer cannot validate (§18)', async () => {
+    const get = async (cl: string) => (await fetch(`${BASE}/api/payroll/runs/${cl}`, { headers: { 'x-persona': 'tasama-lead', 'x-client': cl } })).json();
+    const ra = await get('riyadhair');
+    const written = await q1(`SELECT count(*)::int n FROM hcm_riyadhair.payroll_results r JOIN hcm_riyadhair.payroll_periods p ON p.id=r.period_id WHERE p.status='OPEN'`);
+    const rs = await get('redsea');
+    const dx = rs.differences;
+    const sum = dx.steps.reduce((n: number, x: any) => n + x.amount, 0);
+    const adds = Math.abs(dx.lastNet + sum - dx.thisNet) < 1 && Math.abs(dx.thisNet - rs.draft.totals.net) < 1 && !dx.unexplained;
+    return [ra.run?.state === 'APPROVED' && ra.run.preparer !== ra.run.validator && written[0].n === ra.run.people && ra.run.payslips === ra.run.people && rs.run?.state === 'DRAFT' && adds,
+      `riyadhair ${ra.run?.state}, ${written[0].n} written, ${ra.run?.payslips} payslips; redsea ${rs.run?.state}; causes ${Math.round(sum)} vs change ${Math.round(dx.thisNet - dx.lastNet)}`];
   });
 
   await pool.end();

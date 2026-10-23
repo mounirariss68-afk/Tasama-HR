@@ -4,6 +4,11 @@
 import { read, type Ctx } from '../hcm/connector.js';
 import { addDays, daysBetween, employerNoticeDays, gratuity, iso, money, monthStart, round2, settlementDeadlineDays, yearsBetween } from '../domain/rules.js';
 import { worker } from '../hcm/queries.js';
+import { engineInputs } from '../payroll/run.js';
+import { finalSettlement } from '../domain/payroll/engine.js';
+
+/** The engine's line codes, under the HRMS element names the termination writes. */
+const SETTLEMENT_CODE: Record<string, string> = { basic: 'FINAL_BASIC', housing: 'FINAL_HOUSING', transport: 'FINAL_TRANSPORT', other: 'FINAL_OTHER', leave_encashment: 'LEAVE_ENCASH', eos_award: 'GRATUITY', notice: 'NOTICE_PAY', advance_balance: 'ADVANCE_RECOVERY', gosi: 'GOSI_EE' };
 
 export type SettlementLine = { code: string; label: string; label_ar: string; amount: number; rule: string };
 
@@ -25,19 +30,24 @@ export async function settlement(ctx: Ctx, personId: number, lastDay: string, ki
     (await ctx.c.query(`SELECT (entitlement + carried_over - taken - booked) AS balance FROM hcm.absence_balances WHERE person_id=$1 AND type_code='ANNUAL' ORDER BY year DESC LIMIT 1`, [personId])).rows[0]);
   const adv = await read(ctx, 'elementEntries', `q=PersonId=${personId};ElementName=ADVANCE_REC`, 'Outstanding advances', async () =>
     (await ctx.c.query(`SELECT COALESCE(SUM(outstanding),0) AS outstanding FROM hcm.advances WHERE person_id=$1 AND status='ACTIVE'`, [personId])).rows[0]);
-  const unpaid = (await ctx.c.query(`SELECT COALESCE(SUM(days),0)::float AS d FROM hcm.absences WHERE person_id=$1 AND type_code='UNPAID' AND status IN ('APPROVED','COMPLETED') AND start_date <= $2`, [personId, lastDay])).rows[0];
+  // The final settlement is the payroll engine's (design/payroll-addendum.md §5, §18): the actual wage
+  // the policy defines, never basic alone (Art. 2, 84); leave on the same wage (Art. 111); the award by Art. 84-87.
   const monthly = w.basic + w.housing + w.transport + w.other_allowance;
   const ms = iso(monthStart(lastDay));
-  const days = daysBetween(ms, lastDay) + 1;
+  const me = iso(addDays(monthStart(lastDay, 1), -1));
+  const x = await engineInputs(ctx.c, { start_date: ms, end_date: me });
+  const emp = x.input.find((e) => Number(e.ref) === personId);
   const deadline = settlementDeadlineDays(kind);
   const payBy = iso(addDays(lastDay, deadline));
   const lines: SettlementLine[] = [];
-  lines.push({ code: 'FINAL_SALARY', label: `Salary for ${days} days of the final month`, label_ar: `أجر ${days} يوماً من الشهر الأخير`, amount: round2(monthly / 30 * days), rule: `HR-11 §11.5: pay within ${deadline} days of the last working day (Saudi Labor Law Art. 88)` });
-  const leaveDays = Math.max(0, Number(bal?.balance ?? 0));
-  if (leaveDays > 0) lines.push({ code: 'LEAVE_ENCASH', label: `Unused annual leave, ${leaveDays} days on basic`, label_ar: `بدل ${leaveDays} يوماً من الإجازة السنوية على الأساسي`, amount: round2(w.basic / 30 * leaveDays), rule: 'Saudi Labor Law Art. 111; HR-11 §11.5' });
-  const g = gratuity(w.basic, w.original_hire_date, lastDay, Number(unpaid?.d ?? 0), kind);
-  lines.push({ code: 'GRATUITY', label: kind === 'RESIGNATION' ? `End-of-service award on resignation (${g.years} years)` : `End-of-service award (${g.years} years)`, label_ar: kind === 'RESIGNATION' ? `مكافأة نهاية الخدمة عند الاستقالة (${g.years} سنة)` : `مكافأة نهاية الخدمة (${g.years} سنة)`, amount: g.amount, rule: `${g.rule} ${kind === 'RESIGNATION' ? 'HR-11 §11.2' : 'HR-11 §11.1'}` });
-  if (Number(adv?.outstanding ?? 0) > 0) lines.push({ code: 'ADVANCE_RECOVERY', label: 'Outstanding salary advance', label_ar: 'رصيد السلفة القائم', amount: -round2(Number(adv.outstanding)), rule: 'HR-07 §7.4' });
+  let g = { factor: 1, years: round2(yearsBetween(w.original_hire_date, lastDay)), full: 0 };
+  if (emp) {
+    const fs = finalSettlement({ start: ms, end: me }, x.terms, { ...emp, lastDay }, { leaving: kind === 'RESIGNATION' ? 'RESIGNATION' : 'TERMINATION', advanceOutstanding: Number(adv?.outstanding ?? 0) || undefined });
+    const award = fs.lines.find((l) => l.code === 'eos_award');
+    g = { factor: fs.factor, years: round2(fs.years), full: award && fs.factor ? round2(award.amount / fs.factor) : 0 };
+    for (const l of fs.lines) lines.push({ code: SETTLEMENT_CODE[l.code] ?? l.code.toUpperCase(), label: l.label, label_ar: l.label, amount: l.kind === 'DEDUCTION' ? -l.amount : l.amount, rule: l.rule });
+  }
+  void bal;
   const total = round2(lines.reduce((s, l) => s + l.amount, 0));
   const notes: string[] = [];
   if (kind === 'RESIGNATION' && g.factor < 1) notes.push(`Resignation: ${g.factor === 0 ? 'no award under two years of service' : `${g.factor === 1 / 3 ? 'one third' : 'two thirds'} of the full award of ${money(g.full)}`} (Saudi Labor Law Art. 85; HR-11 §11.2).`);

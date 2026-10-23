@@ -6,7 +6,7 @@
  * run is approved (phase 5).
  */
 import type { PoolClient } from 'pg';
-import { runPayroll, type EngineEmployee, type RunResult } from '../domain/payroll/engine.js';
+import { runPayroll, finalSettlement, type EngineEmployee, type RunResult } from '../domain/payroll/engine.js';
 import { ELEMENT_OF, termsFromRules, gosiAbsorbedGrades } from '../domain/payroll/terms.js';
 import { activeVersion, rulesOf } from './policy.js';
 
@@ -17,18 +17,18 @@ export type DraftRow = {
   person_id: number; person_number: string; name: string; name_ar: string; department: string; grade: string;
   gross: number; deductions: number; net: number; prev_net: number | null; change: number | null; pay_days: number;
   lines: any[]; flags: any[]; eos: any; leave: any;
+  settlement?: { leaving: string; years: number; factor: number };
 };
 
-export async function draftRun(c: Q) {
-  const period = (await c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
-  if (!period) return null;
+/** The engine's inputs for one payroll month: the master, the confirmed entries and leave, as of that month. */
+export async function engineInputs(c: Q, period: { start_date: any; end_date: any }) {
   const ps = d10(period.start_date), pe = d10(period.end_date);
   const version = await activeVersion(c);
   const rules = version ? (await rulesOf(c, version.id)).map((r: any) => ({ key: r.key, dim: r.dim, value: r.value, num: r.num == null ? null : Number(r.num), flag: r.flag, clause: r.clause, resolution: r.resolution })) : [];
   const terms = termsFromRules(version ? `policy ${version.version}` : 'the law', rules);
   const absorbed = new Set(gosiAbsorbedGrades(rules));
   const people = (await c.query(
-    `SELECT p.id, p.person_number, p.display_name, p.display_name_ar, p.is_saudi, wr.start_date, wr.end_date, d.name AS department, g.code AS grade,
+    `SELECT p.id, p.person_number, p.display_name, p.display_name_ar, p.is_saudi, wr.start_date, wr.end_date, wr.termination_action, d.name AS department, g.code AS grade,
             gr.first_registered,
             (SELECT entitlement FROM hcm.absence_balances b WHERE b.person_id=p.id AND b.type_code='ANNUAL' ORDER BY year DESC LIMIT 1) ent,
             (SELECT carried_over FROM hcm.absence_balances b WHERE b.person_id=p.id AND b.type_code='ANNUAL' ORDER BY year DESC LIMIT 1) carried
@@ -39,7 +39,6 @@ export async function draftRun(c: Q) {
       WHERE wr.worker_type='E' AND wr.start_date <= $2 AND (wr.end_date IS NULL OR wr.end_date >= $1)`, [ps, pe])).rows;
   const entries = (await c.query(`SELECT * FROM hcm.element_entries WHERE effective_start <= $2 AND effective_end >= $1`, [ps, pe])).rows;
   const absences = (await c.query(`SELECT person_id, type_code, start_date, end_date, days, status FROM hcm.absences WHERE status IN ('APPROVED','COMPLETED') AND start_date <= $1`, [pe])).rows;
-  const prev = new Map((await c.query(`SELECT r.person_id, r.net FROM hcm.payroll_results r JOIN hcm.payroll_periods pp ON pp.id=r.period_id WHERE pp.end_date < $1 AND pp.end_date >= $1::date - 31`, [ps])).rows.map((r: any) => [r.person_id, Number(r.net)]));
   const opening = new Map((await c.query(`SELECT v.person_id, v.eos_accrued FROM hcm.payroll_provisions v JOIN hcm.payroll_periods pp ON pp.id=v.period_id WHERE pp.end_date < $1 AND pp.end_date >= $1::date - 31`, [ps])).rows.map((r: any) => [r.person_id, Number(r.eos_accrued)]));
 
   const input: EngineEmployee[] = [];
@@ -59,10 +58,14 @@ export async function draftRun(c: Q) {
       gosiAbsorbed: absorbed.has(p.grade) || undefined,
       elements, unpaidLeaveDays: unpaid || undefined,
       overtimeHours: es.filter((e: any) => e.element_code === 'OT_HOURS').reduce((n: number, e: any) => n + Number(e.amount), 0) || undefined,
-      earnings: es.filter((e: any) => e.element_code === 'OVERTIME').map((e: any) => ({ code: 'overtime', label: 'Overtime', amount: Number(e.amount) })),
+      earnings: [
+        ...es.filter((e: any) => e.element_code === 'OVERTIME').map((e: any) => ({ code: 'overtime', label: 'Overtime', amount: Number(e.amount) })),
+        ...es.filter((e: any) => e.element_code === 'BACK_PAY').map((e: any) => ({ code: 'back_pay', label: e.reference ?? 'Back pay', amount: Number(e.amount) })),
+      ],
       deductions: [
         ...es.filter((e: any) => e.element_code === 'ADVANCE_REC').map((e: any) => ({ code: 'advance', label: 'Advance recovery', amount: Number(e.amount), kind: 'ADVANCE' as const })),
         ...es.filter((e: any) => e.element_code === 'LATE_FINE').map((e: any) => ({ code: 'late_fine', label: 'Lateness fine', amount: Number(e.amount), kind: 'FINE' as const })),
+        ...es.filter((e: any) => e.element_code === 'GOSI_ARREARS').map((e: any) => ({ code: 'gosi_arrears', label: e.reference ?? 'GOSI on back pay', amount: Number(e.amount), kind: 'OTHER' as const })),
       ],
       absenceDays: es.filter((e: any) => e.element_code === 'ABSENT_DAYS').reduce((n: number, e: any) => n + Number(e.amount), 0) || undefined,
       leave: { entitlementDays: Number(p.ent ?? 21), carryoverDays: Number(p.carried ?? 0), usedDaysYtd: used },
@@ -70,14 +73,32 @@ export async function draftRun(c: Q) {
     });
     meta.set(p.id, p);
   }
+  return { ps, pe, version, terms, input, meta };
+}
+
+export async function draftRun(c: Q) {
+  const period = (await c.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+  if (!period) return null;
+  const { ps, pe, version, terms, input, meta } = await engineInputs(c, period);
+  const prev = new Map((await c.query(`SELECT r.person_id, r.net FROM hcm.payroll_results r JOIN hcm.payroll_periods pp ON pp.id=r.period_id WHERE pp.end_date < $1 AND pp.end_date >= $1::date - 31`, [ps])).rows.map((r: any) => [r.person_id, Number(r.net)]));
   const run: RunResult = runPayroll({ start: ps, end: pe }, terms, input);
+  // A leaver whose last day falls in the month is paid the final settlement in this run (§5, §18): salary to the
+  // last day, unused leave, the end-of-service award by the way they left, less the advance still owed.
+  const advances = new Map((await c.query(`SELECT person_id, SUM(outstanding)::float o FROM hcm.advances WHERE status='ACTIVE' GROUP BY person_id`)).rows.map((r: any) => [r.person_id, Number(r.o)]));
+  const LEAVING: Record<string, 'RESIGNATION' | 'TERMINATION' | 'ART_80'> = { RESIGNATION: 'RESIGNATION', TERMINATION: 'TERMINATION', END_OF_CONTRACT: 'TERMINATION', PROBATION_END: 'TERMINATION', ART_80: 'ART_80' };
   const rows: DraftRow[] = run.employees.map((r) => {
     const p = meta.get(Number(r.ref));
     const pn = prev.get(p.id) ?? null;
+    const e = input.find((x) => x.ref === r.ref)!;
+    const leaving = p.termination_action && e.lastDay && e.lastDay >= ps && e.lastDay <= pe ? LEAVING[p.termination_action] : undefined;
+    const fs = leaving ? finalSettlement({ start: ps, end: pe }, terms, e, { leaving, advanceOutstanding: advances.get(p.id) || undefined }) : null;
+    const lines = fs ? [...fs.lines, ...r.lines.filter((l) => l.kind === 'EMPLOYER')] : r.lines;
+    const [gross, deductions, net] = fs ? [fs.gross, fs.deductions, fs.net] : [r.gross, r.deductions, r.net];
     return {
       person_id: p.id, person_number: p.person_number, name: p.display_name, name_ar: p.display_name_ar, department: p.department, grade: p.grade,
-      gross: r.gross, deductions: r.deductions, net: r.net, prev_net: pn, change: pn == null ? null : Math.round((r.net - pn) * 100) / 100, pay_days: r.payDays,
-      lines: r.lines, flags: r.flags, eos: r.provisions.eos, leave: r.provisions.leave,
+      gross, deductions, net, prev_net: pn, change: pn == null ? null : Math.round((net - pn) * 100) / 100, pay_days: r.payDays,
+      lines, flags: r.flags, eos: r.provisions.eos, leave: r.provisions.leave,
+      ...(fs && leaving ? { settlement: { leaving: leaving as string, years: Math.round(fs.years * 100) / 100, factor: fs.factor } } : {}),
     };
   });
   return { period: { name: period.period_name, start: ps, end: pe, cutoff: d10(period.cutoff_date), pay: d10(period.pay_date) }, terms, version: version?.version ?? null, totals: run.totals, rows };

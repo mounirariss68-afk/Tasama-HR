@@ -9,6 +9,8 @@ import { caseScope, personaOf, has, type Persona } from './session.js';
 import { TASAMA_KEY, isTasamaStaff } from './session.js';
 import { aiConfigured, createMessage } from '../ai.js';
 import { tasamaTrail } from '../tasama/service.js';
+import { draftRun } from '../payroll/run.js';
+import { runChecks } from '../payroll/checks.js';
 import { client } from '../domain/rules.js';
 import { WORKFLOWS } from '../domain/workflows.js';
 import { iso, addDays, daysBetween } from '../domain/rules.js';
@@ -127,6 +129,19 @@ cases.post('/requests/:ref/decide', async (req, res) => {
   const tasamaRole = r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role);
   if (!onBehalf && !tasamaRole && r.waiting_on_person_id !== p.person_id) return res.status(403).json({ error: `This decision belongs to ${r.waiting_on_role}, not to ${p.label}.` });
   if (onBehalf && !String(req.body.reason ?? '').trim()) return res.status(400).json({ error: 'Tasama HR Operations decides on behalf of the client approver only with a reason on the record.' });
+  // WF-30 (§18): nothing goes for validation while a check stops it; the lead never validates a run she prepared.
+  if (r.workflow_id === 'WF-30' && req.body.decision === 'APPROVED') {
+    if (r.current_step === 'prepare') {
+      const d = await draftRun(pool);
+      const blocks = d ? (await runChecks(pool, d)).checks.filter((x) => x.severity === 'BLOCK').length : 0;
+      if (blocks) return res.status(400).json({ error: `${blocks} ${blocks === 1 ? 'check stops' : 'checks stop'} the run. Clear ${blocks === 1 ? 'it' : 'them'} on Runs › Checks first.` });
+      req.body.edits = { ...(req.body.edits ?? {}), prepared_by: p.key, prepared_by_name: p.display_name };
+    }
+    if (r.current_step === 'validate') {
+      if (r.payload?.prepared_by === p.key) return res.status(403).json({ error: `${p.display_name} prepared this run, so someone else validates it.` });
+      req.body.edits = { ...(req.body.edits ?? {}), validated_by_name: p.display_name };
+    }
+  }
   const behalfName = onBehalf ? (await pool.query('SELECT display_name FROM hcm.persons WHERE id=$1', [r.waiting_on_person_id])).rows[0]?.display_name ?? r.waiting_on_role : '';
   try {
     await tx((c) => decide(c, { requestId: r.id, personId: onBehalf ? (r.waiting_on_person_id ?? 0) : p.person_id, decision: req.body.decision, reason: req.body.reason, edits: req.body.edits, actorName: onBehalf ? `${p.display_name} (Tasama HR Operations, on behalf of ${behalfName})` : tasamaRole ? `${p.display_name}, Tasama` : undefined }));
