@@ -52,6 +52,8 @@ The README's client table and first paragraph change with this section.
 
 ## 2. The client CHRO approves every run, and Tasama's lead never validates a run she prepared
 
+> **24 October 2026.** `design/hr-ops-addendum.md` supersedes this section where they differ: Tasama HR operations enters the month's changes, the attendance and the Master File; payroll validates them; the client's HR operations, not the CHRO, approves the run (Tasama's answer to Q2).
+
 | Persona | Who | Where it lives in code | Lenses | Lands on | Decides |
 |---|---|---|---|---|---|
 | Payroll specialist | Nasser AlFarraj (Tasama payroll team) | `api/session.ts`, like `TASAMA_PERSONA` | Payroll | Inbox | Prepares runs, back pay and off-cycle runs; applies fixes; maps accounts; registers with GOSI |
@@ -81,6 +83,8 @@ The README's client table and first paragraph change with this section.
 | Register with or exclude from GOSI | Tamin | Payroll specialist |
 
 ## 3. Tasama's payroll team works in one Payroll lens; the client keeps one Payroll item
+
+> **24 October 2026.** `design/hr-ops-addendum.md` supersedes this section where they differ: Tasama HR operations enters the month's changes, the attendance and the Master File; payroll validates them.
 
 **Payroll lens (الرواتب)**, for the two Tasama payroll personas: eight items.
 
@@ -1001,6 +1005,8 @@ Phase 5b is done.
 
 
 ## 20. Phase 6: every approved run leaves as the paying bank's file and a WPS file that match to the halala
+
+> **24 October 2026.** `design/payroll-ops-addendum.md` §2 supersedes this section where they differ: no bank is connected; Sharifa uploads the file to the portal and records it, the client's finance controller records the approval in the bank, and Tasama reads the bank's return file and records WPS and Mudad.
 
 *Added 23 October 2026, at the start of phase 6. It fills in sections 3, 4, 6, 7, 8 and 9 for payments, and PAY-01 to PAY-13 in the requirements.*
 

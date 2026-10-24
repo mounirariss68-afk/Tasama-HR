@@ -2,7 +2,7 @@
  * Each client's run on the demo day (design/payroll-addendum.md §18, section 8's calendar).
  *
  *  - Riyadh Air: its cut-off passed two days ago. Nasser cleared the two checks, sent the run,
- *    Sharifa validated, the CHRO approved; written to Oracle HCM and payslips issued.
+ *    Sharifa validated, the client's HR operations approved; written to Oracle HCM and payslips issued.
  *  - Red Sea Global: its cut-off passed yesterday. The run is prepared and two checks stop it.
  *  - The other three are before their cut-off: the draft only.
  */

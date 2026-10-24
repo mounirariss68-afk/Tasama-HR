@@ -6,8 +6,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { HeroFeature, Panel, PanelAction, StatTile } from '@cognirise/atelier/layout';
 import { InboxLayout, InboxList, InboxReader } from '@cognirise/atelier/archetypes';
-import { BookOpen, CalendarRange, FileText, Inbox as InboxIcon, Scale } from 'lucide-react';
-import { bump, getClient, post, setClientKey, useApi } from '../lib/api';
+import { BookOpen, CalendarRange, Download, FileText, Inbox as InboxIcon, Scale } from 'lucide-react';
+import { bump, downloadFile, getClient, post, setClientKey, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { date, num } from '../lib/format';
 import { useApp } from '../app/state';
@@ -325,7 +325,7 @@ function CheckCard({ c, client, reload }: { c: any; client: string; reload: () =
     try { await post(`/payroll/runs/${client}/checks/${c.person_id}/${id}`); bump(); reload(); }
     catch (x: any) { setErr(x.message); } finally { setBusy(false); }
   };
-  const owner = c.owner.side === 'TASAMA' ? t('Tasama payroll: you') : `${c.owner.name}, ${bi(c.owner.role, c.owner.role_ar)}`;
+  const owner = c.owner.side === 'TASAMA' ? t('Tasama payroll: you') : `${t(c.owner.name)}, ${bi(c.owner.role, c.owner.role_ar)}`;
   return (
     <div className="rounded-xl glass-l3 p-4">
       <div className="flex flex-wrap items-start gap-3">
@@ -336,14 +336,41 @@ function CheckCard({ c, client, reload }: { c: any; client: string; reload: () =
         <div><dt className="text-xs text-muted-foreground">{t('What we found')}</dt><dd className="mt-0.5">{c.found}</dd></div>
         <div><dt className="text-xs text-muted-foreground">{t('What it means')}</dt><dd className="mt-0.5">{c.look}</dd></div>
         <div><dt className="text-xs text-muted-foreground">{t('Who settles it')}</dt><dd className="mt-0.5 font-medium">{owner}</dd>
-          {c.owner.side === 'CLIENT' ? <dd className="text-xs text-muted-foreground">{t('Only the employer can do this')}</dd> : <dd className="text-xs text-muted-foreground">{t('The law sets the answer; HR operations is told')}</dd>}</div>
+          {c.owner.side === 'CLIENT' ? <dd className="text-xs text-muted-foreground">{t('Only the employer can do this')}</dd> : c.owner.side === 'HR_OPS' ? <dd className="text-xs text-muted-foreground">{t('Tasama HR operations does this for the client')}</dd> : <dd className="text-xs text-muted-foreground">{t('The law sets the answer; HR operations is told')}</dd>}</div>
       </dl>
       {c.status ? <p className="mt-3 text-sm text-muted-foreground">{c.status}</p> : null}
       {err ? <p className="mt-2 text-sm text-danger">{err}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        {c.actions.map((a: any) => <Btn key={a.id} small kind="primary" disabled={busy} onClick={() => act(a.id)}>{busy ? t('Working…') : a.label}</Btn>)}
+        {c.actions.map((a: any, i: number) => <Btn key={a.id} small kind={i === 0 ? 'primary' : undefined} disabled={busy} onClick={() => act(a.id)}>{busy ? t('Working…') : t(a.label)}</Btn>)}
         {c.case_ref && c.status ? <Btn small onClick={() => openCase(c.case_ref)}>{c.actions.length ? t('Open the last answer') : t('Open the question and send a reminder')}</Btn> : null}
       </div>
+    </div>
+  );
+}
+
+
+/** Everything filed for the month (design/payroll-ops-addendum.md 2.9, 2.11): the package and its sign-offs, the bank's files, Mudad and the journals. */
+function MonthDocuments({ client }: { client: string }) {
+  const { t, lang } = useLang();
+  const { data } = useApi<any>(`/payroll/runs/${client}/documents`, { poll: 20000 });
+  const [err, setErr] = useState<string | null>(null);
+  if (!data?.docs) return null;
+  return (
+    <div className="rounded-xl border border-border/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="flex-1 text-sm font-semibold">{t('Filed with the month')}: {data.docs.length} {t('documents')}</p>
+        <Btn small kind="primary" onClick={() => downloadFile(`/api/payroll/runs/${client}/package/pdf`, client).catch((x) => setErr(x.message))}><Download size={13} /> {t('Payroll package (PDF)')}</Btn>
+        <Btn small onClick={() => downloadFile(`/api/payroll/runs/${client}/package/xlsx`, client).catch((x) => setErr(x.message))}><Download size={13} /> {t('Every line (Excel)')}</Btn>
+      </div>
+      {err ? <p className="mt-1 text-sm text-danger">{err}</p> : null}
+      <ul className="mt-2 divide-y divide-border/50 text-sm">{data.docs.map((d: any) => (
+        <li key={d.key} className="flex flex-wrap items-center gap-2 py-1.5">
+          <FileText size={14} className="shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{t(d.label)}</span>
+          <Chip tone={['Approved', 'Acknowledged', 'Posted', 'Signed copy filed', 'Approved in the bank', 'Read'].includes(d.state) ? 'success' : undefined}>{t(d.state)}</Chip>
+          <span className="w-40 truncate text-xs text-muted-foreground">{[d.who, d.at ? date(d.at, lang) : null].filter(Boolean).join(' · ')}</span>
+          {d.href ? <button type="button" className="text-xs text-primary underline underline-offset-2" onClick={() => downloadFile(d.href, client).catch((x) => setErr(x.message))}>{t('Download')}</button> : <span className="w-14" />}
+        </li>))}</ul>
     </div>
   );
 }
@@ -444,7 +471,7 @@ export function PayrollRuns() {
                     <div className="grid gap-3 md:grid-cols-3">{[
                       ['Prepared', run.preparer, run.prepared_at, 'Payroll specialist, Tasama'],
                       ['Validated', run.validator, run.validated_at, 'Payroll lead, Tasama'],
-                      ['Approved', run.approver, run.approved_at, lang === 'ar' ? `${t('CHRO')}، ${name}` : `CHRO, ${name}`],
+                      ['Approved', run.approver, run.approved_at, lang === 'ar' ? `${t('HR operations')}، ${name}` : `HR operations, ${name}`],
                     ].map(([k, who, at, role]: any) => (
                       <div key={k} className="rounded-xl glass-l3 p-3">
                         <p className="text-xs text-muted-foreground">{t(k)}</p>
@@ -453,7 +480,8 @@ export function PayrollRuns() {
                       </div>))}</div>
                     {run.state === 'RETURNED' ? <p className="text-sm text-danger">{t('Returned by')} {run.returned_by ?? t('the client')}: {run.returned_reason ?? '—'}</p> : null}
                     {run.state !== 'APPROVED' && d ? <div><p className="mb-1 text-xs text-muted-foreground">{t('Approval due')} {date(new Date(Date.parse(d.period.pay) - 4 * 864e5).toISOString(), lang)}</p><ClockBar start={run.created_at} due={new Date(Date.parse(d.period.pay) - 4 * 864e5 + 18 * 3600e3).toISOString()} /></div> : null}
-                    <p className="text-xs text-muted-foreground">{t('The payroll lead never validates a run she prepared; the client\'s CHRO approves every run.')}</p>
+                    <p className="text-xs text-muted-foreground">{t('The payroll lead never validates a run she prepared; the client\'s HR operations approves every run.')}</p>
+                    <MonthDocuments client={current!} />
                   </div>
                 ) : <Empty>{cutPassed ? t('Start the run to prepare it for validation.') : `${t('The run starts after the cut-off on')} ${date(d.period.cutoff, lang)}.`}</Empty>
               ) : tab === 'payslips' ? (
@@ -511,7 +539,7 @@ export function PayrollInputs() {
             className={`grid w-full grid-cols-[10rem_1fr_15rem] items-center gap-4 rounded-xl border px-3 py-2.5 text-start transition-colors ${sel?.key === c.key ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-primary/40'}`}>
             <span><span className="block text-sm font-semibold">{bi(c.short, c.name_ar)}</span><span className="block text-[11px] text-muted-foreground">{cutoffWords(c.period.cutoff, data.today, t)}</span></span>
             <InputsBar counts={c.counts} legend={false} />
-            <span className="text-xs text-muted-foreground">{c.month?.status === 'COMPLETED' ? `${t('Confirmed by')} ${c.month.confirmed_by ?? '—'}${c.month.closed_at ? `, ${date(c.month.closed_at, lang)}` : ''}` : c.counts.expected ? `${c.counts.expected} ${t('expected from')} ${c.month?.waiting_on ?? t('HR operations')}` : t('All in')}{c.month?.reminders ? ` · ${c.month.reminders} ${t(c.month.reminders === 1 ? 'reminder' : 'reminders')}` : ''}</span>
+            <span className="text-xs text-muted-foreground">{c.month?.status === 'COMPLETED' ? `${t('Confirmed by')} ${c.month.confirmed_by ?? '—'}${c.month.closed_at ? `, ${date(c.month.closed_at, lang)}` : ''}${c.month.handed_at ? ` · ${t('handed to payroll')}` : ''}` : c.month?.waiting_on_role === 'TASAMA_HR_OPS' ? `${t('Confirmed by')} ${c.month.confirmed_by ?? '—'} · ${t('Tasama HR operations checks it next')}` : c.counts.expected ? `${c.counts.expected} ${t('expected from')} ${c.month?.waiting_on ?? t('HR operations')}` : t('All in')}{c.month?.reminders ? ` · ${c.month.reminders} ${t(c.month.reminders === 1 ? 'reminder' : 'reminders')}` : ''}</span>
           </button>))}</div>
         <div className="mt-4 border-t border-border/60 pt-3">
           <p className="mb-1.5 text-xs text-muted-foreground">{t('All five clients')}</p>
@@ -644,7 +672,7 @@ export function PayrollAttendance() {
       </div>
       {data && !up ? (
         <Panel icon={<FileText size={16} />} title={t('Upload the month\'s attendance')}>
-          {persona?.roles.includes('TASAMA_PAYROLL') ? <UploadAttendance client={current!} onDone={reload} /> : <Empty>{t('Tasama\'s payroll team uploads the attendance file.')}</Empty>}
+          {persona?.roles.includes('TASAMA_HR_OPS') ? <UploadAttendance client={current!} onDone={reload} /> : <Empty>{t('Tasama HR operations uploads the attendance file.')}</Empty>}
         </Panel>
       ) : null}
       {up && tot ? (

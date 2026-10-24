@@ -24,7 +24,7 @@ import { draftRun, engineInputs } from '../payroll/run.js';
 import { backPay, runPayroll } from '../domain/payroll/engine.js';
 import { external } from '../hcm/connector.js';
 import { addDays, pol } from '../domain/rules.js';
-import { buildPayment, paymentFiles, markSent, financeApprover, startPayment } from '../payroll/payments.js';
+import { buildPayment, paymentFiles, markSent, financeApprover, startPayment, notifyFinance } from '../payroll/payments.js';
 import { bankByCode } from '../domain/banks.js';
 import { buildJournals, proposeAccounts, approveJournals, postJournals, KIND_NAME, sar as jsar } from '../payroll/journals.js';
 
@@ -35,6 +35,18 @@ type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; pe
 export const PAYROLL_WHO: Record<string, Who> = {
   TASAMA_PAYROLL_LEAD: async () => ({ role: 'TASAMA_PAYROLL_LEAD', personId: null as unknown as number }),
   TASAMA_PAYROLL: async () => ({ role: 'TASAMA_PAYROLL', personId: null as unknown as number }),
+  TASAMA_HR_OPS: async () => ({ role: 'TASAMA_HR_OPS', personId: null as unknown as number }),
+  // design/hr-ops-addendum.md 4b: the month's changes are handed to payroll by Tasama HR operations; a late change is not.
+  'WF-27:validate': async (_c, req) => (req.type === 'MONTH' ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
+  // A returned salary's new IBAN is entered by Tasama HR operations from the client's bank letter; other run questions go to the client.
+  // design/payroll-ops-addendum.md, Exits: at a client whose contract includes HR operations, Tasama HR operations checks the settlement first.
+  'WF-19:check': async () => (client().contract.services.includes('HR_OPS') ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
+  'WF-20:check': async () => (client().contract.services.includes('HR_OPS') ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
+  // design/payroll-ops-addendum.md 1.11: a question raised to Tasama HR operations waits on it first; it answers or takes it to the client.
+  'WF-36:triage': async (_c, req) => (req.payload?.via === 'HR_OPS' && req.payload?.kind !== 'PAYMENT_RETURNED' ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
+  'WF-36:answer': async (c, req) => (req.payload?.kind === 'PAYMENT_RETURNED' ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number }
+    : req.payload?.via === 'HR_OPS' && !req.payload?.to_client ? null
+    : { role: 'PAYROLL', personId: (await c.query(`SELECT person_id FROM layer.personas WHERE key='payroll'`)).rows[0]?.person_id }),
 };
 
 const flagWord = (f: string) => (f === 'BELOW_LAW' ? 'below the law' : f === 'UNCLEAR' ? 'unclear' : 'not in the handbook');
@@ -160,11 +172,12 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
   'WF-33:upload': async (h) => {
     const p = (await h.c.query(`SELECT * FROM layer.payments WHERE id=$1`, [h.req.payload.payment_id])).rows[0];
     const bank = bankByCode(p.bank_code)!;
-    await external(h.conn, 'BANK', 'POST', `/payroll/files/${p.file_ref}`, `Upload ${p.file_name} to ${bank.name}'s corporate portal`);
+    // No bank is connected (design/payroll-ops-addendum.md §2): the payroll lead uploaded the file to the portal herself and recorded it.
     const who = h.req.payload.sent_by_name ?? 'Sharifa AlMousa';
     await markSent(h.c, p.id, who);
     const fin = await financeApprover(h.c);
-    await h.trail({ act: 'WRITE', summary: `${p.file_name} is in ${bank.name}'s portal, sent by ${who}. ${fin} approves the payment there; the bank reports the approvals, the feedback file and the signed WPS file back to Payments.`, actor_type: 'SYSTEM', actor_name: bank.name, autonomy: null });
+    await notifyFinance(h.c, p.id);
+    await h.trail({ act: 'WRITE', summary: `${who} uploaded ${p.file_name} to ${bank.name}'s portal. ${fin}, the client's finance, approves it there and records the approval on Payments; Tasama reads the bank's return file and files the signed WPS file.`, actor_type: 'HUMAN', actor_name: `${who}, Tasama`, autonomy: null });
     return { status: 'DONE', decision: 'In the bank portal' };
   },
 
@@ -372,7 +385,8 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
 
   // WF-36: the client's answer to a check on the draft run becomes entries in the open month (§16).
   'WF-36:apply': async (h) => {
-    const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'HR operations';
+    const ap = (await h.c.query(`SELECT pp.display_name n, a.approver_role r FROM layer.approvals a LEFT JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0];
+    const who = ap?.n ?? (ap?.r === 'TASAMA_HR_OPS' ? 'Tasama HR operations' : 'HR operations');
     const summary = await applyAnswer(h.c, h.req as any, who);
     await h.trail({ act: 'WRITE', summary: `${summary} The draft run recalculates.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });
     await h.setResult({ answered: summary });

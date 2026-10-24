@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-34': 'Journals', 'WF-35': 'Back pay',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-34': 'Journals', 'WF-35': 'Back pay', 'WF-37': 'Contract from the client',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -402,6 +402,27 @@ export function caseCard(c: any, x: T): Card {
       if (done && r.applied) facts.push({ k: t('Entered'), v: `${r.applied.confirmed} ${t('lines')}, ${r.applied.hours} ${t('hours')}`, note: r.applied.dropped ? `${r.applied.dropped} ${t('dropped')}` : undefined });
       return { kind, headline: done ? `${mon(p.period)}${t('’s changes are confirmed')}` : `${m.expected ?? 0} ${t(m.expected === 1 ? 'change for' : 'changes for')} ${mon(p.period)} ${t('are still expected before the cut-off on')} ${date(p.cutoff, lang)}`, facts, rec: recOf(c) };
     }
+    case 'WF-37': {
+      // A contract the client sent, read against its policy and its documents (design/payroll-ops-addendum.md 1.4, 1.7).
+      const e = p.employee ?? {}, k = p.contract ?? {};
+      const reading: any[] = r.reading ?? [];
+      const bad = reading.filter((x) => !x.ok);
+      const done = c.status === 'COMPLETED';
+      const nm = bi(e.name, e.name_ar);
+      const docs: any[] = p.documents ?? [];
+      const wage = Number(k.basic ?? 0) + Number(k.housing ?? 0) + Number(k.transport ?? 0) + Number(k.other ?? 0);
+      const facts: Fact[] = [
+        { k: t('Pay'), v: aed(wage, lang), note: `${t('basic')} ${aed(k.basic ?? 0, lang)}, ${t('housing')} ${aed(k.housing ?? 0, lang)}, ${t('transport')} ${aed(k.transport ?? 0, lang)}` },
+        { k: t('Starts'), v: date(k.start_date, lang), note: `${bi(k.title, k.title_ar)} · ${t('Probation')} ${k.probation_days} ${t('days')} · ${t(k.contract_type === 'FIXED_TERM' ? 'Two years, fixed' : 'Indefinite')}` },
+        { k: t('Documents'), v: `${docs.filter((d) => d.received).length} ${t('of')} ${docs.length}`, tone: docs.every((d) => d.received) ? 'success' : 'danger', note: docs.filter((d) => !d.received).length ? `${t('Missing')}: ${docs.filter((d) => !d.received).map((d) => t(d.kind === 'IBAN_LETTER' ? 'IBAN letter' : d.kind === 'CONTRACT' ? 'Contract' : d.kind === 'IQAMA' ? 'Iqama' : 'National ID')).join(', ')}` : t('Contract, ID and IBAN letter') },
+        { k: t(bad.length ? 'What does not match' : 'Checked'), v: bad.length ? bad.map((x) => bi(x.text, x.text_ar)).join('. ') : t('Every term matches the policy and the law, and every field matches its document'), wide: true, tone: bad.length ? 'danger' : undefined },
+      ];
+      const headline = done ? `${nm} ${t('is on the master from')} ${date(k.start_date, lang)}`
+        : c.current_step === 'client' ? `${t('Tasama needs')} ${bad.length} ${t(bad.length === 1 ? 'correction to' : 'corrections to')} ${nm}${t('’s contract')}`
+        : bad.length ? `${nm}${t('’s contract from')} ${bi(c.client_short, c.client_ar)}: ${bad.length} ${t(bad.length === 1 ? 'thing does not match the policy or the documents' : 'things do not match the policy or the documents')}`
+        : `${nm}${t('’s contract from')} ${bi(c.client_short, c.client_ar)} ${t('matches the policy and the documents')}`;
+      return { kind, headline, facts, rec: c.current_step === 'client' || done ? null : recOf(c) };
+    }
     case 'WF-28': {
       const k = p.contract ?? {};
       const fp = r.first_pay;
@@ -442,7 +463,9 @@ export function caseCard(c: any, x: T): Card {
         : (done ? `${t(p.person_name)}${t('’s held overtime is settled')}` : `${t('Should')} ${t(p.person_name)}${t('’s')} ${p.held_hours ?? ''} ${t('overtime hours above the cap be paid?')}`);
       const facts: Fact[] = [
         { k: t('Tasama found'), v: plain(p.finding ?? ''), wide: true },
-        gosi ? { k: t('What you do'), v: t('Register in your GOSI account, then give the date here'), note: t('The run calculates the contribution from that date.') }
+        gosi ? (c.current_step === 'triage'
+          ? { k: t('What you do'), v: t('Give the date from the client’s GOSI account, or take it to the client'), note: t('Raised by Tasama payroll. The run calculates the contribution from that date.') }
+          : { k: t('What you do'), v: t('Register in your GOSI account, then give the date here'), note: t('The run calculates the contribution from that date.') })
           : { k: t('Held'), v: p.held_amount != null ? aed(p.held_amount, lang) : '—', note: p.cap ? `${t('Policy cap')}: ${p.cap} ${t('hours a month')}` : undefined },
       ];
       if (done && r.answered) facts.push({ k: t('Answer'), v: plain(r.answered), wide: true });
@@ -486,6 +509,6 @@ export function rowParts(r: any, bi: (en: any, ar: any) => string, t: (s: string
   return { who, what: what || bi(r.title, r.title_ar), kind: t(KIND[r.workflow_id] ?? 'Request') };
 }
 
-const OWNER: Record<string, string> = { EMPLOYEE: 'You', CLINIC: 'Clinic', INSURER: 'Insurer', HR_OPS: 'HR operations', LINE_MANAGER: 'Line manager', MANAGER: 'Manager', IT: 'IT', PAYROLL: 'Payroll', TA: 'Talent acquisition', HRBP: 'HR business partner' };
+const OWNER: Record<string, string> = { EMPLOYEE: 'You', CLINIC: 'Clinic', INSURER: 'Insurer', HR_OPS: 'HR operations', LINE_MANAGER: 'Line manager', MANAGER: 'Manager', IT: 'IT', PAYROLL: 'Payroll', TA: 'Talent acquisition', HRBP: 'HR business partner', TASAMA_HR_OPS: 'Tasama HR operations', TASAMA_PAYROLL: 'Tasama payroll', TASAMA_PAYROLL_LEAD: 'Tasama payroll lead' };
 /** A task owner in words: role codes become the role. */
 export const owner = (s: string | null | undefined) => (s ? OWNER[s] ?? (/^[A-Z_]+$/.test(s) && s.length > 4 ? s[0] + s.slice(1).toLowerCase().replace(/_/g, ' ') : s) : '');

@@ -53,7 +53,7 @@ function StepIcon({ s }: { s: string }) {
   return <CircleDashed className="h-4 w-4 text-muted-foreground" />;
 }
 
-const ROLE: Record<string, [string, string]> = { LINE_MANAGER: ['Line manager', 'المدير المباشر'], HRBP: ['HR business partner', 'شريك أعمال الموارد البشرية'], TA: ['Talent acquisition', 'استقطاب المواهب'], PAYROLL: ['HR operations', 'عمليات الموارد البشرية'], TASAMA_PAYROLL: ['Tasama payroll', 'رواتب تسامى'], TASAMA_PAYROLL_LEAD: ['Tasama payroll lead', 'قائدة الرواتب في تسامى'], CHRO: ['CHRO', 'الرئيس التنفيذي لرأس المال البشري'], EMPLOYEE: ['Employee', 'الموظف'] };
+const ROLE: Record<string, [string, string]> = { LINE_MANAGER: ['Line manager', 'المدير المباشر'], HRBP: ['HR business partner', 'شريك أعمال الموارد البشرية'], TA: ['Talent acquisition', 'استقطاب المواهب'], PAYROLL: ['HR operations', 'عمليات الموارد البشرية'], TASAMA_PAYROLL: ['Tasama payroll', 'رواتب تسامى'], TASAMA_HR_OPS: ['Tasama HR operations', 'عمليات الموارد البشرية في تسامى'], TASAMA_PAYROLL_LEAD: ['Tasama payroll lead', 'قائدة الرواتب في تسامى'], CHRO: ['CHRO', 'الرئيس التنفيذي لرأس المال البشري'], EMPLOYEE: ['Employee', 'الموظف'] };
 export const roleName = (r: string | null, bi: (a: string, b: string) => string) => (r && ROLE[r] ? bi(ROLE[r][0], ROLE[r][1]) : r ?? '');
 
 function Steps({ steps }: { steps: any[] }) {
@@ -212,7 +212,7 @@ function useEditor(c: any) {
 function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any) => void }) {
   const { t, lang, bi } = useLang();
   const shortlist = useApi(c.workflow_id === 'WF-03' && c.current_step === 'shortlist' ? `/hiring/requisitions/${c.payload.requisition_id}` : null);
-  const month = useApi<any>(c.workflow_id === 'WF-27' && c.type === 'MONTH' && c.current_step === 'confirm' ? '/payroll/this-month' : null);
+  const month = useApi<any>(c.workflow_id === 'WF-27' && c.type === 'MONTH' && ['confirm', 'validate'].includes(c.current_step) ? '/payroll/this-month' : null);
   const att = useApi<any>(c.workflow_id === 'WF-29' && c.current_step === 'confirm' && c.client ? `/payroll/attendance/${c.client}` : null);
   if (c.workflow_id === 'WF-27' && c.type === 'MONTH' && c.current_step === 'confirm' && month.data?.rows) {
     // HR operations sends what only the client knows: each expected line, with Wared's suggestion to keep or change.
@@ -236,6 +236,40 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
       </ReaderSection>
     );
   }
+  if (c.workflow_id === 'WF-27' && c.type === 'MONTH' && c.current_step === 'validate' && month.data?.rows) {
+    // Tasama HR operations' handover (design/payroll-ops-addendum.md 1.9): each change and the document it was checked against.
+    const SRC: Record<string, string> = { HIRING: 'Signed contract', HRMS_EVENT: 'Approved change in the record', LEAVE: 'Approved leave', ADVANCE: 'Advance agreement', CLIENT: 'The client’s form', LATE_CHANGE: 'Approved change in the record' };
+    const rows = month.data.rows.filter((r: any) => r.state === 'CONFIRMED');
+    return (
+      <ReaderSection label={`${t('Checked against its document')} · ${rows.length}`}>
+        <ul className="max-h-72 space-y-1 overflow-auto pe-1">{rows.map((r: any) => (
+          <li key={r.id} className="flex items-start gap-2 text-sm"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+            <span className="min-w-0 flex-1"><span className="font-medium">{bi(r.name, r.name_ar)}</span> · {t(r.label)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{t(r.kind === 'OT_HOURS' ? 'The client’s overtime form' : SRC[r.source] ?? 'Approved case')}</span></li>))}</ul>
+      </ReaderSection>
+    );
+  }
+  if (c.workflow_id === 'WF-37' && ['review', 'confirm'].includes(c.current_step) && c.payload?.contract) {
+    // The contract as the client sent it, and each check Aqd made against the policy and the documents.
+    const e = c.payload.employee, k = c.payload.contract;
+    const body = [
+      `Employment contract between ${c.client_short} (the employer) and ${e.name} (the employee).`,
+      `1. Position. ${k.title}, grade ${k.grade}, from ${k.start_date}.`,
+      `2. Term. ${k.contract_type === 'FIXED_TERM' ? 'A fixed term of two years (Art. 37).' : 'An indefinite term (Art. 55).'}`,
+      `3. Pay. Basic SAR ${Number(k.basic).toLocaleString('en-US')}, housing SAR ${Number(k.housing).toLocaleString('en-US')}, transport SAR ${Number(k.transport).toLocaleString('en-US')} a month.`,
+      `4. Probation. ${k.probation_days} days (Art. 53).`,
+      `5. Hours. ${k.weekly_hours} hours a week.`,
+      `6. Leave. ${k.annual_leave} days of paid annual leave a year (Art. 109).`,
+      `7. Notice. ${k.notice_days} days (Art. 75).`,
+    ].join('\n');
+    return (
+      <ReaderSection label={t('The contract and Aqd’s checks')}>
+        <ul className="mb-3 space-y-1.5">{(c.result?.reading ?? []).map((x: any) => (
+          <li key={x.key} className="flex items-start gap-2 text-sm">{x.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />}<span>{bi(x.text, x.text_ar)}</span></li>))}</ul>
+        <DocumentPreview document={{ title: lang === 'ar' ? 'عقد عمل' : 'Employment contract', reference: c.ref, body, language: 'en', status: 'SIGNED' }} />
+      </ReaderSection>
+    );
+  }
   if (c.workflow_id === 'WF-28' && c.current_step === 'send' && c.payload?.body) {
     return (
       <ReaderSection label={t('The contract')}>
@@ -245,7 +279,7 @@ function Editor({ c, edits, setEdits }: { c: any; edits: any; setEdits: (e: any)
       </ReaderSection>
     );
   }
-  if (c.workflow_id === 'WF-36' && c.current_step === 'answer') {
+  if (c.workflow_id === 'WF-36' && ['answer', 'triage'].includes(c.current_step)) {
     if (c.payload?.kind === 'PAYMENT_RETURNED') return (
       <ReaderSection label={t('Your answer')}>
         <label className="block text-sm">
@@ -529,14 +563,14 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
   const open = ['WAITING', 'ESCALATED'].includes(c.status);
   const mine = !['WF-36', 'WF-30', 'WF-27'].includes(c.workflow_id) && !!persona && (c.requester_person_id === persona.person_id || c.subject_person_id === persona.person_id) && !c.canDecide;
   const isHR = !!persona?.roles.some((r) => ['HRBP', 'TA', 'PAYROLL', 'CHRO', 'TASAMA', 'HR_OPS'].includes(r));
-  const onBehalf = persona?.key === 'tasama';
+  const onBehalf = persona?.key === 'tasama' && !(c.waiting_on_person_id == null && persona.roles.includes(c.waiting_on_role));
   const card = caseCard(c, { t, bi, lang, mine });
   const rec = card.rec;
   const waitingStep = c.steps?.find((s: any) => s.status === 'WAITING');
-  const question = ['WF-36', 'WF-27', 'WF-28', 'WF-30', 'WF-35'].includes(c.workflow_id);
+  const question = ['WF-36', 'WF-27', 'WF-28', 'WF-30', 'WF-35', 'WF-37'].includes(c.workflow_id);
   const late = c.workflow_id === 'WF-27' && c.type === 'LATE_CHANGE';
   const nextMonthName = c.payload?.next ? new Date(`${c.payload.next}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' }) : '';
-  const approveLabel = escalated ? t('Resume the case') : c.workflow_id === 'WF-30' ? t(c.current_step === 'prepare' ? 'Send for validation' : c.current_step === 'validate' ? 'Validate' : 'Approve the run') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t('Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : c.payload?.kind === 'PAYMENT_RETURNED' ? 'Send the new IBAN' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
+  const approveLabel = escalated ? t('Resume the case') : c.workflow_id === 'WF-30' ? t(c.current_step === 'prepare' ? 'Send for validation' : c.current_step === 'validate' ? 'Validate' : 'Approve the run') : late ? `${t('Pay it with')} ${nextMonthName}` : c.workflow_id === 'WF-27' ? t(c.current_step === 'validate' ? 'Hand to payroll' : 'Confirm the changes') : c.workflow_id === 'WF-28' ? t('Send for signature') : c.workflow_id === 'WF-37' ? t(c.current_step === 'client' ? 'Send the correction' : 'Enter in the master') : question ? t(c.payload?.kind === 'GOSI_REGISTRATION' ? 'Record the registration' : c.payload?.kind === 'PAYMENT_RETURNED' ? 'Send the new IBAN' : 'Send the answer') : c.workflow_id === 'WF-13' ? t('Apply the fixes and release') : t(waitingStep?.def?.decision && waitingStep.def.decision.split(' ').length <= 5 ? waitingStep.def.decision : 'Approve');
   const declineLabel = escalated ? t('Close the case') : c.workflow_id === 'WF-30' ? t('Return to Tasama') : late ? t('Ask Tasama for an off-cycle payment') : c.workflow_id === 'WF-28' ? t('Return to Tasama') : c.workflow_id === 'WF-33' ? t('Hold the file') : c.workflow_id === 'WF-34' ? t('Hold the journals') : question && c.payload?.kind === 'GOSI_REGISTRATION' ? t('Not registered yet') : question && c.payload?.kind === 'PAYMENT_RETURNED' ? t('No new IBAN yet') : t('Decline');
   const needsReason = (d: 'APPROVED' | 'REJECTED') => onBehalf || (d === 'APPROVED' && rec?.verdict === 'DECLINE') || (d === 'REJECTED' && (rec?.verdict === 'APPROVE' || !escalated));
   const decide = async (decision: 'APPROVED' | 'REJECTED') => {
@@ -554,6 +588,13 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
       await post(`/requests/${c.ref}/decide`, { decision, reason: text || undefined, reason_code: decision === 'REJECTED' ? reasonCode || undefined : undefined, edits: Object.keys(e).length ? e : undefined });
       bump(); await reload(); onDone?.();
     } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  };
+  // design/payroll-ops-addendum.md 1.11: a question raised to Tasama HR operations can be taken to the client instead.
+  const triage = (c.workflow_id === 'WF-36' && c.current_step === 'triage') || (c.workflow_id === 'WF-37' && c.current_step === 'review');
+  const toClient = async () => {
+    setBusy(true); setErr(null);
+    try { await post(`/requests/${c.ref}/decide`, { decision: 'APPROVED', reason: reason.trim() || 'Taken to the client', edits: { to_client: true } }); bump(); await reload(); onDone?.(); }
+    catch (x: any) { setErr(x.message); } finally { setBusy(false); }
   };
   const letterReady = c.workflow_id === 'WF-14' && c.status === 'COMPLETED' && c.payload?.body;
   const letter = letterReady ? letterDocument({ ...c.payload, type: c.payload.letter_type, document_number: c.result?.document_number ?? c.ref, status: 'ISSUED' }) : null;
@@ -610,6 +651,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
       <DecisionBar prompt={asking ? (asking === 'REJECTED' ? t(question ? (c.workflow_id === 'WF-36' ? 'Tell Tasama when it will be done, then confirm.' : 'Add a note for Tasama if you want, then confirm.') : 'Declining: choose a reason, then confirm.') : t('This goes against the recommendation: give your reason.')) : undefined}>
         {asking ? <Btn onClick={() => { setAsking(null); setErr(null); }} disabled={busy}>{t('Cancel')}</Btn> : null}
         {asking !== 'APPROVED' && !(c.workflow_id === 'WF-27' && c.type === 'MONTH') && !(c.workflow_id === 'WF-30' && c.current_step !== 'approve') ? <Btn kind="danger" onClick={() => decide('REJECTED')} disabled={busy}>{asking === 'REJECTED' ? t(question ? 'Confirm' : 'Confirm the decline') : declineLabel}</Btn> : null}
+        {triage && !asking ? <Btn onClick={toClient} disabled={busy}>{t('Take it to the client')}</Btn> : null}
         {asking !== 'REJECTED' ? <Btn kind="primary" onClick={() => decide('APPROVED')} disabled={busy}>{busy ? t('Working…') : approveLabel}</Btn> : null}
       </DecisionBar>
     </div>

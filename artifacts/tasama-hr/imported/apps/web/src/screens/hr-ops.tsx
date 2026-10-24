@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { HeroFeature, PageColumns, Panel, PanelAction, StatTile, StatusRow } from '@cognirise/atelier/layout';
 import { ProvenanceNote } from '@cognirise/atelier/archetypes';
 import { AlertTriangle, Banknote, CalendarClock, DoorOpen, FileWarning, Landmark, Play, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
-import { bump, post, useApi } from '../lib/api';
+import { bump, downloadFile, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { aed, aedShort, ago, date, daysUntil, month, num } from '../lib/format';
 import { useApp } from '../app/state';
@@ -33,7 +33,7 @@ function PayrollApproval({ tabs }: { tabs: ReactNode }) {
   if (!data?.period) return null;
   const run = data.run, dx = data.differences;
   const monthName = new Date(`${data.period.name}-01T00:00:00Z`).toLocaleString(lang === 'ar' ? 'ar' : 'en-GB', { month: 'long', timeZone: 'UTC' });
-  const mine = run?.state === 'VALIDATED' && has('CHRO');
+  const mine = run?.state === 'VALIDATED' && has('PAYROLL');
   const sar = (v: number) => `SAR ${Math.round(v).toLocaleString('en-US')}`;
   const title = !run ? `${monthName}${t('’s run is prepared after the cut-off on')} ${date(data.period.cutoff, lang)}`
     : run.state === 'APPROVED' ? `${monthName}${t('’s payroll was approved by')} ${run.approver} ${t('on')} ${date(run.approved_at, lang)}`
@@ -41,7 +41,7 @@ function PayrollApproval({ tabs }: { tabs: ReactNode }) {
     : run.state === 'RETURNED' ? `${monthName}${t('’s run was returned to Tasama')}` : `${monthName}${t('’s run is with Tasama payroll')}`;
   return (
     <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={title}
-      lede={t('Tasama prepares and validates the run; Mutabaqa explains every difference from last month; your CHRO approves it before anything is paid.')}
+      lede={t('Tasama prepares and validates the run; Mutabaqa explains every difference from last month; your HR operations approves it before anything is paid.')}
       actions={run && ['VALIDATED', 'APPROVED'].includes(run.state) ? <Btn kind={mine ? 'primary' : undefined} onClick={() => openCase(run.ref)}>{t(mine ? 'Review and approve' : 'Open the run')}</Btn> : undefined} />}>
       {tabs}
       {dx ? (
@@ -50,8 +50,9 @@ function PayrollApproval({ tabs }: { tabs: ReactNode }) {
         </Panel>
       ) : <Panel icon={<Banknote size={16} />} title={t('The explanation comes once Tasama has validated the run')}><Empty>{t('Nothing to approve yet.')}</Empty></Panel>}
       {run ? (
-        <Panel icon={<ShieldCheck size={16} />} title={t('Three people, three steps')}>
-          <div className="grid gap-3 md:grid-cols-3">{[['Prepared', run.preparer, run.prepared_at, 'Tasama payroll specialist'], ['Validated', run.validator, run.validated_at, 'Tasama payroll lead'], ['Approved', run.approver, run.approved_at, 'Your CHRO']].map(([k, who, at, role]: any) => (
+        <Panel icon={<ShieldCheck size={16} />} title={t(run.state === 'APPROVED' ? 'Three different people prepared, validated and approved the run' : 'Two people at Tasama checked the run before it reached you')}
+          action={<PanelAction onClick={() => downloadFile('/api/payroll/package/pdf').catch(() => undefined)}>{t('Download the payroll package')}</PanelAction>}>
+          <div className="grid gap-3 md:grid-cols-3">{[['Prepared', run.preparer, run.prepared_at, 'Tasama payroll specialist'], ['Validated', run.validator, run.validated_at, 'Tasama payroll lead'], ['Approved', run.approver, run.approved_at, 'Your HR operations']].map(([k, who, at, role]: any) => (
             <div key={k} className="rounded-xl glass-l3 p-3"><p className="text-xs text-muted-foreground">{t(k)}</p><p className="mt-0.5 text-sm font-semibold">{who ?? t('Waiting')}</p><p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p></div>))}</div>
         </Panel>
       ) : null}

@@ -5,7 +5,8 @@
  *    suggests last month's figure, so last month's entry is written too.
  *  - WF-27 opens ten days before the cut-off. Wared reminds three days and one day before it.
  *    Where the cut-off has passed (Riyadh Air, Red Sea Global), HR operations confirmed the
- *    day before, after the reminders. Elsewhere the case waits on HR operations.
+ *    day before, after the reminders, and Tasama HR operations handed the month to payroll the same
+ *    afternoon. Elsewhere the case waits on HR operations.
  *  - Riyadh Air: one person is set aside for D5, whose promotion is entered after the cut-off.
  */
 import type { PoolClient } from 'pg';
@@ -69,6 +70,9 @@ export async function seedInputs(c: PoolClient, base: BaseResult, cl: ClientConf
   if (cutoff < today) {
     setClock(new Date(cutoff - DAY + 14 * 3600_000));
     await decide(c, { requestId: k.id, personId: ops, decision: 'APPROVED', reason: 'Overtime sheets checked with the team leaders' });
+    // design/hr-ops-addendum.md: Tasama HR operations checks each change against its document and hands the month to payroll.
+    setClock(new Date(cutoff - DAY + 16 * 3600_000));
+    await decide(c, { requestId: k.id, personId: 0, decision: 'APPROVED', reason: 'Checked against the documents and handed to payroll', actorName: 'Lama Al Dossary, Tasama' });
   }
   setClock(null);
 }

@@ -2,17 +2,17 @@
  * Payroll › Payments (design/payroll-addendum.md §3, §20): every approved run leaves as the paying
  * bank's file and a WPS file, and each line is followed until the bank, WPS and Mudad accept it.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { HeroFeature, Panel } from '@cognirise/atelier/layout';
 import { CheckCircle2, Download, FileText, Landmark, XCircle } from 'lucide-react';
-import { useApi } from '../lib/api';
+import { bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { aed, date, num } from '../lib/format';
 import { useApp } from '../app/state';
 import { Btn, Chip, Empty, Hero, Screen, TabStrip, Table } from '../app/ui';
 
 const sarK = (n: number) => (Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e4 ? `${Math.round(n / 1e3)}K` : num(n));
-const STAGES = ['Approved run', 'Sent', 'Bank approval', 'Paid', 'Accepted in WPS'] as const;
+const STAGES = ['Approved run', 'Uploaded', 'Bank approval', 'Paid', 'Accepted in WPS'] as const;
 
 /** How far a client's month has gone, as line counts per stage: the funnel. */
 function stagesOf(c: any): number[] {
@@ -83,9 +83,9 @@ function Timeline({ p, counts, followUps }: { p: any; counts: any; followUps: an
   const { t, lang } = useLang();
   const fu = followUps[0];
   const steps: [string, string | null, string, 'success' | 'warn' | 'muted'][] = [
-    [t('Sent'), p.sent_at, t(p.sent_by ?? ''), p.sent_at ? 'success' : 'muted'],
+    [t('Uploaded to the portal'), p.sent_at, t(p.sent_by ?? ''), p.sent_at ? 'success' : 'muted'],
     [t('Approved in the bank'), p.approved_at, t(p.approved_by ?? ''), p.approved_at ? 'success' : 'muted'],
-    [t('Feedback file'), p.feedback_at, p.feedback_at ? `${num(counts?.paid ?? 0)} ${t('paid')}${(counts?.failed ?? 0) + (counts?.repaid ?? 0) ? `, ${(counts?.failed ?? 0) + (counts?.repaid ?? 0)} ${t('returned')}` : ''}` : '', p.feedback_at ? ((counts?.failed ?? 0) ? 'warn' : 'success') : 'muted'],
+    [t('Bank return file'), p.feedback_at, p.feedback_at ? `${num(counts?.paid ?? 0)} ${t('paid')}${(counts?.failed ?? 0) + (counts?.repaid ?? 0) ? `, ${(counts?.failed ?? 0) + (counts?.repaid ?? 0)} ${t('returned')}` : ''}` : '', p.feedback_at ? ((counts?.failed ?? 0) ? 'warn' : 'success') : 'muted'],
     ...(fu ? [[t('Follow-up'), fu.state === 'PAID' ? fu.valueDate : null, `${fu.lines} ${t('line')} · ${aed(fu.total, lang)} · ${t(fu.state === 'PAID' ? 'paid' : fu.state === 'BUILT' ? 'to send' : 'in the bank')}`, fu.state === 'PAID' ? 'success' : 'warn'] as [string, string | null, string, 'success' | 'warn' | 'muted']] : []),
     [t('Signed WPS file'), p.wps_at, p.wps_state === 'ACCEPTED' ? t('matches what was paid') : '', p.wps_at ? 'success' : 'muted'],
     [t('Mudad'), p.mudad_at, p.mudad_state === 'ACKNOWLEDGED' ? t('acknowledged') : '', p.mudad_state === 'ACKNOWLEDGED' ? 'success' : 'muted'],
@@ -100,6 +100,49 @@ function Timeline({ p, counts, followUps }: { p: any; counts: any; followUps: an
         </li>))}
     </ol>
   );
+}
+
+
+/**
+ * Tasama's next step on a payment, done by a person because no bank is connected
+ * (design/payroll-ops-addendum.md §2): remind the client's finance, read the bank's
+ * return file, file the signed WPS file, record Mudad.
+ */
+function NextStep({ client, p }: { client: string; p: any }) {
+  const { t } = useLang();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [ref, setRef] = useState('');
+  const run = async (step: string, body: any = {}) => {
+    setBusy(true); setErr(null);
+    try { const r = await post<any>(`/payroll/payments/${client}/${p.id}/${step}`, body); setDone(r.summary ?? null); bump(); }
+    catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  };
+  const upload = async (f: File | undefined) => { if (f) await run('return', { csv: await f.text() }); };
+  const box = (text: string, actions: ReactNode) => (
+    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+      <p className="min-w-[14rem] flex-1 text-sm">{text}</p>
+      <div className="flex flex-wrap items-center gap-2">{actions}</div>
+      {err ? <p className="w-full text-sm text-danger">{err}</p> : done ? <p className="w-full text-xs text-muted-foreground">{done}</p> : null}
+    </div>
+  );
+  if (p.state === 'SENT') return box(t('In the bank portal, waiting for the client’s finance to approve it and set the value date.'),
+    <Btn small onClick={() => run('remind')} disabled={busy}>{t('Remind the client’s finance')}</Btn>);
+  if (p.state === 'APPROVED') return box(t('Approved in the bank. Once the value date passes, read the bank’s return file: each salary paid or returned.'), <>
+    <Btn small kind="primary" onClick={() => run('return')} disabled={busy}>{busy ? t('Working…') : t('Take the return file from the bank portal')}</Btn>
+    <label className="cursor-pointer text-xs text-primary underline underline-offset-2">{t('Upload a return file')}<input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => upload(e.target.files?.[0])} /></label>
+  </>);
+  if (['PAID', 'PART_FAILED'].includes(p.state) && p.wps_state === 'WAITING') return box(t('The bank reported every line. File the signed WPS file it returns, to check it against what was paid.'),
+    <Btn small kind="primary" onClick={() => run('wps')} disabled={busy}>{busy ? t('Working…') : t('File the signed WPS file')}</Btn>);
+  if (p.wps_state !== 'WAITING' && p.mudad_state === 'WAITING') return box(t('Upload the WPS file to Mudad, or confirm the client did, then record it here.'), <>
+    <input className="input h-8 w-44 text-xs" placeholder={t('Mudad reference')} value={ref} onChange={(e) => setRef(e.target.value)} />
+    <Btn small kind="primary" onClick={() => run('mudad', { state: 'UPLOADED', ref })} disabled={busy}>{t('Uploaded to Mudad')}</Btn>
+    <Btn small onClick={() => run('mudad', { state: 'UPLOADED', by: 'CLIENT', ref })} disabled={busy}>{t('The client uploaded it')}</Btn>
+  </>);
+  if (p.mudad_state === 'UPLOADED') return box(t('Uploaded to Mudad. Record Mudad’s acknowledgement when it arrives.'),
+    <Btn small kind="primary" onClick={() => run('mudad', { state: 'ACKNOWLEDGED' })} disabled={busy}>{t('Mudad acknowledged it')}</Btn>);
+  return null;
 }
 
 export function PayrollPayments() {
@@ -134,12 +177,12 @@ export function PayrollPayments() {
   const [allLines, setAllLines] = useState(false);
   // A month with a returned salary opens on its lines, the returned one first.
   useEffect(() => { if (returnedN) setTab('lines'); }, [returnedN, p?.id]);
-  const STATE: Record<string, string> = { BUILT: 'Built, not sent', SENT: 'In the bank portal', APPROVED: 'Approved in the bank', PAID: 'Paid', PART_FAILED: 'Paid, some lines failed' };
+  const STATE: Record<string, string> = { BUILT: 'Built, not uploaded', SENT: 'In the bank portal', APPROVED: 'Approved in the bank', PAID: 'Paid', PART_FAILED: 'Paid, some lines failed' };
 
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll" title={title}
-      lede={t('Tahweel writes each approved run in the paying bank\'s format and as a WPS file, checks both before release, and follows every line. Tasama sends the file; the client\'s finance approves it in the bank.')}
-      actions={first ? <Btn kind="primary" onClick={() => openCase(first.p.ref, first.c.key)}>{t('Review and send the file')}</Btn> : undefined}
+      lede={t('Tahweel writes each approved run in the paying bank\'s format and as a WPS file and checks both. Tasama uploads the file to the client\'s bank portal, the client\'s finance approves it there, and Tasama reads the bank\'s return file and records WPS and Mudad.')}
+      actions={first ? <Btn kind="primary" onClick={() => openCase(first.p.ref, first.c.key)}>{t('Review and upload the file')}</Btn> : undefined}
       feature={<HeroFeature label="Not yet paid" value={num(unpaid)} support={<span className="text-xs text-muted-foreground">{t('employees in approved runs')}{failed ? ` · ${failed} ${t('failed')}` : ''}</span>} />} />}>
       <Panel icon={<Landmark size={16} />} title={withPay.length ? `${withPay.length} ${t(withPay.length === 1 ? 'client has a payment this month' : 'clients have a payment this month')}; ${clients.length - withPay.length} ${t('still before approval')}` : t('No run is approved yet this month')}>
         <Funnel clients={clients} selected={current} onSelect={(k) => { setKey(k); setTab('checks'); }} />
@@ -155,6 +198,8 @@ export function PayrollPayments() {
             <span><span className="text-muted-foreground">{t('Stage')} </span><Chip tone={p.state === 'PAID' ? 'success' : p.state === 'PART_FAILED' ? 'warn' : 'primary'}>{t(STATE[p.state] ?? p.state)}</Chip></span>
           </div>
           <Timeline p={p} counts={data.counts ?? {}} followUps={data.followUps ?? []} />
+          <NextStep client={cl.key} p={p} />
+          {(data.followUps ?? []).filter((fu: any) => ['SENT', 'APPROVED'].includes(fu.state)).map((fu: any) => <NextStep key={fu.id} client={cl.key} p={{ id: fu.id, state: fu.state, wps_state: fu.wps, mudad_state: fu.mudad }} />)}
           <TabStrip items={[{ id: 'checks', label: 'Release checks' }, { id: 'files', label: 'Bank file and WPS file' }, { id: 'lines', label: 'Lines' }]} value={tab} onChange={setTab} />
           <div className="mt-4">
             {tab === 'checks' ? (

@@ -969,7 +969,7 @@ CREATE TABLE layer.payments (
   approved_by   text, approved_at timestamptz,      -- the client's finance approvals in the bank portal, as the bank reports them
   feedback_at   timestamptz,
   wps_at        timestamptz,
-  mudad_at      timestamptz, mudad_ref text
+  mudad_at      timestamptz, mudad_ref text, mudad_by text
 );
 -- One employee's line in a payment, with what the bank's feedback file said about it.
 CREATE TABLE layer.payment_lines (
@@ -1062,3 +1062,17 @@ CREATE TABLE layer.attendance_days (
   fine           numeric(12,2) NOT NULL DEFAULT 0, -- lateness under the penalty regulation, before the monthly cap
   UNIQUE (upload_id, person_id, day)
 );
+
+-- Each employee's document set held by Tasama HR operations (design/payroll-ops-addendum.md 1.5).
+CREATE TABLE layer.employee_documents (
+  id           serial PRIMARY KEY,
+  person_id    int NOT NULL,
+  kind         text NOT NULL,             -- CONTRACT | NATIONAL_ID | IQAMA | IBAN_LETTER
+  file_name    text,
+  received_on  date,
+  expires_on   date,
+  status       text NOT NULL,             -- RECEIVED | MISSING | REQUESTED
+  requested_on date,
+  source       text                       -- the client's email, Tasama HR, the hiring module
+);
+CREATE INDEX ON layer.employee_documents (person_id);

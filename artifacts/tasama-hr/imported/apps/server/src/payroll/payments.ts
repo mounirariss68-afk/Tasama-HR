@@ -313,3 +313,71 @@ export async function fillBankDetails(c: Q) {
   }
 }
 export { FORMATS, BANKS };
+
+
+/* ------------------------------------------------------------------ the bank by file, no connection (design/payroll-ops-addendum.md §2) */
+
+/** The finance controller who approves in the bank is told the file is waiting, with its value date. */
+export async function notifyFinance(c: Q, id: number, again = false) {
+  const p = (await c.query(`SELECT *, to_char(value_date,'YYYY-MM-DD') vd FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  const fid = (await c.query(`SELECT value FROM layer.meta WHERE key='people'`)).rows[0]?.value?.persona?.finance;
+  if (!p || !fid) return false;
+  const bank = bankByCode(p.bank_code)!;
+  const month = new Date(`${p.period_name}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+  const total = `SAR ${Number(p.total).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  await c.query(`INSERT INTO layer.notifications (person_id, title, title_ar, body, link, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
+    [fid, `${again ? 'Reminder: ' : ''}${month}'s payroll file waits for your approval in ${bank.name}`, `${again ? 'تذكير: ' : ''}ملف رواتب ${month} بانتظار اعتمادك في ${bank.name_ar}`,
+      `Tahweel: ${p.lines} salaries, ${total}, value date ${p.vd}. Approve it in the bank portal, then record the approval on Payroll costs › Payments.`, 'costs-payments', now()]);
+  return true;
+}
+
+/** The client's finance records the approval it gave in the bank portal, with the value date it set. */
+export async function recordApproval(c: Q, id: number, by: string, valueDate?: string | null) {
+  const p = (await c.query(`SELECT state FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  if (!p) throw new Error('No such payment.');
+  if (p.state !== 'SENT') throw new Error('This file is not waiting for an approval in the bank.');
+  if (valueDate) await c.query(`UPDATE layer.payments SET value_date=$2 WHERE id=$1`, [id, valueDate]);
+  await markApproved(c, id, by);
+}
+
+/** The bank's return file as the portal offers it: one row per salary, paid or returned with the bank's code (simulated). */
+export async function bankReturnFile(c: Q, id: number) {
+  const p = (await c.query(`SELECT * FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  if (!p) return null;
+  const ls = (await c.query(`SELECT employee_no, iban, amount, person_id FROM layer.payment_lines WHERE payment_id=$1 ORDER BY employee_no`, [id])).rows;
+  const fail = p.kind === 'REGULAR' ? (await returnedLine(c, id))?.person_id : null;
+  const rows = ls.map((l: any) => [p.file_ref, l.employee_no, l.iban, Number(l.amount).toFixed(2), l.person_id === fail ? 'RETURNED' : 'PAID', l.person_id === fail ? RETURN.code : ''].join(','));
+  return { name: `${p.file_ref} return file.csv`, text: ['file_ref,employee_no,iban,amount,status,return_code', ...rows].join('\n') };
+}
+
+/** Reads a return file: every listed line paid or returned; a returned line becomes a question for its new IBAN. */
+export async function readReturnFile(c: PoolClient, id: number, csv: string) {
+  const p = (await c.query(`SELECT * FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  if (!p) throw new Error('No such payment.');
+  if (!['APPROVED'].includes(p.state)) throw new Error(p.feedback_at ? 'The return file for this payment is already read.' : 'The bank has not approved this file yet.');
+  const rows = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(1).map((l) => l.split(','));
+  if (!rows.length) throw new Error('The file has no rows.');
+  if (rows.some((r) => r[0] !== p.file_ref)) throw new Error(`This return file is for another payment, not ${p.file_ref}.`);
+  const byNo = new Map((await c.query(`SELECT employee_no, person_id FROM layer.payment_lines WHERE payment_id=$1`, [id])).rows.map((l: any) => [String(l.employee_no), l.person_id]));
+  const unknown = rows.filter((r) => !byNo.has(r[1]));
+  if (unknown.length) throw new Error(`${unknown.length} rows name employees who are not in this payment.`);
+  const fail = rows.filter((r) => r[4] === 'RETURNED').map((r) => byNo.get(r[1]) as number);
+  return bankFeedback(c, id, fail);
+}
+
+/** The signed WPS file, taken from the bank portal and filed against what was paid. */
+export async function fileWps(c: Q, id: number) {
+  const p = (await c.query(`SELECT state, wps_state FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  if (!p || !['PAID', 'PART_FAILED'].includes(p.state)) throw new Error('The bank has not reported this payment yet.');
+  return markWps(c, id);
+}
+
+/** Mudad: Tasama, or the client where Tasama has no access, uploads the WPS file; the platform records it and the acknowledgement. */
+export async function recordMudad(c: Q, id: number, state: 'UPLOADED' | 'ACKNOWLEDGED', by: string, ref?: string | null) {
+  const p = (await c.query(`SELECT wps_state, mudad_state FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  if (!p || p.wps_state === 'WAITING') throw new Error('File the signed WPS file first.');
+  if (state === 'ACKNOWLEDGED' && p.mudad_state !== 'UPLOADED') throw new Error('Record the upload to Mudad first.');
+  await markMudad(c, id, state);
+  if (ref) await c.query(`UPDATE layer.payments SET mudad_ref=$2 WHERE id=$1`, [id, ref]);
+  await c.query(`UPDATE layer.payments SET mudad_by=$2 WHERE id=$1`, [id, by]);
+}

@@ -2,8 +2,9 @@
 import { Router } from 'express';
 import { aiStatus } from '../ai.js';
 import { allClients } from '../domain/clients.js';
+import { STAFF_NOTIFY_ID } from '../domain/staff.js';
 import { pool, withClient } from '../db.js';
-import { personaOf, personas, has , TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST } from './session.js';
+import { personaOf, personas, has , TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST, HR_OPS_SPECIALIST } from './session.js';
 import { worker, team, balances } from '../hcm/queries.js';
 import { read, type Ctx } from '../hcm/connector.js';
 import { client, gratuity, yearsBetween, iso, daysBetween, round2, gosi, advanceMax, advanceMaxTerm } from '../domain/rules.js';
@@ -20,7 +21,7 @@ me.get('/session', async (req, res) => {
   const cl = client();
   res.json({
     persona: p,
-    personas: [{ ...TASAMA_PERSONA, inbox: openEsc }, { ...PAYROLL_LEAD, inbox: 0 }, { ...PAYROLL_SPECIALIST, inbox: 0 }, ...(await personas()).map((x) => ({ ...x, inbox: counts.find((c: any) => c.pid === x.person_id)?.n ?? 0 }))],
+    personas: [{ ...TASAMA_PERSONA, inbox: openEsc }, { ...HR_OPS_SPECIALIST, inbox: 0 }, { ...PAYROLL_LEAD, inbox: 0 }, { ...PAYROLL_SPECIALIST, inbox: 0 }, ...(await personas()).map((x) => ({ ...x, inbox: counts.find((c: any) => c.pid === x.person_id)?.n ?? 0 }))],
     client: { key: cl.key, code: cl.code, name: cl.name, name_ar: cl.name_ar, short: cl.short, sector: cl.sector, sector_ar: cl.sector_ar, hrms: cl.hrms, hrmsLabel: cl.hrmsLabel, bank: cl.bank, services: cl.contract.services },
     clients: allClients().map((c) => ({ key: c.key, code: c.code, name: c.name, name_ar: c.name_ar, short: c.short, sector: c.sector, sector_ar: c.sector_ar, hrms: c.hrms, hrmsLabel: c.hrmsLabel })),
     ai: aiStatus(),
@@ -36,7 +37,7 @@ me.get('/session', async (req, res) => {
  */
 me.get('/names', async (_req, res) => {
   const out: Record<string, string> = {};
-  for (const p of [TASAMA_PERSONA, PAYROLL_LEAD, PAYROLL_SPECIALIST] as any[]) if (p.display_name && p.display_name_ar) out[p.display_name] = p.display_name_ar;
+  for (const p of [TASAMA_PERSONA, HR_OPS_SPECIALIST, PAYROLL_LEAD, PAYROLL_SPECIALIST] as any[]) if (p.display_name && p.display_name_ar) out[p.display_name] = p.display_name_ar;
   for (const c of allClients()) {
     if (c.name_ar) { out[c.name] = c.name_ar; out[c.short] = c.name_ar; }
     const rows = await withClient(c.key, async () => (await pool.query(`SELECT display_name AS en, display_name_ar AS ar FROM hcm.persons
@@ -130,5 +131,12 @@ me.get('/team', async (req, res) => {
 
 me.get('/notifications', async (req, res) => {
   const p = await personaOf(req);
+  // Tasama staff read their notifications across every client they serve (design/payroll-ops-addendum.md §3).
+  const nid = STAFF_NOTIFY_ID[p.key];
+  if (nid) {
+    const all: any[] = [];
+    for (const c of allClients()) all.push(...(await withClient(c.key, async () => (await pool.query(`SELECT * FROM layer.notifications WHERE person_id=$1 ORDER BY created_at DESC LIMIT 20`, [nid])).rows)).map((r: any) => ({ ...r, id: `${c.key}-${r.id}`, client: c.key, client_short: c.short })));
+    return res.json(all.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 20));
+  }
   res.json((await pool.query(`SELECT * FROM layer.notifications WHERE person_id=$1 ORDER BY created_at DESC LIMIT 20`, [p.person_id])).rows);
 });

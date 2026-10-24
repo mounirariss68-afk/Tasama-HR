@@ -76,8 +76,8 @@ const LIST_SQL = `
   SELECT r.*, wd.name AS workflow_name, wd.name_ar AS workflow_name_ar, wd.stage,
          s.display_name AS subject_name, s.display_name_ar AS subject_name_ar, s.person_number AS subject_number,
          q.display_name AS requester_name,
-         COALESCE(w.display_name, CASE r.waiting_on_role WHEN 'TASAMA_PAYROLL_LEAD' THEN 'Sharifa AlMousa' WHEN 'TASAMA_PAYROLL' THEN 'Nasser AlFarraj' END) AS waiting_on_name,
-         COALESCE(w.display_name_ar, CASE r.waiting_on_role WHEN 'TASAMA_PAYROLL_LEAD' THEN 'شريفة الموسى' WHEN 'TASAMA_PAYROLL' THEN 'ناصر الفراج' END) AS waiting_on_name_ar,
+         COALESCE(w.display_name, CASE r.waiting_on_role WHEN 'TASAMA_PAYROLL_LEAD' THEN 'Sharifa AlMousa' WHEN 'TASAMA_PAYROLL' THEN 'Nasser AlFarraj' WHEN 'TASAMA_HR_OPS' THEN 'Lama Al Dossary' END) AS waiting_on_name,
+         COALESCE(w.display_name_ar, CASE r.waiting_on_role WHEN 'TASAMA_PAYROLL_LEAD' THEN 'شريفة الموسى' WHEN 'TASAMA_PAYROLL' THEN 'ناصر الفراج' WHEN 'TASAMA_HR_OPS' THEN 'لمى الدوسري' END) AS waiting_on_name_ar,
          (SELECT agent_step.actor_id FROM layer.run_steps agent_step WHERE agent_step.request_id=r.id AND agent_step.actor_type='AGENT' ORDER BY agent_step.seq DESC LIMIT 1) AS last_agent
     FROM layer.requests r
     JOIN layer.workflow_defs wd ON wd.id = r.workflow_id
@@ -129,7 +129,8 @@ cases.post('/requests/:ref/decide', async (req, res) => {
   const r = (await pool.query(`SELECT * FROM layer.requests WHERE ref=$1`, [req.params.ref])).rows[0];
   if (!r) return res.status(404).json({ error: 'Not found' });
   // Tasama HR Operations may act on any case of a client it serves, on behalf of the approver, with a reason on the record.
-  const onBehalf = p.key === TASAMA_KEY;
+  // Faisal manages Tasama HR operations: a case waiting on his own team is his to decide, not on anyone's behalf.
+  const onBehalf = p.key === TASAMA_KEY && !(r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role));
   // Tasama's payroll team decides the cases that wait on its role (design/payroll-addendum.md §2).
   const tasamaRole = r.waiting_on_person_id === null && p.roles.includes(r.waiting_on_role);
   if (!onBehalf && !tasamaRole && r.waiting_on_person_id !== p.person_id) return res.status(403).json({ error: `This decision belongs to ${r.waiting_on_role}, not to ${p.label}.` });

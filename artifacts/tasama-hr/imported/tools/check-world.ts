@@ -37,7 +37,7 @@ async function main() {
     const H = `hcm_${k}`, L = `layer_${k}`;
     await check(`${k}: workers on record`, async () => { const c = await n(`SELECT count(*) FROM ${H}.persons`); return [c >= 100, `${c} persons`]; });
     await check(`${k}: eight personas, the finance controller among them`, async () => { const c = await n(`SELECT count(*) FROM ${L}.personas`); const f = await n(`SELECT count(*) FROM ${L}.personas WHERE key='finance'`); return [c === 8 && f === 1, `${c}`]; });
-    await check(`${k}: every waiting case names the person it waits on, or Tasama's payroll team`, async () => { const c = await n(`SELECT count(*) FROM ${L}.requests WHERE status='WAITING' AND waiting_on_person_id IS NULL AND COALESCE(waiting_on_role,'') NOT IN ('TASAMA_PAYROLL','TASAMA_PAYROLL_LEAD')`); return [c === 0, `${c} without`]; });
+    await check(`${k}: every waiting case names the person it waits on, or a Tasama team`, async () => { const c = await n(`SELECT count(*) FROM ${L}.requests WHERE status='WAITING' AND waiting_on_person_id IS NULL AND COALESCE(waiting_on_role,'') NOT IN ('TASAMA_PAYROLL','TASAMA_PAYROLL_LEAD','TASAMA_HR_OPS')`); return [c === 0, `${c} without`]; });
     await check(`${k}: an active policy with rules on all 27 dimensions`, async () => { const r = await one(`SELECT count(*) AS n, count(DISTINCT dim) AS d FROM ${L}.policy_rules r JOIN ${L}.policy_versions v ON v.id=r.version_id WHERE v.status='ACTIVE'`); return [Number(r.d) === 27 && Number(r.n) >= 38, `${r.n} rules, ${r.d} dimensions`]; });
     await check(`${k}: the payroll calendar sits around the anchor`, async () => { const a = (await one(`SELECT value FROM ${L}.meta WHERE key='anchor'`)).value; const per = await one(`SELECT to_char(cutoff_date, 'YYYY-MM-DD') AS cutoff_date FROM ${H}.payroll_periods WHERE status='OPEN'`); const want = new Date(new Date(a).getTime() + CALENDAR[k].cutoff * 86400000).toISOString().slice(0, 10); return [String(per.cutoff_date).slice(0, 10) === want, `cut-off ${per.cutoff_date}, expected ${want}`]; });
     await check(`${k}: the waiting offer shows its candidate, two or more interviews held and the manager's reason (hiring addendum)`, async () => {
@@ -55,8 +55,82 @@ async function main() {
       const r = await one(`SELECT count(*) FILTER (WHERE status='COMPLETED') AS done, count(*) FILTER (WHERE status='COMPLETED' AND NOT EXISTS (SELECT 1 FROM ${L}.approvals a WHERE a.request_id=r.id)) AS untouched FROM ${L}.requests r`);
       const share = Number(r.done) ? Number(r.untouched) / Number(r.done) : 0; return [share >= 0.15 && share <= 0.95, `${Math.round(share * 100)}% of ${r.done}`];
     });
+    await check(`${k}: once its cut-off passes, the month is confirmed by the client and handed to payroll by Tasama HR operations (HR ops addendum)`, async () => {
+      const m = await one(`SELECT r.id, r.status, p.cutoff_date < CURRENT_DATE AS passed FROM ${L}.requests r JOIN ${H}.payroll_periods p ON p.period_name=r.payload->>'period' WHERE r.workflow_id='WF-27' AND r.type='MONTH' ORDER BY r.id DESC LIMIT 1`);
+      if (!m) return [false, 'no month case'];
+      if (!m.passed) return [m.status !== 'COMPLETED', `cut-off ahead; ${m.status}`];
+      const v = await one(`SELECT approver_role, decision FROM ${L}.approvals WHERE request_id=${m.id} AND step_key='validate'`);
+      const t = await n(`SELECT count(*) FROM ${L}.trail WHERE request_id=${m.id} AND actor_name LIKE 'Lama Al Dossary%'`);
+      return [m.status === 'COMPLETED' && v?.approver_role === 'TASAMA_HR_OPS' && v?.decision === 'APPROVED' && t >= 1, `${m.status}; validate ${v?.approver_role}/${v?.decision}; ${t} trail lines by Lama`];
+    });
     await check(`${k}: issue history for the pattern watch (26 weeks)`, async () => { const r = await one(`SELECT count(*) AS n, round(extract(epoch FROM now() - min(occurred_at)) / 604800) AS w FROM ${L}.issues`); return [Number(r.n) > 30 && Number(r.w) >= 24, `${r.n} issues over ${r.w} weeks`]; });
   }
+
+  // design/hr-ops-addendum.md: Tasama HR operations is its own persona and lens; payroll validates, it does not enter changes.
+  await check('The client\'s HR operations approves every run, not the CHRO (Tasama\'s answer to Q2)', async () => {
+    const r = await one(`SELECT count(*) FILTER (WHERE approver_role='PAYROLL') AS hr, count(*) FILTER (WHERE approver_role='CHRO') AS chro FROM layer_riyadhair.approvals a JOIN layer_riyadhair.requests q ON q.id=a.request_id WHERE q.workflow_id='WF-30' AND a.step_key='approve'`);
+    return [Number(r.hr) >= 1 && Number(r.chro) === 0, `${r.hr} by HR operations, ${r.chro} by the CHRO`];
+  });
+  // design/payroll-ops-addendum.md: the intake, the questions, the bank by file and the package.
+  await check('Documents: every client has a document set with three gaps for Tasama HR operations to chase', async () => {
+    const d = await (await fetch(`${BASE}/api/hrops/documents?client=roshn`, { headers: { 'x-persona': 'tasama-hrops', 'x-client': 'roshn' } })).json();
+    const seeded = d.clients.filter((c: any) => ['roshn', 'riyadhair', 'redsea', 'seven', 'saudicoffee'].includes(c.key));
+    const ok = seeded.length === 5 && seeded.every((c: any) => c.missing === 3 && c.received > c.people * 2) && (d.clients.find((c: any) => c.key === 'roshn')?.gaps ?? []).length >= 3;
+    return [ok, seeded.map((c: any) => `${c.key} ${c.missing} missing of ${c.received + c.missing}`).join(', ')];
+  });
+  await check('Contracts from the client: two wait on Tasama HR operations at ROSHN and at SEVEN, one clean and one with differences', async () => {
+    const out: string[] = [];
+    let ok = true;
+    for (const k of ['roshn', 'seven']) {
+      const rows = (await pool.query(`SELECT waiting_on_role, current_step, result FROM layer_${k}.requests WHERE workflow_id='WF-37' AND status='WAITING' ORDER BY id`)).rows;
+      const bad = rows.map((r: any) => (r.result?.reading ?? []).filter((x: any) => !x.ok).length);
+      ok = ok && rows.length === 2 && rows.every((r: any) => r.waiting_on_role === 'TASAMA_HR_OPS' && r.current_step === 'review') && bad[0] === 0 && bad[1] >= 2;
+      out.push(`${k}: ${rows.length} waiting, differences ${bad.join('/')}`);
+    }
+    return [ok, out.join('; ')];
+  });
+  await check('A run question raised to Tasama HR Ops waits on it, and goes to the client when Lama takes it there', async () => {
+    const run = await (await fetch(`${BASE}/api/payroll/runs/roshn`, { headers: { 'x-persona': 'tasama-specialist', 'x-client': 'roshn' } })).json();
+    const g = (run.review?.checks ?? run.checks ?? []).find((x: any) => x.codes?.includes('GOSI_NOT_REGISTERED') && x.actions?.some((a: any) => a.id === 'raise'));
+    if (!g) return [false, 'no GOSI check with a raise action at ROSHN'];
+    const r = await (await fetch(`${BASE}/api/payroll/runs/roshn/checks/${g.person_id}/raise`, { method: 'POST', headers: { 'x-persona': 'tasama-specialist', 'x-client': 'roshn' } })).json();
+    const w1 = (await pool.query(`SELECT waiting_on_role FROM layer_roshn.requests WHERE ref=$1`, [r.ref])).rows[0]?.waiting_on_role;
+    const notified = Number((await pool.query(`SELECT count(*) n FROM layer_roshn.notifications WHERE person_id IN (-31,-7) AND link=$1`, [`case:${r.ref}`])).rows[0].n);
+    const L = { 'x-persona': 'tasama-hrops', 'x-client': 'roshn', 'content-type': 'application/json' };
+    await fetch(`${BASE}/api/requests/${r.ref}/decide`, { method: 'POST', headers: L, body: JSON.stringify({ decision: 'APPROVED', reason: 'Taken to the client', edits: { to_client: true } }) });
+    const w2 = (await pool.query(`SELECT waiting_on_role FROM layer_roshn.requests WHERE ref=$1`, [r.ref])).rows[0]?.waiting_on_role;
+    // Put the day back as the seed left it.
+    await pool.query(`UPDATE layer_roshn.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL WHERE ref=$1`, [r.ref]);
+    await pool.query(`DELETE FROM layer_roshn.run_check_log WHERE request_id=(SELECT id FROM layer_roshn.requests WHERE ref=$1)`, [r.ref]);
+    return [w1 === 'TASAMA_HR_OPS' && notified === 2 && w2 === 'PAYROLL', `raised → ${w1} (${notified} notified) → taken to the client → ${w2}`];
+  });
+  await check('The client\'s finance controller sees Payments, and a return file reads back from a paid month', async () => {
+    const f = await fetch(`${BASE}/api/costs/payments`, { headers: { 'x-persona': 'finance', 'x-client': 'riyadhair' } });
+    const pay = (await pool.query(`SELECT id, lines FROM layer_roshn.payments WHERE state='PAID' ORDER BY id DESC LIMIT 1`)).rows[0];
+    const rf = await (await fetch(`${BASE}/api/payroll/payments/roshn/${pay.id}/return-file`, { headers: { 'x-persona': 'tasama-specialist', 'x-client': 'roshn' } })).text();
+    const rows = rf.split('\n').length - 1;
+    const refused = await fetch(`${BASE}/api/costs/payments/${pay.id}/approved`, { method: 'POST', headers: { 'x-persona': 'tasama-specialist', 'x-client': 'roshn', 'content-type': 'application/json' }, body: '{}' });
+    return [f.ok && rows === pay.lines && refused.status === 403, `finance ${f.status}; return file ${rows} rows for ${pay.lines} lines; Tasama recording a bank approval ${refused.status}`];
+  });
+  await check('The payroll package downloads as a PDF and an Excel file, for Tasama and for the client', async () => {
+    const a = await fetch(`${BASE}/api/payroll/runs/riyadhair/package/pdf`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'riyadhair' } });
+    const b = await fetch(`${BASE}/api/payroll/runs/riyadhair/package/xlsx`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'riyadhair' } });
+    const c2 = await fetch(`${BASE}/api/payroll/package/pdf`, { headers: { 'x-persona': 'payroll', 'x-client': 'riyadhair' } });
+    const pdf = Buffer.from(await a.arrayBuffer()), xl = Buffer.from(await b.arrayBuffer()), cp = Buffer.from(await c2.arrayBuffer());
+    const ok = pdf.subarray(0, 4).toString() === '%PDF' && xl.subarray(0, 2).toString() === 'PK' && cp.subarray(0, 4).toString() === '%PDF';
+    return [ok, `pdf ${pdf.length} bytes, xlsx ${xl.length} bytes, client pdf ${cp.length} bytes`];
+  });
+  await check('Lama, Tasama HR operations, is a persona with the HR operations lens only', async () => {
+    const s0 = await (await fetch(`${BASE}/api/session`, { headers: { 'x-persona': 'tasama-hrops', 'x-client': 'roshn' } })).json();
+    const p = s0.persona ?? s0.me ?? {};
+    return [p.key === 'tasama-hrops' && JSON.stringify(p.lenses) === '["hrops"]' && (p.roles ?? []).includes('TASAMA_HR_OPS'), `${p.key} ${JSON.stringify(p.lenses)} ${JSON.stringify(p.roles)}`];
+  });
+  await check('Lama reads every client\'s inputs and attendance; the payroll specialist uploads no attendance', async () => {
+    const inputs = await fetch(`${BASE}/api/payroll/inputs`, { headers: { 'x-persona': 'tasama-hrops', 'x-client': 'roshn' } });
+    const att = await fetch(`${BASE}/api/payroll/attendance`, { headers: { 'x-persona': 'tasama-hrops', 'x-client': 'saudicoffee' } });
+    const up = await fetch(`${BASE}/api/payroll/attendance/saudicoffee/upload`, { method: 'POST', headers: { 'x-persona': 'tasama-specialist', 'x-client': 'saudicoffee', 'content-type': 'application/json' }, body: '{}' });
+    return [inputs.ok && att.ok && up.status === 403, `inputs ${inputs.status}, attendance ${att.status}, specialist upload ${up.status}`];
+  });
 
   await check('Planted: the Riyadh Air manager is away with no delegate', async () => { const c = await n(`SELECT count(*) FROM hcm_riyadhair.absences WHERE absence_number='DEMO-ABS-P0001'`); return [c === 1, `${c}`]; });
   await check('Planted: Basira holds a single-client and a cross-client pattern', async () => { const r = (await pool.query(`SELECT scope FROM tasama.patterns WHERE status <> 'CLOSED'`)).rows.map((x) => x.scope); return [r.includes('CLIENT') && r.includes('CROSS_CLIENT'), r.join(', ')]; });
@@ -79,7 +153,7 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: eighteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 18, `${d.length}`]; });
+  await check('API: nineteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 19, `${d.length}`]; });
   await check('API: twenty-seven agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 27 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
@@ -144,9 +218,9 @@ async function main() {
     return [days.every((d) => d.status === 'LEAVE'), days.map((d) => d.status).join(',')];
   });
   await check('Attendance: Saudi Coffee\'s attendance file maps itself and names 37 late arrivals', async () => {
-    const r = await fetch(`${BASE}/api/payroll/attendance/saudicoffee/export`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'saudicoffee' } });
+    const r = await fetch(`${BASE}/api/payroll/attendance/saudicoffee/export`, { headers: { 'x-persona': 'tasama-hrops', 'x-client': 'saudicoffee' } });
     const csv = await r.text();
-    const m = await (await fetch(`${BASE}/api/payroll/attendance/saudicoffee/map`, { method: 'POST', headers: { 'x-persona': 'tasama-lead', 'x-client': 'saudicoffee', 'content-type': 'application/json' }, body: JSON.stringify({ csv }) })).json();
+    const m = await (await fetch(`${BASE}/api/payroll/attendance/saudicoffee/map`, { method: 'POST', headers: { 'x-persona': 'tasama-hrops', 'x-client': 'saudicoffee', 'content-type': 'application/json' }, body: JSON.stringify({ csv }) })).json();
     const meta = (await q1(`SELECT value FROM layer_saudicoffee.meta WHERE key='attendance'`))[0]?.value;
     const n = meta ? Object.values(meta.lates).reduce((s: number, x: any) => s + x.length, 0) : 0;
     return [m.map.employee && m.map.date && m.map.time && m.map.direction && n === 37, `map ${JSON.stringify(m.map)}; planted lates ${n}`];
@@ -176,9 +250,15 @@ async function main() {
     const tm = await (await fetch(`${BASE}/api/payroll/this-month`, { headers: H })).json();
     const exp = tm.rows.filter((r: any) => r.state === 'EXPECTED');
     await fetch(`${BASE}/api/requests/${tm.month.ref}/decide`, { method: 'POST', headers: H, body: JSON.stringify({ decision: 'APPROVED', edits: { values: { [exp[0].id]: 20 }, drop: [exp[1].id] } }) });
+    // design/hr-ops-addendum.md: the confirmed month waits on Tasama HR operations, who hands it to payroll; only then are the entries written.
+    const entry = async () => (await q1(`SELECT amount::float a FROM hcm_roshn.element_entries WHERE element_code='OT_HOURS' AND person_id=$1 AND source='RAFEEQ'`, [exp[0].person_id]))[0]?.a;
+    const held = await q1(`SELECT waiting_on_role w FROM layer_roshn.requests WHERE ref=$1`, [tm.month.ref]);
+    const before = await entry();
+    const L = { 'x-persona': 'tasama-hrops', 'x-client': 'roshn', 'content-type': 'application/json' };
+    const hand = await fetch(`${BASE}/api/requests/${tm.month.ref}/decide`, { method: 'POST', headers: L, body: JSON.stringify({ decision: 'APPROVED', reason: 'Checked against the documents' }) });
     const after = await (await fetch(`${BASE}/api/payroll/this-month`, { headers: H })).json();
-    const e = await q1(`SELECT amount::float a FROM hcm_roshn.element_entries WHERE element_code='OT_HOURS' AND person_id=$1 AND source='RAFEEQ'`, [exp[0].person_id]);
-    return [shape && after.counts.expected === 0 && after.counts.dropped === 1 && e[0]?.a === 20, `riyadhair ${by.riyadhair.month.status}, roshn ${by.roshn.counts.expected} expected → ${after.counts.expected}; entry ${e[0]?.a}`];
+    const e = await entry();
+    return [shape && held[0]?.w === 'TASAMA_HR_OPS' && before == null && hand.ok && after.counts.expected === 0 && after.counts.dropped === 1 && e === 20, `riyadhair ${by.riyadhair.month.status}, roshn ${by.roshn.counts.expected} expected → ${after.counts.expected}; waits on ${held[0]?.w}, entry before ${before}, handover ${hand.status}, entry ${e}`];
   });
 
   await check('Runs: Riyadh Air approved and written; the causes add up to the change; a preparer cannot validate (§18)', async () => {

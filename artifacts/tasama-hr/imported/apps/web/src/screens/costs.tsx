@@ -2,9 +2,10 @@
  * Payroll costs, the client's finance controller (design/payroll-addendum.md §3, §21). Read only:
  * what payroll cost by month, what the company owes in end of service and leave, and what reached the ledger.
  */
+import { useEffect, useState } from 'react';
 import { HeroFeature, Panel } from '@cognirise/atelier/layout';
-import { BookOpenCheck, Download, PiggyBank, Wallet } from 'lucide-react';
-import { useApi } from '../lib/api';
+import { BookOpenCheck, Download, Landmark, PiggyBank, Wallet } from 'lucide-react';
+import { bump, downloadFile, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { aed, date, num } from '../lib/format';
 import { Btn, Chip, Empty, Hero, Screen, Table } from '../app/ui';
@@ -57,12 +58,13 @@ export function CostsReports() {
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll costs"
       title={last ? `${bi(data.client.short, data.client.name_ar)}${t('’s')} ${mon(last.period_name, lang, true)} ${t('payroll cost')} ${sarM(cost(last), lang)}, ${change >= 0 ? t('up') : t('down')} ${Math.abs(change).toFixed(1)}% ${t('on the month before')}` : t('Payroll costs')}
-      lede={t('Gross pay plus the employer\'s GOSI contributions, as approved by your CHRO and paid. Figures are the approved runs, not estimates.')}
+      lede={t('Gross pay plus the employer\'s GOSI contributions, as approved by your HR operations and paid. Figures are the approved runs, not estimates.')}
       feature={last ? <HeroFeature label="Employees paid" value={num(last.people)} support={<span className="text-xs text-muted-foreground">{t('net')} {sarM(last.net, lang)}</span>} /> : undefined} />}>
       {months.length ? (
         <>
           <Panel icon={<Wallet size={16} />} title={`${t('Employer contributions add')} ${last ? ((last.employer / last.gross) * 100).toFixed(1) : '—'}% ${t('to gross pay each month')}`}><StackedMonths months={months} /></Panel>
-          <Panel icon={<Wallet size={16} />} title={`${months.filter((m) => m.status === 'CLOSED').length} ${t('months approved and paid')}`}>
+          <Panel icon={<Wallet size={16} />} title={`${months.filter((m) => m.status === 'CLOSED').length} ${t('months approved and paid')}`}
+            action={<Btn small onClick={() => downloadFile('/api/costs/reports.xlsx').catch(() => undefined)}><Download size={13} /> {t('Download as Excel')}</Btn>}>
             <Table><thead><tr><th>{t('Month')}</th><th className="text-end">{t('Employees')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Net pay')}</th><th className="text-end">{t('Employer contributions')}</th><th className="text-end">{t('Cost to the company')}</th></tr></thead>
               <tbody>{[...months].reverse().map((m) => (
                 <tr key={m.period_name}><td className="text-sm">{mon(m.period_name, lang, true)} {m.period_name.slice(0, 4)}{m.status === 'OPEN' ? <span className="ms-2"><Chip tone="primary">{t('Approved, not yet paid')}</Chip></span> : null}</td>
@@ -167,6 +169,71 @@ export function CostsJournals() {
           <p className="mt-3 text-xs text-muted-foreground">{bi(data.client.short, data.client.name_ar)} · {t('illustrative chart of accounts until Tasama has your own')}</p>
         </Panel>
       ) : <Empty>{t('Journals are posted once a month is paid.')}</Empty>}
+    </Screen>
+  );
+}
+
+/**
+ * Payroll costs › Payments (design/payroll-ops-addendum.md §2): no bank is connected, so the finance
+ * controller approves Tasama's file in the bank portal and records that approval here, with the value date.
+ */
+export function CostsPayments() {
+  const { t, bi, lang } = useLang();
+  const { data, reload } = useApi<any>('/costs/payments', { poll: 15000 });
+  const [vd, setVd] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const w = data?.waiting?.[0] ?? null;
+  useEffect(() => { if (w) setVd(w.value_date); }, [w?.id]);
+  const recent: any[] = data?.recent ?? [];
+  const approve = async () => {
+    setBusy(true); setErr(null);
+    try { await post(`/costs/payments/${w.id}/approved`, { value_date: vd }); bump(); reload(); }
+    catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+  };
+  const days = w ? Math.ceil((Date.parse(`${w.value_date}T00:00:00Z`) - Date.now()) / 864e5) : 0;
+  const steps: [string, string, boolean, boolean][] = w ? [
+    [t('Tasama uploaded it to the portal'), `${w.sent_by ?? ''}${w.sent_at ? ` · ${date(w.sent_at, lang)}` : ''}`, true, false],
+    [t('You approve it in the bank'), `${bi(w.bank, w.bank_ar)} · ${t('value date')} ${date(w.value_date, lang)}`, false, true],
+    [t('Tasama confirms what was paid'), t('From the bank’s return file and the signed WPS file'), false, false],
+  ] : [];
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="Payroll costs"
+      title={w ? `${mon(w.period, lang, true)}${t('’s payroll file waits for your approval in')} ${bi(w.bank, w.bank_ar)}: ${aed(w.total, lang)} ${t('to')} ${num(w.lines)} ${t('employees')}` : data ? t('Every payroll file Tasama uploaded is approved in the bank') : t('Payments')}
+      lede={t('Tasama uploads each approved run to your bank portal. You give the bank approvals and set the value date there, then record it here so Tasama can confirm what was paid.')}
+      feature={w ? <HeroFeature label="Value date" value={days <= 0 ? t('Today') : `${days} ${t(days === 1 ? 'day' : 'days')}`} support={<span className="text-xs text-muted-foreground">{date(w.value_date, lang)}</span>} /> : undefined} />}>
+      {w ? (
+        <Panel icon={<Landmark size={16} />} title={`${t('The file passes all')} ${w.checks} ${t('release checks; Tasama uploaded it, and only your approval in the bank pays it')}`}>
+          <ol className="grid gap-3 md:grid-cols-3">{steps.map(([k, sub, done, now]) => (
+            <li key={k} className={`rounded-xl border p-3 ${now ? 'border-primary bg-primary/5' : 'border-border/60'}`}>
+              <span className={`block h-1.5 rounded-full ${done ? 'bg-success' : now ? 'bg-primary' : 'bg-muted'}`} />
+              <p className="mt-2 text-sm font-semibold">{k}</p>
+              <p className="text-xs text-muted-foreground">{sub}</p>
+            </li>))}</ol>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="text-sm"><span className="block text-xs text-muted-foreground">{t('Value date you set in the bank')}</span>
+              <input type="date" className="input mt-1 h-10 w-48 text-sm" value={vd} onChange={(e) => setVd(e.target.value)} /></label>
+            <Btn kind="primary" onClick={approve} disabled={busy}>{busy ? t('Working…') : t('Approved in the bank')}</Btn>
+            <span className="text-xs text-muted-foreground">{w.file}</span>
+          </div>
+          {err ? <p className="mt-2 text-sm text-danger">{err}</p> : null}
+        </Panel>
+      ) : null}
+      <Panel icon={<Landmark size={16} />} title={recent.length ? `${recent.filter((r) => r.paid).length} ${t('of the last')} ${recent.length} ${t('files are paid and confirmed by the bank')}` : t('No file approved yet')}>
+        {recent.length ? (
+          <Table><thead><tr><th>{t('Month')}</th><th className="text-end">{t('Amount')}</th><th>{t('Approved in the bank')}</th><th>{t('Value date')}</th><th>{t('Paid')}</th><th>WPS</th><th>Mudad</th></tr></thead>
+            <tbody>{recent.map((r) => (
+              <tr key={r.id}>
+                <td className="text-sm">{mon(r.period, lang, true)} {r.period.slice(0, 4)}{r.kind === 'FOLLOW_UP' ? <span className="ms-2"><Chip>{t('Follow-up')}</Chip></span> : null}</td>
+                <td className="text-end tabular-nums">{num(r.total, 2)}</td>
+                <td className="text-sm">{r.approved_by ?? '—'}</td>
+                <td className="text-sm">{date(r.value_date, lang)}</td>
+                <td>{r.paid ? <Chip tone={r.failed ? 'warn' : 'success'}>{r.failed ? `${r.failed} ${t('returned')}` : t('Paid')}</Chip> : <Chip>{t('Waiting for the bank')}</Chip>}</td>
+                <td>{r.wps === 'ACCEPTED' ? <Chip tone="success">{t('Matches')}</Chip> : <Chip>{t('Not yet')}</Chip>}</td>
+                <td>{r.mudad === 'ACKNOWLEDGED' ? <Chip tone="success">{t('Acknowledged')}</Chip> : r.mudad === 'UPLOADED' ? <Chip tone="primary">{t('Uploaded')}</Chip> : <Chip>{t('Not yet')}</Chip>}</td>
+              </tr>))}</tbody></Table>
+        ) : <Empty>{t('Nothing approved yet.')}</Empty>}
+      </Panel>
     </Screen>
   );
 }

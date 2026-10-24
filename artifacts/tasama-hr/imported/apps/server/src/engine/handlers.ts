@@ -14,6 +14,7 @@ import { precheck } from '../agents/hisab.js';
 import { settlement, involuntaryCheck } from '../agents/exit.js';
 import { now } from '../clock.js';
 import { PAYROLL_HANDLERS, PAYROLL_WHO } from './payroll-handlers.js';
+import { INTAKE_HANDLERS, INTAKE_WHO } from './intake-handlers.js';
 
 type H = (h: HCtx) => Promise<StepOutcome>;
 type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; personId: number } | null>;
@@ -53,6 +54,7 @@ async function managerOf(c: PoolClient, personId: number) {
 
 export const WHO: Record<string, Who> = {
   ...PAYROLL_WHO,
+  ...INTAKE_WHO,
   LINE_MANAGER: async (c, req) => { const id = req.payload.hiring_manager_id ?? (await managerOf(c, req.subject_person_id)); return id ? { role: 'LINE_MANAGER', personId: id } : null; },
   HRBP: async (c, req) => { const p = await people(c); const div = req.payload.division ?? (await divisionOf(c, req.subject_person_id)); return { role: 'HRBP', personId: p.hrbp[div] ?? p.persona.hrbp }; },
   TA: async (c, req) => ({ role: 'TA', personId: req.payload.recruiter_id ?? (await people(c)).persona.ta }),
@@ -118,6 +120,7 @@ const intake: H = async (h) => {
 
 export const HANDLERS: Record<string, H> = {
   ...PAYROLL_HANDLERS,
+  ...INTAKE_HANDLERS,
   // ---------------------------------------------------------- WF-14 letters
   'WF-14:intake': intake,
   'WF-14:validate': async (h) => {

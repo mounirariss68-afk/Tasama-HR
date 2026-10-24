@@ -1,7 +1,8 @@
 /** Agent Control: agents, workflows, connector, evidence, policies, value, scenarios, reset. */
 import { Router } from 'express';
 import { pool } from '../db.js';
-import { personaOf } from './session.js';
+import { personaOf, TASAMA_STAFF } from './session.js';
+import { AGENTS } from '../domain/agents.js';
 import { SCENARIOS, runScenario, getRun, clearRuns } from '../scenarios.js';
 import { TASAMA_SCENARIOS, runTasamaScenario, getTasamaRun, clearTasamaRuns } from '../tasama/scenarios.js';
 import { reseed } from '../seed/index.js';
@@ -17,8 +18,11 @@ control.get('/agents', async (_req, res) => {
   const steps = (await pool.query(`SELECT actor_id, COUNT(*)::int n, COUNT(DISTINCT request_id)::int cases FROM layer.run_steps WHERE actor_type='AGENT' AND status IN ('DONE','REFUSED') GROUP BY 1`)).rows;
   const overrides = (await pool.query(`SELECT s.actor_id, COUNT(*)::int n FROM layer.trail t JOIN layer.run_steps s ON s.request_id=t.request_id AND s.actor_type='AGENT' WHERE t.act='OVERRIDE' GROUP BY 1`)).rows;
   const answers = (await pool.query(`SELECT agent_id, COUNT(*)::int n FROM layer.messages WHERE role='assistant' GROUP BY 1`)).rows;
+  // A Tasama-owned agent has no owner on the client's HRMS: name the Tasama person from the agent's definition (design/hr-ops-addendum.md 4b).
+  const tasamaOwner = (id: string) => TASAMA_STAFF.find((x) => x.key === AGENTS.find((d) => d.id === id)?.owner);
   res.json(agents.map((a: any) => ({
     ...a,
+    ...(a.owner_person_id ? {} : tasamaOwner(a.id) ? { owner_name: `${tasamaOwner(a.id)!.display_name}, Tasama`, owner_name_ar: `${tasamaOwner(a.id)!.display_name_ar}، تسامى` } : {}),
     stats: {
       actions: steps.find((s: any) => s.actor_id === a.id)?.n ?? 0,
       cases: steps.find((s: any) => s.actor_id === a.id)?.cases ?? 0,

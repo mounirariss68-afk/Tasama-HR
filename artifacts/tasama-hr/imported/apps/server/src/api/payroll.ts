@@ -14,17 +14,20 @@ import { draftRun, provisionHistory } from '../payroll/run.js';
 import { runChecks, reschedule, ask } from '../payroll/checks.js';
 import { monthView } from '../payroll/inputs.js';
 import { currentRun, frozenRows } from '../payroll/runs.js';
-import { payingBank, paymentFiles, valueDateFor } from '../payroll/payments.js';
+import { payingBank, paymentFiles, valueDateFor, notifyFinance, recordApproval, bankReturnFile, readReturnFile, fileWps, recordMudad, financeApprover } from '../payroll/payments.js';
 import { bankByCode } from '../domain/banks.js';
 import { journalFile } from '../payroll/journals.js';
 import { explain } from '../payroll/differences.js';
 import { tasamaTrail } from '../tasama/service.js';
+import { packagePdf, packageXlsx, reportsXlsx } from '../payroll/package.js';
 import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
 import { PENALTY_TABLE, FINE_CAP_DAYS } from '../domain/attendance.js';
-import { personaOf, isPayrollTeam, isTasama, type Persona } from './session.js';
+import { personaOf, isPayrollTeam, isTasama, type Persona, isHrOpsTeam } from './session.js';
 
 export const payroll = Router();
-const allowed = (p: Persona) => isPayrollTeam(p) || isTasama(p);
+const allowed = (p: Persona) => isPayrollTeam(p) || isHrOpsTeam(p) || isTasama(p);
+/** The waiting-on roles that make up a persona's team inbox (design/hr-ops-addendum.md R1). */
+const teamRoles = (p: Persona) => (p.roles.includes('TASAMA_HR_OPS') ? ['TASAMA_HR_OPS'] : p.roles.includes('TASAMA_PAYROLL_LEAD') ? ['TASAMA_PAYROLL_LEAD', 'TASAMA_PAYROLL'] : ['TASAMA_PAYROLL']);
 const forEachClient = <T>(fn: (key: string) => Promise<T>) => Promise.all(allClients().map((c) => withClient(c.key, () => fn(c.key))));
 
 /** Where every client's month stands: cut-off, approval, pay day. */
@@ -36,7 +39,7 @@ payroll.get('/payroll/months', async (req, res) => {
     const c = clientByKey(key)!;
     const per = (await pool.query(`SELECT * FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
     const people = (await pool.query(`SELECT COUNT(*)::int n FROM hcm.work_relationships WHERE worker_type='E' AND (end_date IS NULL OR end_date >= $1)`, [today])).rows[0].n;
-    const waiting = (await pool.query(`SELECT COUNT(*)::int n FROM layer.requests WHERE status IN ('WAITING','ESCALATED') AND waiting_on_role IN ('TASAMA_PAYROLL','TASAMA_PAYROLL_LEAD')`)).rows[0].n;
+    const waiting = (await pool.query(`SELECT COUNT(*)::int n FROM layer.requests WHERE status IN ('WAITING','ESCALATED') AND waiting_on_role = ANY($1)`, [teamRoles(p)])).rows[0].n;
     const v = await activeVersion(pool);
     const stage = !per ? 'NONE' : today <= per.cutoff_date ? 'INPUTS' : today <= per.pay_date ? 'RUN' : 'PAID';
     return {
@@ -48,11 +51,12 @@ payroll.get('/payroll/months', async (req, res) => {
   res.json({ today, clients: rows });
 });
 
-/** The cases waiting on Tasama's payroll team, across clients. */
+/** The cases waiting on the persona's Tasama team (payroll, or HR operations), across clients. */
 payroll.get('/payroll/inbox', async (req, res) => {
   const p = await personaOf(req);
   if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
-  const roles = p.roles.includes('TASAMA_PAYROLL_LEAD') ? ['TASAMA_PAYROLL_LEAD', 'TASAMA_PAYROLL'] : ['TASAMA_PAYROLL'];
+  const roles = teamRoles(p);
+  const own = p.roles.includes('TASAMA_HR_OPS') ? 'TASAMA_HR_OPS' : p.roles.includes('TASAMA_PAYROLL_LEAD') ? 'TASAMA_PAYROLL_LEAD' : 'TASAMA_PAYROLL';
   const rows = (await forEachClient(async (key) => {
     const r = (await pool.query(
       `SELECT r.id, r.ref, r.workflow_id, r.title, r.title_ar, r.status, r.sla_due, r.created_at, r.waiting_on_role, r.current_step,
@@ -60,7 +64,7 @@ payroll.get('/payroll/inbox', async (req, res) => {
          FROM layer.requests r JOIN hcm.persons s ON s.id=r.subject_person_id JOIN hcm.persons q ON q.id=r.requester_person_id
         WHERE r.status IN ('WAITING','ESCALATED') AND r.waiting_on_role = ANY($1) ORDER BY r.created_at`, [roles])).rows;
     const c = clientByKey(key)!;
-    return r.map((x: any) => ({ ...x, client: key, client_short: c.short, client_ar: c.name_ar, mine: x.waiting_on_role === (p.roles.includes('TASAMA_PAYROLL_LEAD') ? 'TASAMA_PAYROLL_LEAD' : 'TASAMA_PAYROLL') }));
+    return r.map((x: any) => ({ ...x, client: key, client_short: c.short, client_ar: c.name_ar, mine: x.waiting_on_role === own }));
   })).flat();
   res.json({ rows });
 });
@@ -178,9 +182,10 @@ payroll.post('/payroll/runs/:client/checks/:person/:action', async (req, res) =>
       if (!draft) throw new Error('No open month for this client.');
       if (req.params.action === 'reschedule') return { summary: (await reschedule(db, draft, personId, p.display_name)).summary };
       if (req.params.action === 'ask') { const k = await ask(db, draft, personId, p.display_name, c.short); return { ref: k.ref, summary: `Asked HR operations at ${c.short}.` }; }
+      if (req.params.action === 'raise') { const k = await ask(db, draft, personId, p.display_name, c.short, 'HR_OPS'); return { ref: k.ref, summary: `Raised to Tasama HR operations for ${c.short}.` }; }
       throw new Error('Unknown action');
     }));
-    await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: req.params.action === 'ask' ? 'NUDGE' : 'WRITE', summary: out.summary, summary_ar: out.summary, ref: (out as any).ref ?? null });
+    await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: ['ask', 'raise'].includes(req.params.action) ? 'NUDGE' : 'WRITE', summary: out.summary, summary_ar: out.summary, ref: (out as any).ref ?? null });
     res.json(out);
   } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
@@ -222,7 +227,8 @@ payroll.get('/payroll/inputs', async (req, res) => {
 /** The client's own month (HR Workspace › Payroll › This month). */
 payroll.get('/payroll/this-month', async (req, res) => {
   const p = await personaOf(req);
-  if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
+  // Tasama HR operations reads it too, to follow the client's changes up (design/hr-ops-addendum.md, pass 3).
+  if (!p.roles.some((r) => ['PAYROLL', 'CHRO', 'TASAMA_HR_OPS'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
   const v = await monthView(pool);
   res.json({ today: new Date().toISOString().slice(0, 10), ...(v ?? {}) });
 });
@@ -311,7 +317,7 @@ payroll.get('/payroll/attendance/:client/export', async (req, res) => {
 /** Hudoor proposes how the file's own columns map to ours; a person confirms. */
 payroll.post('/payroll/attendance/:client/map', async (req, res) => {
   const p = await personaOf(req);
-  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  if (!isHrOpsTeam(p) && !isTasama(p)) return res.status(403).json({ error: 'Tasama HR operations uploads the attendance file.' });
   const csv = String(req.body?.csv ?? '');
   if (!csv.trim()) return res.status(400).json({ error: 'The file is empty.' });
   const lines = csv.split(/\r?\n/).filter((l) => l.trim());
@@ -321,7 +327,7 @@ payroll.post('/payroll/attendance/:client/map', async (req, res) => {
 /** Store the punches and open the attendance month (WF-29): Hudoor reads it at once. */
 payroll.post('/payroll/attendance/:client/upload', async (req, res) => {
   const p = await personaOf(req);
-  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  if (!isHrOpsTeam(p) && !isTasama(p)) return res.status(403).json({ error: 'Tasama HR operations uploads the attendance file.' });
   const c = clientByKey(req.params.client);
   if (!c) return res.status(404).json({ error: 'No such client' });
   try {
@@ -419,6 +425,163 @@ payroll.get('/payroll/payments/:client/:id/file/:which', async (req, res) => {
   res.send(file.text);
 });
 
+/* ------------------------------------------------------------------ Tasama HR operations: each employee's document set (design/payroll-ops-addendum.md 1.5, 1.7) */
+
+const DOC_LABEL: Record<string, [string, string]> = { CONTRACT: ['Contract', 'العقد'], NATIONAL_ID: ['National ID', 'الهوية الوطنية'], IQAMA: ['Iqama', 'الإقامة'], IBAN_LETTER: ['IBAN letter', 'خطاب الآيبان'] };
+
+/** Every client's document gaps and record checks; the selected client's people who miss something. */
+payroll.get('/hrops/documents', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isHrOpsTeam(p) && !isTasama(p)) return res.status(403).json({ error: 'Tasama HR operations only.' });
+  const sel = String(req.query.client ?? '');
+  const { ibanValid } = await import('../domain/banks.js');
+  const rows = await forEachClient(async (key) => {
+    const c = clientByKey(key)!;
+    const people = (await pool.query(`SELECT count(DISTINCT person_id)::int n FROM layer.employee_documents`)).rows[0].n;
+    const by = (await pool.query(`SELECT kind, status, count(*)::int n FROM layer.employee_documents GROUP BY 1,2`)).rows;
+    const expiring = (await pool.query(`SELECT count(*)::int n FROM layer.employee_documents WHERE status='RECEIVED' AND expires_on IS NOT NULL AND expires_on <= CURRENT_DATE + 60`)).rows[0].n;
+    const ibans = (await pool.query(`SELECT p.iban FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id WHERE wr.end_date IS NULL AND p.iban IS NOT NULL`)).rows;
+    const badIban = ibans.filter((x: any) => !ibanValid(x.iban)).length;
+    const ops = (await pool.query(`SELECT p.display_name FROM layer.personas pe JOIN hcm.persons p ON p.id=pe.person_id WHERE pe.key='payroll'`)).rows[0]?.display_name ?? null;
+    const gaps = key === sel ? (await pool.query(`SELECT d.id, d.kind, d.status, to_char(d.requested_on,'YYYY-MM-DD') requested_on, to_char(d.expires_on,'YYYY-MM-DD') expires_on, p.display_name name, p.display_name_ar name_ar, p.person_number, d.person_id
+        FROM layer.employee_documents d JOIN hcm.persons p ON p.id=d.person_id WHERE d.status IN ('MISSING','REQUESTED') OR (d.expires_on IS NOT NULL AND d.expires_on <= CURRENT_DATE + 60) ORDER BY d.status DESC, p.display_name`)).rows
+      .map((g: any) => ({ ...g, label: DOC_LABEL[g.kind]?.[0] ?? g.kind, label_ar: DOC_LABEL[g.kind]?.[1] ?? g.kind })) : null;
+    const count = (st: string) => by.filter((x: any) => x.status === st).reduce((s: number, x: any) => s + x.n, 0);
+    return { key, short: c.short, name_ar: c.name_ar, hrOps: c.contract.services.includes('HR_OPS'), ops, people, received: count('RECEIVED'), missing: count('MISSING'), requested: count('REQUESTED'), expiring, badIban,
+      byKind: Object.keys(DOC_LABEL).map((k) => ({ kind: k, label: DOC_LABEL[k][0], label_ar: DOC_LABEL[k][1], missing: by.filter((x: any) => x.kind === k && x.status !== 'RECEIVED').reduce((s: number, x: any) => s + x.n, 0) })).filter((x) => x.missing),
+      gaps };
+  });
+  res.json({ clients: rows });
+});
+
+/** Ask the client's HR operations for a missing document, or record that it arrived. */
+payroll.post('/hrops/documents/:client/:id/:action', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isHrOpsTeam(p) && !isTasama(p)) return res.status(403).json({ error: 'Tasama HR operations only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  try {
+    const out = await withClient(c.key, () => tx(async (db) => {
+      const d = (await db.query(`SELECT d.*, p.display_name FROM layer.employee_documents d JOIN hcm.persons p ON p.id=d.person_id WHERE d.id=$1`, [Number(req.params.id)])).rows[0];
+      if (!d) throw new Error('No such document.');
+      const label = (DOC_LABEL[d.kind]?.[0] ?? d.kind).toLowerCase();
+      if (req.params.action === 'ask') {
+        await db.query(`UPDATE layer.employee_documents SET status='REQUESTED', requested_on=CURRENT_DATE WHERE id=$1`, [d.id]);
+        const ops = (await db.query(`SELECT person_id FROM layer.personas WHERE key='payroll'`)).rows[0]?.person_id;
+        if (ops) await db.query(`INSERT INTO layer.notifications (person_id, title, title_ar, body, link, created_at) VALUES ($1,$2,$3,$4,NULL,now())`,
+          [ops, `Tasama needs ${d.display_name}'s ${label}`, `تحتاج تسامى ${DOC_LABEL[d.kind]?.[1] ?? d.kind} للموظف ${d.display_name}`, `${p.display_name}, Tasama HR operations: please send it by email or upload it to the shared folder.`]);
+        return { summary: `Asked ${c.short} for ${d.display_name}'s ${label}.` };
+      }
+      if (req.params.action === 'received') {
+        await db.query(`UPDATE layer.employee_documents SET status='RECEIVED', received_on=CURRENT_DATE, file_name=$2 WHERE id=$1`, [d.id, `${d.display_name} ${label}.pdf`]);
+        return { summary: `Filed ${d.display_name}'s ${label}.` };
+      }
+      throw new Error('Unknown action');
+    }));
+    await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: 'WRITE', summary: out.summary, summary_ar: out.summary, ref: null });
+    res.json(out);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/* ------------------------------------------------------------------ the payroll package and the month's documents (design/payroll-ops-addendum.md 2.9, 2.11) */
+
+async function sendPackage(res: any, key: string, fmt: string) {
+  const f = await withClient(key, () => (fmt === 'xlsx' ? packageXlsx(pool) : packagePdf(pool)));
+  if (!f) return res.status(404).json({ error: 'No open month for this client.' });
+  res.setHeader('content-type', fmt === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf');
+  res.setHeader('content-disposition', `attachment; filename="${f.name}"`);
+  res.send(f.buf);
+}
+
+/** Tasama's copy of a client's payroll package. */
+payroll.get('/payroll/runs/:client/package/:fmt', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  await sendPackage(res, c.key, req.params.fmt);
+});
+
+/** The client's copy: its HR operations, CHRO and finance controller. */
+payroll.get('/payroll/package/:fmt', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r)) && !p.lenses.includes('fin')) return res.status(403).json({ error: 'The client\'s HR operations, CHRO and finance only.' });
+  await sendPackage(res, client().key, req.params.fmt);
+});
+
+/** Everything filed for a client's month: the package and its approval, the bank file, the WPS file, the bank's report, Mudad and the journals. */
+payroll.get('/payroll/runs/:client/documents', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const out = await withClient(c.key, async () => {
+    const run = await currentRun(pool);
+    const per = (await pool.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const pays = (await pool.query(`SELECT id, kind, file_name, state, sent_by, sent_at, approved_by, approved_at, feedback_at, wps_state, wps_at, mudad_state, mudad_at, mudad_ref, mudad_by FROM layer.payments WHERE period_name=$1 ORDER BY id`, [per?.period_name])).rows;
+    const journals = (await pool.query(`SELECT count(*)::int n, count(*) FILTER (WHERE state='POSTED')::int posted FROM layer.journals WHERE period_name=$1`, [per?.period_name])).rows[0];
+    const docs: any[] = [];
+    docs.push({ key: 'package-pdf', label: 'Payroll package: summary and sign-offs (PDF)', state: run?.state === 'APPROVED' ? 'Approved' : run ? 'Before approval' : 'Draft', who: run?.approver ?? null, at: run?.approved_at ?? null, href: `/api/payroll/runs/${c.key}/package/pdf` });
+    docs.push({ key: 'package-xlsx', label: 'Payroll package: every line (Excel)', state: run?.state === 'APPROVED' ? 'Approved' : run ? 'Before approval' : 'Draft', who: null, at: null, href: `/api/payroll/runs/${c.key}/package/xlsx` });
+    for (const x of pays) {
+      const fu = x.kind === 'FOLLOW_UP' ? ' (follow-up)' : '';
+      docs.push({ key: `bank-${x.id}`, label: `Bank file${fu}: ${x.file_name}`, state: x.approved_at ? 'Approved in the bank' : x.sent_at ? 'Uploaded to the portal' : 'Built', who: x.approved_by ?? x.sent_by, at: x.approved_at ?? x.sent_at, href: `/api/payroll/payments/${c.key}/${x.id}/file/bank` });
+      docs.push({ key: `wps-${x.id}`, label: `WPS file${fu}`, state: x.wps_state === 'ACCEPTED' ? 'Signed copy filed' : 'Written', who: null, at: x.wps_at, href: `/api/payroll/payments/${c.key}/${x.id}/file/wps` });
+      if (x.feedback_at) docs.push({ key: `ret-${x.id}`, label: `The bank's return file${fu}`, state: x.state === 'PART_FAILED' ? 'Read, with returns' : 'Read', who: null, at: x.feedback_at, href: `/api/payroll/payments/${c.key}/${x.id}/return-file` });
+      if (x.mudad_state !== 'WAITING') docs.push({ key: `mudad-${x.id}`, label: `Mudad${fu}${x.mudad_ref ? `: ${x.mudad_ref}` : ''}`, state: x.mudad_state === 'ACKNOWLEDGED' ? 'Acknowledged' : 'Uploaded', who: x.mudad_by, at: x.mudad_at, href: null });
+    }
+    if (journals?.n) docs.push({ key: 'journals', label: `Journals: ${journals.n}`, state: journals.posted === journals.n ? 'Posted' : 'Waiting', who: null, at: null, href: null });
+    return { period: per?.period_name ?? null, docs };
+  });
+  res.json(out);
+});
+
+/* ------------------------------------------------------------------ the bank by file (design/payroll-ops-addendum.md §2) */
+
+/** Tasama's next step on a payment, recorded by a person: remind the client's finance, read the return file, file the WPS file, record Mudad. */
+payroll.post('/payroll/payments/:client/:id/:step', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isPayrollTeam(p) && !isTasama(p)) return res.status(403).json({ error: 'Tasama payroll records the bank\'s reports.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const id = Number(req.params.id);
+  try {
+    const out = await withClient(c.key, () => tx(async (db) => {
+      switch (req.params.step) {
+        case 'remind': await notifyFinance(db, id, true); return { summary: `Reminded ${await financeApprover(db)} to approve the file in the bank.` };
+        case 'return': {
+          const csv = String(req.body?.csv ?? '') || (await bankReturnFile(db, id))?.text || '';
+          const r = await readReturnFile(db, id, csv);
+          return { summary: `Read the bank's return file: ${r.paid} paid${r.failed ? `, ${r.failed} returned and asked for a new IBAN` : ''}.`, asked: r.asked };
+        }
+        case 'wps': { const w = await fileWps(db, id); return { summary: w.ok ? 'Filed the signed WPS file; it matches what was paid.' : 'Filed the signed WPS file; it differs from what was paid.' }; }
+        case 'mudad': {
+          const state = req.body?.state === 'ACKNOWLEDGED' ? 'ACKNOWLEDGED' : 'UPLOADED';
+          const by = req.body?.by === 'CLIENT' ? `${c.short}` : p.display_name;
+          await recordMudad(db, id, state, by, req.body?.ref ? String(req.body.ref) : null);
+          return { summary: state === 'UPLOADED' ? `Recorded the WPS file's upload to Mudad${req.body?.by === 'CLIENT' ? ` by ${c.short}` : ''}.` : 'Recorded Mudad\'s acknowledgement.' };
+        }
+        default: throw new Error('Unknown step');
+      }
+    }));
+    await tasamaTrail(pool, { client_key: c.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: 'WRITE', summary: out.summary, summary_ar: out.summary, ref: null });
+    res.json(out);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+/** The bank's return file as the portal offers it, to download (simulated: no bank is connected). */
+payroll.get('/payroll/payments/:client/:id/return-file', async (req, res) => {
+  const p = await personaOf(req);
+  if (!allowed(p)) return res.status(403).json({ error: 'Tasama only.' });
+  const c = clientByKey(req.params.client);
+  if (!c) return res.status(404).json({ error: 'No such client' });
+  const f = await withClient(c.key, () => bankReturnFile(pool, Number(req.params.id)));
+  if (!f) return res.status(404).json({ error: 'No such payment' });
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', `attachment; filename="${f.name}"`);
+  res.send(f.text);
+});
+
 /* ------------------------------------------------------------------ Journals (§21, WF-34) */
 
 /** Every client's paid months and their four journals: balanced, waiting or posted, and how much is mapped. */
@@ -479,6 +642,44 @@ payroll.get('/payroll/journals/:client/:period/file', async (req, res) => {
 /* ------------------------------------------------------------------ Payroll costs, the client's finance controller (§3, §21) */
 
 const financeView = (p: Persona) => p.lenses.includes('fin') || isTasama(p) || isPayrollTeam(p);
+
+/** Payroll reports as Excel, for the client's finance (design/payroll-ops-addendum.md 3.9). */
+payroll.get('/costs/reports.xlsx', async (req, res) => {
+  const p = await personaOf(req);
+  if (!financeView(p)) return res.status(403).json({ error: 'The client\'s finance controller only.' });
+  const months = (await pool.query(`SELECT pp.period_name, COUNT(r.*)::int people, COALESCE(SUM(r.gross),0)::float gross, COALESCE(SUM(r.net),0)::float net, COALESCE(SUM(r.employer_contributions),0)::float employer,
+      COALESCE((SELECT SUM(v.eos_accrued) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float eos, COALESCE((SELECT SUM(v.leave_accrued) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float leave
+      FROM hcm.payroll_periods pp JOIN hcm.payroll_results r ON r.period_id=pp.id GROUP BY pp.id, pp.period_name, pp.start_date ORDER BY pp.start_date`)).rows;
+  const buf = await reportsXlsx(months, client().name);
+  res.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('content-disposition', `attachment; filename="${client().code}_PayrollCosts.xlsx"`);
+  res.send(buf);
+});
+
+/** The client's finance controller: the payroll files waiting for its approval in the bank, and the last ones it approved (§2). */
+payroll.get('/costs/payments', async (req, res) => {
+  const p = await personaOf(req);
+  if (!financeView(p)) return res.status(403).json({ error: 'The client\'s finance controller only.' });
+  const rows = (await pool.query(`SELECT p.id, p.kind, p.period_name, p.state, p.lines, p.total, p.file_name, p.file_ref, p.bank_code, p.checks, p.sent_by, p.sent_at, p.approved_by, p.approved_at, p.feedback_at, p.wps_state, p.mudad_state,
+      to_char(p.value_date,'YYYY-MM-DD') vd, to_char(p.pay_date,'YYYY-MM-DD') pd,
+      (SELECT count(*)::int FROM layer.payment_lines l WHERE l.payment_id=p.id AND l.status='FAILED') failed
+      FROM layer.payments p ORDER BY p.id DESC LIMIT 8`)).rows;
+  const { bankByCode } = await import('../domain/banks.js');
+  const out = rows.map((x: any) => ({ id: x.id, kind: x.kind, period: x.period_name, state: x.state, lines: x.lines, total: Number(x.total), file: x.file_name, ref: x.file_ref, bank: bankByCode(x.bank_code)?.name ?? '', bank_ar: bankByCode(x.bank_code)?.name_ar ?? '',
+    checks: (x.checks ?? []).length, checksOk: (x.checks ?? []).every((k: any) => k.ok), sent_by: x.sent_by, sent_at: x.sent_at, approved_by: x.approved_by, approved_at: x.approved_at, value_date: x.vd, pay_date: x.pd, paid: !!x.feedback_at, failed: x.failed, wps: x.wps_state, mudad: x.mudad_state }));
+  res.json({ client: { short: client().short, name_ar: client().name_ar }, waiting: out.filter((x) => x.state === 'SENT'), recent: out.filter((x) => x.state !== 'SENT' && x.state !== 'BUILT').slice(0, 6) });
+});
+
+/** The finance controller records the approval it gave in the bank portal, with the value date it set. */
+payroll.post('/costs/payments/:id/approved', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.lenses.includes('fin')) return res.status(403).json({ error: 'Only the client\'s finance controller records an approval in the bank.' });
+  try {
+    await tx((db) => recordApproval(db, Number(req.params.id), p.display_name, req.body?.value_date ? String(req.body.value_date).slice(0, 10) : null));
+    await tasamaTrail(pool, { client_key: client().key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: 'DECIDE', summary: `${p.display_name} approved the payroll file in the bank.`, summary_ar: `اعتمد ${p.display_name} ملف الرواتب في البنك.`, ref: null });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
 
 /** Net pay and employer cost by month, the provisions owed, and the journals posted to the ledger. Read only. */
 payroll.get('/costs', async (req, res) => {

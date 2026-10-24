@@ -14,6 +14,7 @@ import type { PoolClient } from 'pg';
 import { startCase } from '../engine/core.js';
 import { gosiContribution } from '../domain/payroll/gosi.js';
 import type { DraftRow } from './run.js';
+import { client } from '../domain/rules.js';
 
 type Q = PoolClient | { query: PoolClient['query'] };
 const d10 = (v: any) => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
@@ -24,7 +25,7 @@ const monthEnd = (d: string) => { const x = new Date(`${addMonths(d, 1)}T00:00:0
 const day = (d: any) => new Date(`${d10(d)}T00:00:00Z`).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const monthName = (d: string) => new Date(`${d.slice(0, 7)}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
-export type Owner = { side: 'TASAMA' | 'CLIENT'; role: string; role_ar: string; name: string | null };
+export type Owner = { side: 'TASAMA' | 'CLIENT' | 'HR_OPS'; role: string; role_ar: string; name: string | null };
 export type RunCheck = {
   person_id: number; name: string; name_ar: string; department: string;
   severity: 'BLOCK' | 'ASK';
@@ -35,7 +36,7 @@ export type RunCheck = {
   owner: Owner;
   status: string | null;
   case_ref: string | null;
-  actions: { id: 'reschedule' | 'ask'; label: string }[];
+  actions: { id: 'reschedule' | 'ask' | 'raise'; label: string }[];
 };
 export type Settled = { person_id: number; text: string; case_ref: string | null };
 
@@ -57,7 +58,7 @@ async function advancePlan(c: Q, personId: number, periodStart: string, wage: nu
 /** The open WF-36 question for a person and a check this month, or the last answer. */
 async function question(c: Q, period: string, personId: number, kind: string) {
   return (await c.query(
-    `SELECT r.ref, r.status, r.updated_at, r.payload, w.display_name AS waiting_on,
+    `SELECT r.ref, r.status, r.updated_at, r.payload, COALESCE(w.display_name, CASE r.waiting_on_role WHEN 'TASAMA_HR_OPS' THEN 'Tasama HR operations' END) AS waiting_on,
             (SELECT a.reason FROM layer.approvals a WHERE a.request_id=r.id AND a.decision='REJECTED' ORDER BY a.decided_at DESC LIMIT 1) AS reason
        FROM layer.requests r LEFT JOIN hcm.persons w ON w.id=r.waiting_on_person_id
       WHERE r.workflow_id='WF-36' AND r.payload->>'period'=$1 AND (r.payload->>'person_id')::int=$2 AND r.payload->>'kind'=$3
@@ -69,6 +70,11 @@ export async function runChecks(c: Q, draft: { period: { name: string; start: st
   const ops = (await c.query(`SELECT display_name FROM hcm.persons WHERE id=$1`, [pp.persona.payroll])).rows[0]?.display_name ?? null;
   const clientOps: Owner = { side: 'CLIENT', role: 'HR operations', role_ar: 'عمليات الموارد البشرية', name: ops };
   const tasama: Owner = { side: 'TASAMA', role: 'Tasama payroll', role_ar: 'رواتب تسامى', name: null };
+  // design/payroll-ops-addendum.md 1.11: questions can go through Tasama HR operations; at clients whose contract
+  // includes HR operations, Tasama HR operations registers GOSI and answers first.
+  const hrOps = client().contract.services.includes('HR_OPS');
+  const tasamaOps: Owner = { side: 'HR_OPS', role: 'Tasama HR operations', role_ar: 'عمليات الموارد البشرية في تسامى', name: 'Lama Al Dossary' };
+  const askOrRaise = (askLabel: string) => (hrOps ? [{ id: 'raise' as const, label: 'Raise to Tasama HR Ops' }, { id: 'ask' as const, label: askLabel }] : [{ id: 'ask' as const, label: askLabel }, { id: 'raise' as const, label: 'Raise to Tasama HR Ops' }]);
   const checks: RunCheck[] = [];
   const settled: Settled[] = [];
   const att = (await c.query(`SELECT r.ref, r.closed_at, (SELECT pp2.display_name FROM layer.approvals a JOIN hcm.persons pp2 ON pp2.id=a.approver_person_id WHERE a.request_id=r.id AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1) AS by
@@ -104,11 +110,12 @@ export async function runChecks(c: Q, draft: { period: { name: string; start: st
         ...base, severity: 'BLOCK', codes: ['GOSI_NOT_REGISTERED'],
         title: `${r.name} is not registered with GOSI, so SAR ${fmt(amount)} a month is not being paid in`,
         found: `${r.name} joined on ${hire ? day(hire) : 'a date not on record'} and has no GOSI registration on the record. Without it, no contribution can be calculated for this month.`,
-        look: 'Only the employer can register a person with GOSI, in its own GOSI account. Once the client gives the registration date, the run calculates the contribution and the check clears.',
-        owner: clientOps,
+        look: hrOps ? `Tasama HR operations registers ${client().short}'s people with GOSI, in the client's GOSI account. Once it gives the registration date, the run calculates the contribution and the check clears.`
+          : 'Only the employer can register a person with GOSI, in its own GOSI account. Once the client gives the registration date, the run calculates the contribution and the check clears.',
+        owner: hrOps ? tasamaOps : clientOps,
         status: open ? `Asked on ${day(q.payload.asked_on ?? q.updated_at)}; waiting on ${q.waiting_on ?? ops}` : q?.status === 'REJECTED' ? `${ops} answered: not registered yet${q.reason ? ` (“${q.reason}”)` : ''}` : null,
         case_ref: q?.ref ?? null,
-        actions: open ? [] : [{ id: 'ask', label: q ? `Ask ${ops} again` : `Ask ${ops} to register ${r.name.split(' ')[0]}` }],
+        actions: open ? [] : askOrRaise(q ? `Ask ${ops} again` : `Ask ${ops} to register ${r.name.split(' ')[0]}`),
       });
     }
     if (codes.includes('OVERTIME_CAP')) {
@@ -123,7 +130,7 @@ export async function runChecks(c: Q, draft: { period: { name: string; start: st
         owner: clientOps,
         status: open ? `Asked on ${day(q.payload.asked_on ?? q.updated_at)}; waiting on ${q.waiting_on ?? ops}` : null,
         case_ref: q?.ref ?? null,
-        actions: open ? [] : [{ id: 'ask', label: `Ask ${ops} whether to pay them` }],
+        actions: open ? [] : askOrRaise(`Ask ${ops} whether to pay them`),
       });
     }
     // Already settled by the client: who confirmed, and where.
@@ -164,7 +171,7 @@ export async function reschedule(c: PoolClient, draft: { period: { name: string;
 }
 
 /** A client's check becomes a question in the client's HR operations inbox. */
-export async function ask(c: PoolClient, draft: { period: { name: string; start: string; end: string }; rows: DraftRow[] }, personId: number, by: string, clientShort: string) {
+export async function ask(c: PoolClient, draft: { period: { name: string; start: string; end: string }; rows: DraftRow[] }, personId: number, by: string, clientShort: string, via: 'CLIENT' | 'HR_OPS' = 'CLIENT') {
   const r = draft.rows.find((x) => x.person_id === personId);
   if (!r) throw new Error('No such person in this run.');
   const kind = r.flags.some((f: any) => f.code === 'GOSI_NOT_REGISTERED') ? 'GOSI_REGISTRATION' : r.flags.some((f: any) => f.code === 'OVERTIME_CAP') ? 'OVERTIME_HELD' : null;
@@ -172,7 +179,7 @@ export async function ask(c: PoolClient, draft: { period: { name: string; start:
   const pp = await people(c);
   const f = r.flags.find((x: any) => x.code === (kind === 'GOSI_REGISTRATION' ? 'GOSI_NOT_REGISTERED' : 'OVERTIME_CAP'));
   const asked_on = new Date().toISOString().slice(0, 10);
-  const payload: Record<string, any> = { kind, period: draft.period.name, person_id: personId, person_name: r.name, asked_by: by, asked_on, finding: f.text, client: clientShort };
+  const payload: Record<string, any> = { kind, period: draft.period.name, person_id: personId, person_name: r.name, asked_by: by, asked_on, finding: f.text, client: clientShort, via };
   if (kind === 'OVERTIME_HELD') {
     const m = String(f.text).match(/^(\d+(?:\.\d+)?) h above the policy's (\d+)-hour .*worth ([\d,]+\.\d{2})/);
     if (m) Object.assign(payload, { held_hours: Number(m[1]), cap: Number(m[2]), held_amount: Number(m[3].replace(/,/g, '')) });
@@ -181,7 +188,7 @@ export async function ask(c: PoolClient, draft: { period: { name: string; start:
   const title_ar = kind === 'GOSI_REGISTRATION' ? 'التسجيل في التأمينات الاجتماعية' : 'ساعات العمل الإضافي المعلّقة';
   const k = await startCase(c, { workflowId: 'WF-36', type: kind, title, title_ar, requester: pp.persona.payroll, subject: personId, channel: 'FORM', payload });
   await c.query(`INSERT INTO layer.run_check_log (period_name, person_id, code, action, by_name, summary, request_id) VALUES ($1,$2,$3,'ASKED',$4,$5,$6)`,
-    [draft.period.name, personId, f.code, by, `${by} asked HR operations ${kind === 'GOSI_REGISTRATION' ? `for ${r.name}'s GOSI registration` : `whether to pay ${r.name}'s held overtime`}.`, k.id]);
+    [draft.period.name, personId, f.code, by, `${by} ${via === 'HR_OPS' ? 'raised to Tasama HR operations' : 'asked HR operations'} ${kind === 'GOSI_REGISTRATION' ? `for ${r.name}'s GOSI registration` : `whether to pay ${r.name}'s held overtime`}.`, k.id]);
   return k;
 }
 

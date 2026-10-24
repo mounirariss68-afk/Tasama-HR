@@ -109,7 +109,8 @@ export async function monthView(c: Q) {
        FROM layer.pay_inputs i LEFT JOIN hcm.persons p ON p.id=i.person_id LEFT JOIN layer.requests r ON r.id=i.request_id
       WHERE i.period_name=$1 OR (i.source='LATE_CHANGE' AND i.period_name=$2) ORDER BY i.state, i.kind, i.id`, [per.name, nextPeriod(per.name)])).rows
     .map((r: any) => ({ ...r, amount: r.amount == null ? null : Number(r.amount), quantity: r.quantity == null ? null : Number(r.quantity), suggested: r.suggested == null ? null : Number(r.suggested) }));
-  const month = (await c.query(`SELECT r.ref, r.status, r.waiting_on_person_id, w.display_name AS waiting_on, r.closed_at, r.created_at,
+  const month = (await c.query(`SELECT r.ref, r.status, r.waiting_on_role, r.waiting_on_person_id, w.display_name AS waiting_on, r.closed_at, r.created_at,
+      (SELECT a.decided_at FROM layer.approvals a WHERE a.request_id=r.id AND a.step_key='validate' AND a.decision='APPROVED' LIMIT 1) AS handed_at,
       (SELECT pp.display_name FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=r.id AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1) AS confirmed_by,
       (SELECT count(*)::int FROM layer.trail t WHERE t.request_id=r.id AND t.actor_id='wared' AND t.act='NOTIFY') AS reminders
       FROM layer.requests r LEFT JOIN hcm.persons w ON w.id=r.waiting_on_person_id WHERE r.workflow_id='WF-27' AND r.type='MONTH' AND r.payload->>'period'=$1 ORDER BY r.id DESC LIMIT 1`, [per.name])).rows[0] ?? null;
@@ -133,6 +134,6 @@ export async function remind(c: PoolClient, requestId: number, daysLeft: number)
   const { now } = await import('../clock.js');
   await c.query(`INSERT INTO layer.trail (request_id, at, actor_type, actor_id, actor_name, act, autonomy, summary, summary_ar) VALUES ($1,$2,'AGENT','wared','Wared','NOTIFY','A3',$3,$4)`, [requestId, now(), text, 'تذكير قبل موعد الإقفال']);
   await c.query(`INSERT INTO layer.notifications (person_id, title, title_ar, body, link, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
-    [r.waiting_on_person_id, `${r.expected} payroll ${r.expected === 1 ? 'change' : 'changes'} to confirm; cut-off ${when}`, 'تغييرات الرواتب بانتظار التأكيد', `Wared: ${monthWord(r.payload.period)}'s changes are listed on the case, with last month's figures as suggestions.`, `case:${r.ref}`, now()]);
+    [r.waiting_on_person_id, `${r.expected} payroll ${r.expected === 1 ? 'change' : 'changes'} to confirm; cut-off ${when}`, 'تغييرات الرواتب بانتظار التأكيد', `Wared, for Tasama HR Operations: ${monthWord(r.payload.period)}'s changes are listed on the case, with last month's figures as suggestions.`, `case:${r.ref}`, now()]);
   return true;
 }

@@ -60,3 +60,12 @@ export function useApi<T = any>(path: string | null, opts: { poll?: number } = {
   }, [load, opts.poll]);
   return { data, error, loading, reload: load, setData };
 }
+
+/** Downloads a file the server writes (a package, a bank file), with the persona and client headers. */
+export async function downloadFile(href: string, clientKey?: string) {
+  const res = await fetch(href, { headers: { 'x-persona': persona, 'x-client': clientKey ?? client } });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'download';
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+}

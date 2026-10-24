@@ -142,6 +142,8 @@ Each synthetic policy is generated as a readable handbook in Arabic and English,
 
 ## Attendance data becomes deductions only after the client's approver confirms them
 
+> **24 October 2026** (`design/hr-ops-addendum.md`): Tasama HR operations uploads and maps the attendance file (ATT-01, ATT-02); the client's approver still confirms (ATT-08). Source: PM §6.
+
 Clients export fingerprint or face-recognition punches. The platform reads the export, matches each punch to the employee's schedule, removes what leave, business trips and approved permissions explain, and prices what is left with the client's own penalty rules. Nothing is deducted until the employee has had the chance to justify an absence and the client's delegated approver has confirmed the list.
 
 **The legal frame.** A deduction for absence or lateness is a fine under the client's approved internal regulation. One violation may cost at most 5 days' wage, and fines in a month at most 5 days' wage ([Labor Law Art. 66, 70](https://www.hrsd.gov.sa/sites/default/files/2023-02/Labor.pdf)). All deductions together stay within half the wage (Art. 92, 93). The HRSD table of violations sets escalating penalties by occurrence: for example, lateness under 15 minutes is a written warning first, then 5%, 10% and 20% of a day's wage, plus the minutes lost ([table of violations](https://mulem.com.sa/en/schedule-of-violations-and-penalties/violations-related-to-working-hours/)). Absence of more than 15 consecutive days, or more than 30 days in a contract year, allows dismissal under Article 80 after a written warning.
@@ -164,6 +166,8 @@ Clients export fingerprint or face-recognition punches. The platform reads the e
 | ATT-12 | Demo: upload a month of punches for one client and watch the agent price it under that client's rules | MGR |
 
 ## Clients confirm changes the agents already prepared, instead of typing them before the 15th
+
+> **24 October 2026** (`design/hr-ops-addendum.md`): Tasama HR operations owns the intake (INT-01 to INT-12): it checks each confirmed change against its document and hands the month to payroll. Payroll validates; it does not enter changes. Source: PM section 2, steps 1.1–1.4.
 
 Most of what a client sends each month can be known or drafted in advance: a hire the client approved in the hiring module, a probation ending, a contract expiring, a leaver whose last day is set, leave already approved in the platform. The intake agent prepares each expected change and asks the client to confirm it; the client only adds what the platform could not know. A hire is entered once, when the offer is accepted, and the same record feeds the contract, onboarding, GOSI registration and payroll.
 

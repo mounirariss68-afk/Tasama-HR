@@ -17,6 +17,7 @@ import { wf, type StepDef, type WorkflowDef } from '../domain/workflows.js';
 import { AGENTS } from '../domain/agents.js';
 import type { Ctx } from '../hcm/connector.js';
 import { HANDLERS, WHO } from './handlers.js';
+import { TEAM_NOTIFY } from '../domain/staff.js';
 
 export type Req = {
   id: number; ref: string; workflow_id: string; type: string; title: string; title_ar: string;
@@ -123,6 +124,10 @@ export async function advance(c: PoolClient, requestId: number) {
       }
       await c.query(`INSERT INTO layer.approvals (request_id, step_key, approver_role, approver_person_id, decision, created_at) VALUES ($1,$2,$3,$4,'PENDING',$5)`, [requestId, sdef.key, who.role, who.personId, at]);
       await c.query(`UPDATE layer.run_steps SET status='WAITING' WHERE id=$1`, [step.id]);
+      // A case waiting on a Tasama team notifies its people (design/payroll-ops-addendum.md §3).
+      for (const nid of TEAM_NOTIFY[who.role] ?? []) {
+        await c.query(`INSERT INTO layer.notifications (person_id, title, title_ar, body, link, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [nid, req.title, req.title_ar ?? req.title, sdef.label, `case:${req.ref}`, at]);
+      }
       await c.query(
         `UPDATE layer.requests SET status='WAITING', waiting_on_role=$2, waiting_on_person_id=$3, sla_due=$4, updated_at=$5 WHERE id=$1`,
         [requestId, who.role, who.personId, req.payload?.due ? new Date(req.payload.due) : new Date(at.getTime() + (SLA_HOURS[who.role] ?? 48) * 3600_000), at],

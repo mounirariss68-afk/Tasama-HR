@@ -37,8 +37,9 @@ const LENS_SCREENS = {
   team: ['team', 'team-approvals', 'team-hiring', 'team-performance'],
   hr: ['hr-overview', 'hr-inbox', 'hr-workforce', 'hr-hiring', 'hr-onboarding', 'hr-performance', 'hr-payroll', 'hr-exits', 'hr-compliance'],
   control: ['agents', 'workflows', 'connector', 'evidence', 'policies', 'value'],
-  payroll: ['payroll-months', 'payroll-inbox', 'payroll-inputs', 'payroll-attendance', 'payroll-runs', 'payroll-payments', 'payroll-journals', 'payroll-policies', 'payroll-add-client'],
-  fin: ['costs-reports', 'costs-provisions', 'costs-journals'],
+  payroll: ['payroll-months', 'payroll-inbox', 'payroll-runs', 'payroll-payments', 'payroll-journals', 'payroll-policies', 'payroll-add-client'],
+  hrops: ['payroll-inbox', 'payroll-months', 'payroll-inputs', 'payroll-attendance', 'hrops-documents', 'payroll-policies'],
+  fin: ['costs-reports', 'costs-provisions', 'costs-journals', 'costs-payments'],
   // The rig: in the Demo control, open to every persona.
   rig: ['scenarios', 'settings'],
 };

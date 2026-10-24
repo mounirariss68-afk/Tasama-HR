@@ -29,7 +29,7 @@ import { Bullet, Columns as BarColumns, Slope, Waterfall } from './viz';
 
 const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 const sar = (n: number) => `SAR ${Math.round(n).toLocaleString('en-US')}`;
-const PERSONA: Record<string, string> = { tasama: 'Tasama HR Operations Manager', employee: 'Employee', manager: 'Line manager', hrbp: 'HR business partner', ta: 'Talent acquisition', payroll: 'HR operations', chro: 'CHRO', joiner: 'New joiner', finance: 'Finance controller', 'tasama-lead': 'Payroll lead, Tasama', 'tasama-specialist': 'Payroll specialist, Tasama' };
+const PERSONA: Record<string, string> = { tasama: 'Tasama HR Operations Manager', employee: 'Employee', manager: 'Line manager', hrbp: 'HR business partner', ta: 'Talent acquisition', payroll: 'Client HR operations', chro: 'CHRO', joiner: 'New joiner', finance: 'Finance controller', 'tasama-hrops': 'HR operations, Tasama', 'tasama-lead': 'Payroll lead, Tasama', 'tasama-specialist': 'Payroll specialist, Tasama' };
 
 export function Stage() {
   const { director, stepScenario } = useApp();

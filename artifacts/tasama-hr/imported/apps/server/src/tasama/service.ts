@@ -152,7 +152,7 @@ export async function nudge(escId: number, by = 'Raqeeb') {
 
 /** Tawzee: delivery load per staff member, from each client's HR operations volume over the last 30 days. */
 const MIN_PER_CASE: Record<string, number> = { 'WF-14': 6, 'WF-15': 8, 'WF-16': 25, 'WF-19': 120, 'WF-20': 150, 'WF-13': 600, 'WF-06': 180, 'WF-08': 30, 'WF-03': 90, 'WF-02': 45, 'WF-05': 60, 'WF-12': 45, 'WF-10': 120, 'WF-01': 30 };
-const SKILL_OF: Record<string, string> = { 'WF-13': 'PAYROLL', 'WF-16': 'PAYROLL', 'WF-19': 'PAYROLL', 'WF-20': 'HR_OPS', 'WF-14': 'HR_OPS', 'WF-15': 'HR_OPS', 'WF-06': 'HR_OPS', 'WF-08': 'HR_OPS', 'WF-12': 'HR_OPS', 'WF-10': 'HR_OPS', 'WF-02': 'RECRUITMENT', 'WF-03': 'RECRUITMENT', 'WF-05': 'RECRUITMENT', 'WF-01': 'RECRUITMENT' };
+const SKILL_OF: Record<string, string> = { 'WF-27': 'HR_OPS', 'WF-29': 'HR_OPS', 'WF-13': 'PAYROLL', 'WF-16': 'PAYROLL', 'WF-19': 'PAYROLL', 'WF-20': 'HR_OPS', 'WF-14': 'HR_OPS', 'WF-15': 'HR_OPS', 'WF-06': 'HR_OPS', 'WF-08': 'HR_OPS', 'WF-12': 'HR_OPS', 'WF-10': 'HR_OPS', 'WF-02': 'RECRUITMENT', 'WF-03': 'RECRUITMENT', 'WF-05': 'RECRUITMENT', 'WF-01': 'RECRUITMENT' };
 
 export async function workload(at = now()) {
   const staff = (await pool.query(`SELECT * FROM tasama.staff ORDER BY id`)).rows;

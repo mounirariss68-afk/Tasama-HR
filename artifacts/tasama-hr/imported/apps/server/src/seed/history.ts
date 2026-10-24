@@ -40,7 +40,7 @@ export async function seedHistory(c: PoolClient, base: BaseResult, client: Clien
     const r = await approvers(req);
     if (r.status !== 'WAITING') return r;
     at(when);
-    await decide(c, { requestId: req.id, personId: r.waiting_on_person_id, decision, reason });
+    await decide(c, { requestId: req.id, personId: r.waiting_on_person_id ?? 0, decision, reason, actorName: r.waiting_on_role === 'TASAMA_HR_OPS' ? 'Lama Al Dossary, Tasama' : undefined });
     return (await c.query(`SELECT * FROM layer.requests WHERE id=$1`, [req.id])).rows[0];
   };
   const pool = base.active.filter((id) => id !== P.joiner);
@@ -109,7 +109,12 @@ export async function seedHistory(c: PoolClient, base: BaseResult, client: Clien
     await decideAs(req, workday(addDays(notice, 1), 12));
     const r2 = await approvers(req);
     const lwd = r2.result?.last_working_day ?? iso(addDays(notice, 30));
-    if (r2.status === 'WAITING') await decideAs(req, workday(addDays(lwd, Math.round(R.int(2, 9) * slow)), 11));
+    if (r2.status === 'WAITING') {
+      // At a client with HR operations, Tasama checks the settlement the day before the client approves it.
+      const due = workday(addDays(lwd, Math.round(R.int(2, 9) * slow)), 11);
+      if (r2.waiting_on_role === 'TASAMA_HR_OPS') await decideAs(req, workday(addDays(due, -1), 15));
+      await decideAs(req, due);
+    }
   }
   // These leavers have gone: their clearance is finished. Each task is done on its due date; the settlement on the day the case closed.
   for (const who of resigners) {

@@ -24,13 +24,14 @@ import { TasamaPortfolio, TasamaAccount, TasamaSla, TasamaEscalations, TasamaFin
 import { ClientPolicies, PayrollAttendance, PayrollInbox, PayrollInputs, PayrollMonths, PayrollRuns } from './screens/payroll';
 import { PayrollPayments } from './screens/payments';
 import { PayrollJournals } from './screens/journals';
-import { CostsReports, CostsProvisions, CostsJournals } from './screens/costs';
+import { CostsReports, CostsProvisions, CostsJournals, CostsPayments } from './screens/costs';
+import { HrOpsDocuments } from './screens/hrops';
 import { DirectorBar } from './app/director';
 import { PresentBar, PresentOverlay, usePresent } from './app/present';
 import { ClientTile, TitleBrand } from './app/brand';
 import { applySkin, skinFor, SKINS } from './lib/brand';
 import { Stage } from './app/stage';
-import { Receipt, AlertTriangle, BookOpen, ListChecks, Landmark, BookOpenCheck } from 'lucide-react';
+import { Receipt, AlertTriangle, BookOpen, ListChecks, Landmark, BookOpenCheck, FolderOpen } from 'lucide-react';
 import { AssistantRail } from './app/assistant';
 import { CaseDrawer } from './app/case';
 import { plain } from './app/decision';
@@ -50,15 +51,22 @@ type Item = ContextNavItem & { show?: (roles: string[], key: string) => boolean 
 const I = (n: ReactNode) => n;
 
 const MENUS: Record<LensId, Item[]> = {
-  // Tasama's payroll team (design/payroll-addendum.md §3). Inputs, Payments and Journals join as their phases are built.
+  // Tasama's payroll team (design/payroll-addendum.md §3; Inputs and Attendance moved to HR operations, design/hr-ops-addendum.md R4).
   payroll: [
     { id: 'payroll-months', label: 'Months', icon: I(<CalendarDays size={14} />) },
     { id: 'payroll-inbox', label: 'Inbox', icon: I(<Inbox size={14} />) },
-    { id: 'payroll-inputs', label: 'Inputs', icon: I(<ListChecks size={14} />) },
-    { id: 'payroll-attendance', label: 'Attendance', icon: I(<ClipboardCheck size={14} />) },
     { id: 'payroll-runs', label: 'Runs', icon: I(<Wallet size={14} />) },
     { id: 'payroll-payments', label: 'Payments', icon: I(<Landmark size={14} />) },
     { id: 'payroll-journals', label: 'Journals', icon: I(<BookOpenCheck size={14} />) },
+    { id: 'payroll-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
+  ],
+  // Tasama's HR operations team (design/hr-ops-addendum.md R3): the month's intake and the Master File. Lands on Inbox.
+  hrops: [
+    { id: 'payroll-inbox', label: 'Inbox', icon: I(<Inbox size={14} />) },
+    { id: 'payroll-months', label: 'Months', icon: I(<CalendarDays size={14} />) },
+    { id: 'payroll-inputs', label: 'Inputs', icon: I(<ListChecks size={14} />) },
+    { id: 'payroll-attendance', label: 'Attendance', icon: I(<ClipboardCheck size={14} />) },
+    { id: 'hrops-documents', label: 'Documents', icon: I(<FolderOpen size={14} />) },
     { id: 'payroll-policies', label: 'Client policies', icon: I(<BookOpen size={14} />) },
   ],
   // The client's finance controller, view only (design/payroll-addendum.md §3, §21).
@@ -66,6 +74,7 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'costs-reports', label: 'Payroll reports', icon: I(<Wallet size={14} />) },
     { id: 'costs-provisions', label: 'Provisions', icon: I(<Coins size={14} />) },
     { id: 'costs-journals', label: 'Journals', icon: I(<BookOpenCheck size={14} />) },
+    { id: 'costs-payments', label: 'Payments', icon: I(<Landmark size={14} />) },
   ],
   tasama: [
     { id: 'tasama-portfolio', label: 'Overview', icon: I(<LayoutGrid size={14} />) },
@@ -109,14 +118,14 @@ const MENUS: Record<LensId, Item[]> = {
     { id: 'value', label: 'Value', icon: I(<LineChart size={14} />) },
   ],
 };
-const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'payroll', label: 'Payroll' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'fin', label: 'Payroll costs' }, { id: 'control', label: 'How it works' }];
+const LENSES: { id: LensId; label: string }[] = [{ id: 'tasama', label: 'Tasama Services' }, { id: 'payroll', label: 'Payroll' }, { id: 'hrops', label: 'HR Operations' }, { id: 'my', label: 'My HR' }, { id: 'team', label: 'My Team' }, { id: 'hr', label: 'HR Workspace' }, { id: 'fin', label: 'Payroll costs' }, { id: 'control', label: 'How it works' }];
 /** Which menu item a screen that is not in the menu lights up. */
 const NAV_OF: Record<string, string> = { 'payroll-add-client': 'payroll-months', 'tasama-account': 'tasama-portfolio', 'tasama-sla': 'tasama-portfolio', person: 'hr-workforce', connector: 'evidence' };
 
 const SCREENS: Record<string, () => ReactNode> = {
   'tasama-portfolio': () => <TasamaPortfolio />, 'tasama-account': () => <TasamaAccount />, 'tasama-sla': () => <TasamaSla />, 'tasama-escalations': () => <TasamaEscalations />,
   'tasama-patterns': () => <TasamaPatterns />, 'tasama-finance': () => <TasamaFinance />, 'tasama-delivery': () => <TasamaDelivery />, 'tasama-policies': () => <ClientPolicies />,
-  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-payments': () => <PayrollPayments />, 'payroll-journals': () => <PayrollJournals />, 'costs-reports': () => <CostsReports />, 'costs-provisions': () => <CostsProvisions />, 'costs-journals': () => <CostsJournals />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-inputs': () => <PayrollInputs />, 'payroll-policies': () => <ClientPolicies />, 'payroll-add-client': () => <AddPayrollClient />,
+  'payroll-months': () => <PayrollMonths />, 'payroll-inbox': () => <PayrollInbox />, 'payroll-runs': () => <PayrollRuns />, 'payroll-payments': () => <PayrollPayments />, 'payroll-journals': () => <PayrollJournals />, 'costs-reports': () => <CostsReports />, 'costs-provisions': () => <CostsProvisions />, 'costs-journals': () => <CostsJournals />, 'costs-payments': () => <CostsPayments />, 'hrops-documents': () => <HrOpsDocuments />, 'payroll-attendance': () => <PayrollAttendance />, 'payroll-inputs': () => <PayrollInputs />, 'payroll-policies': () => <ClientPolicies />, 'payroll-add-client': () => <AddPayrollClient />,
   'my-home': () => <MyHome />, 'my-requests': () => <MyRequests />, 'my-leave': () => <MyLeave />, 'my-pay': () => <MyPay />, 'my-growth': () => <MyGrowth />, 'my-onboarding': () => <MyOnboarding />,
   team: () => <TeamScreen />, 'team-approvals': () => <TeamApprovals />, 'team-hiring': () => <TeamHiring />, 'team-performance': () => <TeamPerformance />,
   'hr-inbox': () => <HrInbox />, 'hr-lifecycle': () => <Lifecycle />, 'hr-overview': () => <ChroOverview />, 'hr-workforce': () => <Workforce />, person: () => <PersonScreen />,
@@ -158,7 +167,7 @@ function PersonaMenu() {
 
 function Notifications() {
   const { t, bi, lang } = useLang();
-  const { openCase, persona } = useApp();
+  const { openCase, persona, go } = useApp();
   const { data } = useApi<any[]>(persona ? `/notifications?k=${persona.key}` : null, { poll: 15000 });
   const n = (data ?? []).filter((x) => !x.read).length;
   return (
@@ -172,9 +181,9 @@ function Notifications() {
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel>{t('Notifications')}</DropdownMenuLabel>
         {(data ?? []).slice(0, 8).map((x) => (
-          <DropdownMenuItem key={x.id} onSelect={() => x.link?.startsWith('case:') && openCase(x.link.slice(5))} className="block py-2">
+          <DropdownMenuItem key={x.id} onSelect={() => (x.link?.startsWith('case:') ? openCase(x.link.slice(5), x.client) : x.link ? go(x.link) : undefined)} className="block py-2">
             <span className="block text-sm font-medium">{bi(x.title, x.title_ar)}</span>
-            <span className="block text-xs text-muted-foreground">{plain(x.body)} · {ago(x.created_at, lang)}</span>
+            <span className="block text-xs text-muted-foreground">{x.client_short ? `${x.client_short} · ` : ''}{plain(x.body)} · {ago(x.created_at, lang)}</span>
           </DropdownMenuItem>
         ))}
         {!data?.length ? <p className="px-2 py-3 text-sm text-muted-foreground">{t('Nothing new.')}</p> : null}

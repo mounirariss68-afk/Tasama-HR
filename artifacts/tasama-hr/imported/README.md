@@ -12,7 +12,8 @@ Tasama runs HR and payroll for several client companies. This platform is the ag
   - every client's policies.
 
   Five agents support this: Raqeeb (service levels), Basira (pattern watch and root cause), Fatoora (billing), Tawzee (workload) and Intiqal (a new client's files read into the platform).
-- **Tasama's payroll team** works in the Payroll lens: every client's month, one inbox across clients, the inputs, attendance, runs, payments, journals and each client's policy. The team is Sharifa AlMousa, the Payroll lead, and Nasser AlFarraj, the Payroll specialist. Eight agents each do one step, and none of them can approve a run or release a payment:
+- **Tasama HR operations** works in the HR Operations lens: one inbox across clients, every client's month, the inputs, attendance, each employee's documents and each client's policy. Lama Al Dossary checks each change and each contract the client sends against its document, answers payroll's questions or takes them to the client, and hands the month to payroll. Faisal, the HR Operations Manager, sees the same inbox (`design/hr-ops-addendum.md`, `design/payroll-ops-addendum.md`).
+- **Tasama's payroll team** works in the Payroll lens: every client's month, one inbox across clients, the runs, payments, journals and each client's policy. The team is Sharifa AlMousa, the Payroll lead, and Nasser AlFarraj, the Payroll specialist. Payroll validates the changes; it does not enter them. Eight agents each do one step, and none of them can approve a run or release a payment:
 
   | Agent | Step |
   |---|---|
@@ -27,9 +28,9 @@ Tasama runs HR and payroll for several client companies. This platform is the ag
 
   The engine calculates every line from the client's approved rules, and every line names the rule it used.
 - **The client's side:**
-  - the CHRO approves each run in HR Workspace › Payroll;
+  - the client's HR operations approves each run in HR Workspace › Payroll;
   - HR operations sends the month's changes there;
-  - the finance controller reads costs, provisions and journals in the Payroll costs lens.
+  - the finance controller reads costs, provisions and journals in the Payroll costs lens, and records the bank approval of each payroll file on Payroll costs › Payments; no bank is connected.
 
 Twenty-seven agents run 34 workflows in all. Agents check, prepare and recommend; people decide. Every read and write to a client's employee master goes through one connector, and is logged in that system's own API dialect (Oracle REST, or Tasama HR's own).
 
@@ -115,14 +116,14 @@ The server uses the first Claude model Replit's connection accepts, trying in th
 
 Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is one card: a meta line, a headline, up to four facts and one recommendation line, then the actions and one collapsed "How this was checked" disclosure (`apps/web/src/app/decision.tsx`). The assistant confirms with one card (`apps/web/src/app/confirm-card.tsx`). What was removed from each screen is listed in `design/screen-review.md`; the menu review is in `design/menu-review.md`.
 
-| Check | Command | Result, 23 October 2026 |
+| Check | Command | Result, 24 October 2026 |
 |---|---|---|
 | Types | `npm run typecheck` | Clean |
-| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 101 of 101 pass |
-| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 179 views, 0 problems |
-| The screen lint in Arabic | `npm run check:arabic`: English left on a work surface | 179 views; the Payroll and Payroll costs lenses clean; 20 left in HR and Tasama screens (Basira's findings, text people typed). The Stage's narration is English |
+| The live world | `npm run check` (needs `DATABASE_URL` and the server running) | 114 of 114 pass |
+| The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 190 views, 0 problems |
+| The screen lint in Arabic | `npm run check:arabic`: English left on a work surface | 190 views; the Payroll, HR Operations and Payroll costs lenses clean; 21 left in HR and Tasama screens (Basira's findings, text people typed). The Stage's narration is English |
 | The payroll engine | `npm run check:golden`: Tasama's July 2025 template run, and hand-worked cases | 43 of 43 figures match; 22 of 22 cases |
-| The Director | Every scenario, every step, twice through the Director's routes | 18 scenarios, 79 steps, 0 failing |
+| The Director | Every scenario, every step, twice through the Director's routes | 19 scenarios, 84 steps, 0 failing |
 
 Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app. The canon's agent budget is exceeded on purpose: the payroll addendum brings the platform to 27 agents, all built, each with its own job (`design/payroll-addendum.md` §6).
 
@@ -143,7 +144,7 @@ apps/server/src/payroll/            runs, inputs, payments (bank, WPS, Mudad) an
 apps/server/src/domain/banks.ts     the banks and the bank file layouts
 apps/server/src/domain/ledger.ts    the illustrative chart of accounts and the Oracle and Odoo journal files
 apps/server/src/onboarding/         a new client read from its files into seven lanes, and go-live
-apps/server/src/director.ts         the 18 scenarios the Demo Director plays on the Stage
+apps/server/src/director.ts         the 19 scenarios the Demo Director plays on the Stage
 apps/web/src/app/present.tsx        Present mode and its five storylines
 apps/web/src/lib/ar.ts              the Arabic interface strings and templates
 demo-files/soudah/                  the files Soudah Development hands over (generated by tools/new-client/)

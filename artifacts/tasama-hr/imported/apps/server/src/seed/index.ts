@@ -22,12 +22,13 @@ import { seedIssues } from './issues.js';
 import { basiraScan } from '../tasama/basira.js';
 
 /** Bump when the data model or the planted demo data changes: a deployed app rebuilds its data on the next start. */
-export const SEED_VERSION = 12;
+export const SEED_VERSION = 15;
 import { scan } from '../agents/amin.js';
 import { setClock } from '../clock.js';
 import { resetPeople } from '../engine/handlers.js';
 import { iso } from '../domain/rules.js';
 import { CLIENTS } from '../domain/clients.js';
+import { seedDocuments, seedContractIntake } from './documents.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SCHEMA = resolve(here, '../../../../db/schema.sql');
@@ -64,6 +65,8 @@ export async function reseed(log: (s: string) => void = console.log) {
             await seedInputs(c, base, cl);
             await seedRuns(c, base, cl);
             await seedPaymentHistory(c);
+            await seedDocuments(c, cl);
+            await seedContractIntake(c, base, cl);
             // Edge 11: ROSHN's last month is paid and its journals wait on the payroll lead (§21).
             const lastClosed = (await c.query(`SELECT period_name FROM hcm.payroll_periods WHERE status='CLOSED' ORDER BY start_date DESC LIMIT 1`)).rows[0]?.period_name ?? null;
             await seedJournalHistory(c, cl.key === 'roshn' ? lastClosed : null);

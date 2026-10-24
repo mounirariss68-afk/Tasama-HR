@@ -4,7 +4,7 @@
  * Back / Step / Play-Pause / Stop. Adapted from the Jahiz Demo Director.
  */
 import { useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Pause, Play, Square, Zap } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, EyeOff, Loader2, Pause, Play, Square, Zap } from 'lucide-react';
 import { useLang } from '../lib/i18n';
 import { AUTO_STEP_MS, useApp } from './state';
 import { AGENT_NAMES, Btn, Chip, StatusChip } from './ui';
@@ -12,7 +12,7 @@ import { plain } from './decision';
 
 const PERSONA_LABEL: Record<string, [string, string]> = {
   tasama: ['Tasama HR Operations Manager', 'مدير عمليات الموارد البشرية في تسامى'], employee: ['Employee', 'موظف'], manager: ['Line manager', 'مدير مباشر'],
-  hrbp: ['HR business partner', 'شريك أعمال الموارد البشرية'], ta: ['Talent acquisition', 'استقطاب المواهب'], payroll: ['HR operations', 'عمليات الموارد البشرية'], finance: ['Finance controller', 'المراقب المالي'], 'tasama-lead': ['Payroll lead, Tasama', 'قائدة الرواتب، تسامى'], 'tasama-specialist': ['Payroll specialist, Tasama', 'أخصائي الرواتب، تسامى'],
+  hrbp: ['HR business partner', 'شريك أعمال الموارد البشرية'], ta: ['Talent acquisition', 'استقطاب المواهب'], payroll: ['Client HR operations', 'عمليات الموارد البشرية لدى العميل'], 'tasama-hrops': ['HR operations, Tasama', 'عمليات الموارد البشرية، تسامى'], finance: ['Finance controller', 'المراقب المالي'], 'tasama-lead': ['Payroll lead, Tasama', 'قائدة الرواتب، تسامى'], 'tasama-specialist': ['Payroll specialist, Tasama', 'أخصائي الرواتب، تسامى'],
   chro: ['CHRO', 'الرئيس التنفيذي للموارد البشرية'], joiner: ['New joiner', 'موظف جديد'],
 };
 
@@ -20,6 +20,8 @@ export function DirectorBar() {
   const { t, bi } = useLang();
   const { director: d, stepScenario, stopScenario, setAuto, openCase, session } = useApp();
   const [open, setOpen] = useState(true);
+  // Firat's review (design/payroll-ops-addendum.md §1): the bar can be hidden so the page under it can be read.
+  const [hidden, setHidden] = useState(false);
   if (!d) return null;
   const r = d.results[d.index];
   const st = d.steps[Math.max(0, d.index)];
@@ -29,6 +31,15 @@ export function DirectorBar() {
     ...r.changes.trail.map((x: any) => ({ key: `t${x.id}`, who: x.actor_type === 'AGENT' ? bi(...(AGENT_NAMES[x.actor_id] ?? [x.actor_name, x.actor_name])) : x.actor_name, agent: x.actor_type === 'AGENT', autonomy: x.autonomy, text: x.summary, ref: x.ref })),
     ...r.changes.tasama.map((x: any) => ({ key: `s${x.id}`, who: x.actor_type === 'AGENT' ? bi(...(AGENT_NAMES[x.actor_id] ?? [x.actor_name, x.actor_name])) : x.actor_name, agent: x.actor_type === 'AGENT', autonomy: x.autonomy, text: x.summary, ref: x.ref?.includes('-CASE-') ? x.ref : null })),
   ] : [];
+  if (hidden) return (
+    <div className="pointer-events-none fixed bottom-3 end-3 z-[60]" role="region" aria-label={t('Demo Director')}>
+      <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-primary/40 bg-background/95 py-1.5 ps-3 pe-1.5 shadow-2xl backdrop-blur-xl">
+        <span className="text-[11px] text-muted-foreground">{t('Step')} {d.index + 1} / {d.steps.length}</span>
+        <Btn small kind="primary" onClick={() => stepScenario(1)} disabled={d.busy || atEnd}>{d.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronRight className="h-3.5 w-3.5" />} {t('Step')}</Btn>
+        <Btn small onClick={() => setHidden(false)}><ChevronUp className="h-3.5 w-3.5" /> {t('Show')}</Btn>
+      </div>
+    </div>
+  );
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] px-3 pb-3 sm:px-6" role="region" aria-label={t('Demo Director')}>
       <div className="pointer-events-auto mx-auto max-w-[1400px] rounded-2xl border border-primary/40 bg-background/95 p-3 shadow-2xl backdrop-blur-xl">
@@ -48,6 +59,7 @@ export function DirectorBar() {
               {d.auto ? <Chip tone="success">{t('Playing')} · {Math.round(AUTO_STEP_MS / 1000)} s {t('per step')}</Chip> : null}
               {d.status === 'done' && atEnd ? <Chip tone="success">{t('Scenario complete')}</Chip> : null}
               <button type="button" onClick={() => setOpen(!open)} className="ms-auto inline-flex items-center gap-1 hover:text-foreground">{open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}{open ? t('Less') : t('More')}</button>
+              <button type="button" onClick={() => setHidden(true)} className="inline-flex items-center gap-1 hover:text-foreground"><EyeOff className="h-3.5 w-3.5" />{t('Hide')}</button>
             </p>
             <p className="mt-0.5 text-sm font-semibold">{bi(st.title, st.title_ar)}</p>
             {open ? <p className="mt-0.5 text-[13px] leading-relaxed text-foreground/90">{d.busy && !r ? t('Running the step…') : plain(r?.narration)}</p> : null}
