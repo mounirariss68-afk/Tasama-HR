@@ -15,6 +15,8 @@ import { settlement, involuntaryCheck } from '../agents/exit.js';
 import { now } from '../clock.js';
 import { PAYROLL_HANDLERS, PAYROLL_WHO } from './payroll-handlers.js';
 import { INTAKE_HANDLERS, INTAKE_WHO } from './intake-handlers.js';
+import { CALENDAR_HANDLERS } from './calendar-handlers.js';
+import { HANDOVER_HANDLERS } from './handover-handlers.js';
 
 type H = (h: HCtx) => Promise<StepOutcome>;
 type Who = (c: PoolClient, req: Req, def: StepDef) => Promise<{ role: string; personId: number } | null>;
@@ -121,6 +123,8 @@ const intake: H = async (h) => {
 export const HANDLERS: Record<string, H> = {
   ...PAYROLL_HANDLERS,
   ...INTAKE_HANDLERS,
+  ...CALENDAR_HANDLERS,
+  ...HANDOVER_HANDLERS,
   // ---------------------------------------------------------- WF-14 letters
   'WF-14:intake': intake,
   'WF-14:validate': async (h) => {
@@ -696,7 +700,7 @@ export const HANDLERS: Record<string, H> = {
     return { status: 'DONE', outputs: { lastDay, notice: w.notice_period_days }, recommend: { verdict: 'APPROVE', summary: `Last working day ${lastDay}. On resignation the end-of-service award follows Art. 85: none under two years, one third for 2-5 years, two thirds for 5-10, in full from 10 years (HR-11 §11.2).`, summary_ar: `آخر يوم عمل ${lastDay}. عند الاستقالة تتبع مكافأة نهاية الخدمة المادة 85: لا شيء قبل سنتين، والثلث من 2 إلى 5 سنوات، والثلثان من 5 إلى 10، وكاملة من 10 سنوات.` } };
   },
   'WF-19:settlement': async (h) => {
-    const st = await settlement(h.conn, h.req.subject_person_id, h.req.payload.last_day);
+    const st = await settlement(h.conn, h.req.subject_person_id, h.req.payload.last_day, undefined, h.req.payload.reason);
     await h.setResult({ settlement: st });
     await h.trail({ act: 'PREPARE', summary: `Final settlement ${money(st.total)}: ${st.lines.map((l) => `${l.label} ${money(l.amount)}`).join('; ')}. Pay by ${st.payBy}.`, summary_ar: `التسوية النهائية ${money(st.total)}.`, citation: 'HR-11 §11.1–11.5' });
     return { status: 'DONE', outputs: { total: st.total }, recommend: { verdict: 'APPROVE', summary: `${money(st.total)}; every line traced to its rule and HRMS record. Pay by ${st.payBy}.`, summary_ar: `${money(st.total)}؛ كل بند مرتبط بقاعدته وبسجله في نظام الموارد البشرية. يُدفع قبل ${st.payBy}.` } };
@@ -749,6 +753,8 @@ async function terminate(h: HCtx, action: string): Promise<StepOutcome> {
   const payDays = settlementDeadlineDays(kind);
   await ext(h, 'QIWA', 'POST', '/qiwa/contracts/terminate', `Contract closure for ${pid} effective ${last}`);
   await ext(h, 'GOSI', 'POST', '/gosi/employer/exclusions', `GOSI deregistration for ${pid} from ${last}`);
+  // Walkthrough addendum R38: leaving ends the medical insurance too, and HR operations prepares the exit letters.
+  await ext(h, 'CCHI', 'POST', '/cchi/policy/members/remove', `Medical insurance: ${pid} removed from the policy from ${last}`);
   if (!isSaudi) await ext(h, 'MUQEEM', 'POST', '/muqeem/final-exit', `Final exit visa request for ${pid}`);
   const jnum = `DEMO-JRN-${String((await h.c.query(`SELECT nextval('hcm.misc_seq') n`)).rows[0].n).padStart(5, '0')}`;
   await write(h.conn, 'POST', 'journeys', `Allocate OFFBOARDING journey ${jnum}`, async () => {
@@ -758,6 +764,7 @@ async function terminate(h: HCtx, action: string): Promise<StepOutcome> {
       ['access', 'System access removed on last day', 'إيقاف الصلاحيات في آخر يوم', 'IT', 0], ['exit_interview', 'Exit interview', 'مقابلة الخروج', 'WADAA', -3],
       ['settlement', `Final settlement paid (within ${payDays} days, Art. 88)`, `دفع التسوية النهائية خلال ${payDays} أيام (المادة 88)`, 'HR_OPS', payDays], ['qiwa', 'Contract closed on Qiwa', 'إنهاء العقد في منصة قوى', 'HR_OPS', 0],
       ['gosi', 'GOSI deregistration', 'استبعاد الموظف من التأمينات الاجتماعية', 'HR_OPS', 1],
+      ['insurance', 'Removed from the medical insurance policy', 'إخراجه من وثيقة التأمين الطبي', 'HR_OPS', 1],
       ...(isSaudi ? [] : [['final_exit', 'Final exit visa issued through Muqeem', 'إصدار تأشيرة الخروج النهائي عبر منصة مقيم', 'HR_OPS', 0] as [string, string, string, string, number]]),
       ['experience', 'Experience letter issued', 'إصدار شهادة الخبرة', 'HR_OPS', 1],
     ];

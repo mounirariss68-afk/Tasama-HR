@@ -23,9 +23,11 @@ async function exitKind(ctx: Ctx, personId: number, kind?: ExitKind): Promise<Ex
   return wr?.termination_action === 'RESIGNATION' ? 'RESIGNATION' : 'TERMINATION';
 }
 
-export async function settlement(ctx: Ctx, personId: number, lastDay: string, kindIn?: ExitKind) {
+export async function settlement(ctx: Ctx, personId: number, lastDay: string, kindIn?: ExitKind, reason?: string | null) {
   const w = (await worker(ctx, personId, lastDay))!;
   const kind = await exitKind(ctx, personId, kindIn);
+  // Walkthrough addendum R39 (Art. 87): a woman who resigns within six months of her marriage, or three of a birth, receives the full award.
+  const art87 = kind === 'RESIGNATION' && /MARRIAGE|BIRTH/i.test(reason ?? '') && w.gender === 'F';
   const bal = await read(ctx, 'absences', `q=PersonId=${personId}&expand=entitlementSummary`, 'Leave balance for settlement', async () =>
     (await ctx.c.query(`SELECT (entitlement + carried_over - taken - booked) AS balance FROM hcm.absence_balances WHERE person_id=$1 AND type_code='ANNUAL' ORDER BY year DESC LIMIT 1`, [personId])).rows[0]);
   const adv = await read(ctx, 'elementEntries', `q=PersonId=${personId};ElementName=ADVANCE_REC`, 'Outstanding advances', async () =>
@@ -42,7 +44,7 @@ export async function settlement(ctx: Ctx, personId: number, lastDay: string, ki
   const lines: SettlementLine[] = [];
   let g = { factor: 1, years: round2(yearsBetween(w.original_hire_date, lastDay)), full: 0 };
   if (emp) {
-    const fs = finalSettlement({ start: ms, end: me }, x.terms, { ...emp, lastDay }, { leaving: kind === 'RESIGNATION' ? 'RESIGNATION' : 'TERMINATION', advanceOutstanding: Number(adv?.outstanding ?? 0) || undefined });
+    const fs = finalSettlement({ start: ms, end: me }, x.terms, { ...emp, lastDay }, { leaving: art87 ? 'ART_87' : kind === 'RESIGNATION' ? 'RESIGNATION' : 'TERMINATION', advanceOutstanding: Number(adv?.outstanding ?? 0) || undefined });
     const award = fs.lines.find((l) => l.code === 'eos_award');
     g = { factor: fs.factor, years: round2(fs.years), full: award && fs.factor ? round2(award.amount / fs.factor) : 0 };
     for (const l of fs.lines) lines.push({ code: SETTLEMENT_CODE[l.code] ?? l.code.toUpperCase(), label: l.label, label_ar: l.label, amount: l.kind === 'DEDUCTION' ? -l.amount : l.amount, rule: l.rule });
@@ -50,13 +52,14 @@ export async function settlement(ctx: Ctx, personId: number, lastDay: string, ki
   void bal;
   const total = round2(lines.reduce((s, l) => s + l.amount, 0));
   const notes: string[] = [];
+  if (art87) notes.push(`Resignation within six months of marriage: the full award of ${money(g.full)}, not the Art. 85 share (Saudi Labor Law Art. 87).`);
   if (kind === 'RESIGNATION' && g.factor < 1) notes.push(`Resignation: ${g.factor === 0 ? 'no award under two years of service' : `${g.factor === 1 / 3 ? 'one third' : 'two thirds'} of the full award of ${money(g.full)}`} (Saudi Labor Law Art. 85; HR-11 §11.2).`);
   if (w.is_saudi) notes.push('Saudi national: GOSI annuity and SANED (unemployment insurance) entitlements are handled by GOSI separately from this settlement; report the exit to GOSI (HR-11 §11.3).');
   notes.push(`Final settlement due within ${deadline} days of the last working day, by ${payBy} (Saudi Labor Law Art. 88; HR-11 §11.5).`);
   return {
     person: { id: w.person_id, name: w.display_name, name_ar: w.display_name_ar, number: w.person_number, job: w.job_name, grade: w.grade_code, nationality: w.nationality, saudi: w.is_saudi },
     hire: w.original_hire_date, lastDay, years: round2(yearsBetween(w.original_hire_date, lastDay)), basis: w.eos_basis, basic: w.basic, monthly,
-    kind, lines, total, payBy, deadlineDays: deadline, note: notes.join(' '),
+    kind, reason: art87 ? 'MARRIAGE' : reason ?? null, lines, total, payBy, deadlineDays: deadline, note: notes.join(' '),
     visa: w.is_saudi ? null : 'End the contract on Qiwa, then issue the final exit visa through Muqeem and cancel CCHI medical cover (HR-12 §12.7).',
   };
 }

@@ -7,8 +7,10 @@ import { Router } from 'express';
 import { pool, withClient, tx } from '../db.js';
 import { client } from '../domain/rules.js';
 import { CLIENTS, allClients, clientByKey } from '../domain/clients.js';
-import { DIMENSIONS } from '../domain/payroll-policy.js';
-import { startCase } from '../engine/core.js';
+import { DIMENSIONS, payrollPolicy } from '../domain/payroll-policy.js';
+import { ELEMENT_CATALOGUE, GROUP_LABEL } from '../domain/elements.js';
+import { startCase, decide } from '../engine/core.js';
+import { calendarFor, monthStages, monthOn, stagesForMonths } from '../payroll/calendar.js';
 import { activeVersion, rulesOf } from '../payroll/policy.js';
 import { draftRun, provisionHistory } from '../payroll/run.js';
 import { runChecks, reschedule, ask } from '../payroll/checks.js';
@@ -20,7 +22,7 @@ import { journalFile } from '../payroll/journals.js';
 import { explain } from '../payroll/differences.js';
 import { tasamaTrail } from '../tasama/service.js';
 import { packagePdf, packageXlsx, reportsXlsx } from '../payroll/package.js';
-import { deviceExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
+import { deviceExport, summaryExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
 import { PENALTY_TABLE, FINE_CAP_DAYS } from '../domain/attendance.js';
 import { personaOf, isPayrollTeam, isTasama, type Persona, isHrOpsTeam } from './session.js';
 
@@ -42,9 +44,15 @@ payroll.get('/payroll/months', async (req, res) => {
     const waiting = (await pool.query(`SELECT COUNT(*)::int n FROM layer.requests WHERE status IN ('WAITING','ESCALATED') AND waiting_on_role = ANY($1)`, [teamRoles(p)])).rows[0].n;
     const v = await activeVersion(pool);
     const stage = !per ? 'NONE' : today <= per.cutoff_date ? 'INPUTS' : today <= per.pay_date ? 'RUN' : 'PAID';
+    const calendar = await stagesForMonths(today);
+    // The calendar sheet's columns (walkthrough addendum R15): who is responsible, the bank, the file's state.
+    const bank = per ? await payingBank(per.period_name, key) : null;
+    const file = per ? (await pool.query(`SELECT state, reconciliation FROM layer.payments WHERE period_name=$1 AND kind='REGULAR' ORDER BY id DESC LIMIT 1`, [per.period_name])).rows[0] : null;
     return {
+      calendar, team: c.team ? { ...c.team, finance: await financeApprover(pool) } : null, bank: bank ? { name: bank.bank.name, name_ar: bank.bank.name_ar } : null,
+      fileState: !file ? 'NOT_BUILT' : file.state === 'BUILT' ? 'BUILT' : file.state === 'SENT' ? 'IN_PORTAL' : file.state === 'APPROVED' ? 'APPROVED' : file.reconciliation?.reconciled ? 'RECONCILED' : 'PAID',
       key, short: c.short, name_ar: c.name_ar, hrms: c.hrms, employees: people, period: per?.period_name, start: per?.start_date, end: per?.end_date,
-      cutoff: per?.cutoff_date, pay: per?.pay_date, approval: per ? new Date(new Date(`${per.pay_date}T00:00:00Z`).getTime() - 4 * 86_400_000).toISOString().slice(0, 10) : null,
+      cutoff: per?.cutoff_date, pay: per?.pay_date, approval: calendar.stages.find((s) => s.key === 'approval')?.date ?? (per ? new Date(new Date(`${per.pay_date}T00:00:00Z`).getTime() - 4 * 86_400_000).toISOString().slice(0, 10) : null),
       stage, waiting, policy: v ? { version: v.version, since: v.effective_from } : null,
     };
   });
@@ -99,7 +107,12 @@ payroll.get('/payroll/policies/:client', async (req, res) => {
     const activeRules = active && pick && active.id !== pick.id ? await rulesOf(pool, active.id) : null;
     const changed = activeRules ? rules.filter((r: any) => { const a = activeRules.find((x: any) => x.key === r.key); return !a || a.value !== r.value || (a.flag ?? null) !== (r.flag ?? null); }).map((r: any) => r.key) : [];
     const clauses = (await pool.query(`SELECT c.id, c.policy_id, c.clause_ref, c.heading, c.heading_ar, c.text_en, c.text_ar FROM layer.policy_clauses c ORDER BY c.policy_id, c.id`)).rows;
-    return { versions, version: pick ?? null, rules, changed, clauses };
+    // The element catalogue (walkthrough addendum R6): Tasama's list, the client's extra allowances, and this month's use of each.
+    const per = (await pool.query(`SELECT to_char(start_date,'YYYY-MM-DD') s, to_char(end_date,'YYYY-MM-DD') e FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+    const use = per ? new Map((await pool.query(`SELECT element_code, count(DISTINCT person_id)::int people, SUM(amount)::float total FROM hcm.element_entries WHERE effective_start <= $2 AND effective_end >= $1 GROUP BY 1`, [per.s, per.e])).rows.map((r: any) => [r.element_code, r])) : new Map();
+    const extras = payrollPolicy(key).extra.filter((x) => !ELEMENT_CATALOGUE.some((e) => e.code === x.code)).map((x) => ({ code: x.code, name: x.name, name_ar: x.name_ar, group: 'RECURRING_EARNING', gosi: false, eos: x.inEos, termMonths: null, source: 'The client\'s policy', source_ar: 'سياسة العميل' }));
+    const elements = [...ELEMENT_CATALOGUE, ...extras].map((e) => ({ ...e, people: use.get(e.code)?.people ?? 0, total: use.get(e.code)?.total ?? 0, groupLabel: GROUP_LABEL[e.group as keyof typeof GROUP_LABEL] }));
+    return { versions, version: pick ?? null, rules, changed, clauses, elements };
   });
   res.json({ client: { key, short: c.short, name_ar: c.name_ar, hrms: c.hrms }, dimensions: DIMENSIONS, ...out });
 });
@@ -242,13 +255,36 @@ payroll.get('/payroll/approval', async (req, res) => {
   res.json({ period: d?.period ?? null, run, totals: run?.totals ?? d?.totals ?? null, differences: run?.differences ?? null });
 });
 
+/** The client's payroll calendar for the year (HR Workspace › Payroll › Calendar; design/walkthrough-addendum.md item 5). */
+payroll.get('/payroll/calendar', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.roles.some((r) => ['PAYROLL', 'CHRO', 'FINANCE', 'TASAMA_HR_OPS', 'TASAMA_PAYROLL', 'TASAMA_PAYROLL_LEAD'].includes(r))) return res.status(403).json({ error: 'The payroll calendar is for HR operations, the CHRO, finance and Tasama.' });
+  const today = new Date().toISOString().slice(0, 10);
+  const year = Number(req.query.year ?? today.slice(0, 4));
+  const k = await calendarFor(pool, year);
+  const open = monthOn(k.months, today);
+  res.json({ today, year, status: k.onFile ? k.status : 'NONE', ref: k.ref ?? null, approved_by: k.approved_by, approved_at: k.approved_at, canApprove: k.onFile && k.status === 'PROPOSED' && p.roles.includes('PAYROLL'),
+    months: k.months.map((m) => ({ period: m.period, open: m.period === open?.period, stages: monthStages(m, today) })) });
+});
+
+/** The client's HR operations approves the year's calendar from the Calendar tab (WF-38 `approve`). */
+payroll.post('/payroll/calendar/approve', async (req, res) => {
+  const p = await personaOf(req);
+  if (!p.roles.includes('PAYROLL')) return res.status(403).json({ error: 'The client\'s HR operations approves the calendar.' });
+  const year = Number(req.body?.year ?? new Date().getUTCFullYear());
+  const k = (await pool.query(`SELECT request_id FROM layer.payroll_calendar WHERE year=$1 AND status='PROPOSED'`, [year])).rows[0];
+  if (!k?.request_id) return res.status(409).json({ error: `${year}'s calendar is not waiting for approval.` });
+  await tx((c) => decide(c, { requestId: k.request_id, personId: p.person_id, decision: 'APPROVED', reason: req.body?.reason ?? 'The dates work for us' }));
+  res.json({ ok: true });
+});
+
 /** Net pay and employer cost by month (HR Workspace › Payroll › Reports). */
 payroll.get('/payroll/reports', async (req, res) => {
   const p = await personaOf(req);
   if (!p.roles.some((r) => ['PAYROLL', 'CHRO'].includes(r))) return res.status(403).json({ error: 'HR operations and the CHRO only.' });
   const rows = (await pool.query(`SELECT pp.period_name, COUNT(r.*)::int people, SUM(r.gross)::float gross, SUM(r.net)::float net, SUM(r.employer_contributions)::float employer
       FROM hcm.payroll_periods pp JOIN hcm.payroll_results r ON r.period_id=pp.id GROUP BY pp.period_name, pp.start_date ORDER BY pp.start_date`)).rows;
-  res.json({ months: rows });
+  res.json({ months: rows, departments: await departmentSummary() });
 });
 
 /* ------------------------------------------------------------------ Attendance (WF-29) */
@@ -307,7 +343,7 @@ payroll.get('/payroll/attendance/:client', async (req, res) => {
 payroll.get('/payroll/attendance/:client/export', async (req, res) => {
   const c = clientByKey(req.params.client);
   if (!c) return res.status(404).json({ error: 'No such client' });
-  const f = await withClient(c.key, async () => deviceExport(pool));
+  const f = await withClient(c.key, async () => (req.query.kind === 'summary' ? summaryExport(pool) : deviceExport(pool)));
   if (!f) return res.status(404).json({ error: 'No device export for this client this month.' });
   res.setHeader('content-type', 'text/csv; charset=utf-8');
   res.setHeader('content-disposition', `attachment; filename="${f.fileName}"`);
@@ -321,7 +357,8 @@ payroll.post('/payroll/attendance/:client/map', async (req, res) => {
   const csv = String(req.body?.csv ?? '');
   if (!csv.trim()) return res.status(400).json({ error: 'The file is empty.' });
   const lines = csv.split(/\r?\n/).filter((l) => l.trim());
-  res.json({ headers: headersOf(csv), map: proposeMap(csv), sample: lines.slice(1, 4).map((l) => l.split(',')), rows: lines.length - 1 });
+  const map = proposeMap(csv);
+  res.json({ headers: headersOf(csv), map, summary: map.kind === 'SUMMARY', sample: lines.slice(1, 4).map((l) => l.split(',')), rows: lines.length - 1 });
 });
 
 /** Store the punches and open the attendance month (WF-29): Hudoor reads it at once. */
@@ -334,7 +371,7 @@ payroll.post('/payroll/attendance/:client/upload', async (req, res) => {
     const out = await withClient(c.key, () => tx(async (db) => {
       const csv = String(req.body?.csv ?? '');
       const map = req.body?.map ?? proposeMap(csv);
-      const up = await ingest(db, { fileName: String(req.body?.fileName ?? 'attendance.csv'), csv, map, by: p.display_name });
+      const up = await ingest(db, { fileName: String(req.body?.fileName ?? 'attendance.csv'), csv, map, by: p.display_name, month: req.body?.month });
       const people = (await db.query(`SELECT value FROM layer.meta WHERE key='people'`)).rows[0].value;
       const ops = people.persona.payroll as number;
       const k = await startCase(db, { workflowId: 'WF-29', type: 'ATTENDANCE_MONTH', title: `${c.short} attendance, ${req.body?.month ?? 'last month'}`, title_ar: `حضور ${c.name_ar}`, requester: ops, subject: ops, channel: 'FORM',
@@ -643,6 +680,19 @@ payroll.get('/payroll/journals/:client/:period/file', async (req, res) => {
 
 const financeView = (p: Persona) => p.lenses.includes('fin') || isTasama(p) || isPayrollTeam(p);
 
+/** The payroll summary by department and cost centre for the latest paid month (walkthrough addendum R26): totals only, no employee detail. */
+async function departmentSummary() {
+  const per = (await pool.query(`SELECT id, period_name, end_date FROM hcm.payroll_periods WHERE status='CLOSED' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+  if (!per) return { period: null, rows: [] };
+  // Each person's department as of the month's end (a leaver keeps the department it left from).
+  const rows = (await pool.query(`WITH dept AS (SELECT r.person_id, (SELECT a.department_id FROM hcm.assignments a WHERE a.person_id=r.person_id AND a.effective_start <= $2 ORDER BY a.effective_start DESC, a.effective_sequence DESC LIMIT 1) AS department_id FROM hcm.payroll_results r WHERE r.period_id=$1)
+      SELECT d.name AS department, d.name_ar AS department_ar, d.cost_center, d.division, count(r.*)::int people, SUM(r.gross)::float gross, SUM(r.deductions)::float deductions, SUM(r.net)::float net, SUM(r.employer_contributions)::float employer,
+      COALESCE((SELECT SUM(v.eos_month + v.leave_month) FROM hcm.payroll_provisions v JOIN dept x ON x.person_id=v.person_id WHERE v.period_id=$1 AND x.department_id=d.id),0)::float provisions
+      FROM hcm.payroll_results r JOIN dept ON dept.person_id=r.person_id JOIN hcm.departments d ON d.id=dept.department_id
+      WHERE r.period_id=$1 GROUP BY d.id, d.name, d.name_ar, d.cost_center, d.division ORDER BY d.division, d.name`, [per.id, per.end_date])).rows;
+  return { period: per.period_name, rows };
+}
+
 /** Payroll reports as Excel, for the client's finance (design/payroll-ops-addendum.md 3.9). */
 payroll.get('/costs/reports.xlsx', async (req, res) => {
   const p = await personaOf(req);
@@ -650,7 +700,7 @@ payroll.get('/costs/reports.xlsx', async (req, res) => {
   const months = (await pool.query(`SELECT pp.period_name, COUNT(r.*)::int people, COALESCE(SUM(r.gross),0)::float gross, COALESCE(SUM(r.net),0)::float net, COALESCE(SUM(r.employer_contributions),0)::float employer,
       COALESCE((SELECT SUM(v.eos_accrued) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float eos, COALESCE((SELECT SUM(v.leave_accrued) FROM hcm.payroll_provisions v WHERE v.period_id=pp.id),0)::float leave
       FROM hcm.payroll_periods pp JOIN hcm.payroll_results r ON r.period_id=pp.id GROUP BY pp.id, pp.period_name, pp.start_date ORDER BY pp.start_date`)).rows;
-  const buf = await reportsXlsx(months, client().name);
+  const buf = await reportsXlsx(months, client().name, await departmentSummary());
   res.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('content-disposition', `attachment; filename="${client().code}_PayrollCosts.xlsx"`);
   res.send(buf);
@@ -691,7 +741,7 @@ payroll.get('/costs', async (req, res) => {
       FROM hcm.payroll_periods pp JOIN hcm.payroll_results r ON r.period_id=pp.id GROUP BY pp.id, pp.period_name, pp.status, pp.start_date ORDER BY pp.start_date`)).rows.slice(-7);
   const journals = (await pool.query(`SELECT period_name, kind, debit, state, to_char(posted_at,'YYYY-MM-DD') posted, import_status FROM layer.journals ORDER BY period_name, id`)).rows;
   const c = client();
-  res.json({ client: { short: c.short, name_ar: c.name_ar, ledger: c.finance }, months,
+  res.json({ client: { short: c.short, name_ar: c.name_ar, ledger: c.finance }, months, departments: await departmentSummary(),
     journals: [...new Set(journals.map((j: any) => j.period_name))].map((pn) => ({ period: pn, journals: journals.filter((j: any) => j.period_name === pn).map((j: any) => ({ kind: j.kind, amount: Number(j.debit), state: j.state, posted: j.posted, status: j.import_status })) })).slice(-6) });
 });
 payroll.get('/costs/journals/:period/file', async (req, res) => {

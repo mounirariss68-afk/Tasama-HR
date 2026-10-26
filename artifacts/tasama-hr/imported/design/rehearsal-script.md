@@ -35,8 +35,10 @@ The question this storyline answers: "Can one platform pay every client by its o
 | 8 | Interlude | — | — |
 | 9 | **A month of attendance** (4 steps) | Step 1: "Lama, Tasama HR operations, confirmed how the device file maps." Step 2: "The employee explains a late morning in chat, not on a form." Step 4: "The fine stops at the legal cap; the absent day is unpaid on its own line." | The fine against the cap of five days' wage |
 | 10 | Interlude | — | — |
-| 11 | Card: real, Claude, simulated | "The pay is calculated, not generated. Claude only reads the handbook." | The middle column |
-| 12 | Card: next step | Say what Tasama agreed to, and the date. | — |
+| 11 | **Handing a client back** (4 steps) | Step 1: "The contract ends: Faisal opens the handover, twenty items, seven working days." Step 2: "Lama shares the files and the access through the folder; nothing is emailed." Step 3: "The client signs." Step 4: "Faisal closes; every access is revoked and Tasama's copies are deleted, with a trail." | The client account's Handover tab: four steps, the checklist all green |
+| 12 | Interlude | — | — |
+| 13 | Card: real, Claude, simulated | "The pay is calculated, not generated. Claude only reads the handbook." | The middle column |
+| 14 | Card: next step | Say what Tasama agreed to, and the date. | — |
 
 ## Changes on time, for Tasama's payroll team and the clients' HR operations
 
@@ -45,15 +47,17 @@ The question this storyline answers: "What happens when a change arrives late, a
 | # | On screen | Say, in one sentence | Point at |
 |---|---|---|---|
 | 1 to 3 | Cards: numbers, the rule, the agenda | As above. Keep them short; the room has seen them if they saw the first storyline. | — |
-| 4 | **The cut-off without chasing** (5 steps) | Step 1: "Wared listed Riyadh Air's changes and reminded HR operations in the app; nobody chased by email." Step 2: "A promotion arrives two days after the cut-off." Step 3: "HR operations agrees to move it to next month as back pay." Step 5: "Payroll receives the month already checked by Lama; it calculates, it does not enter." | Pane 03: the change on Oracle HCM's worker record; the effect on next month shown to the client |
+| 4 | **The year's calendar, approved once** (3 steps) | Step 1: "Wared laid out Saudi Coffee's year from two numbers: the cut-off day and the pay day; seven dates a month, off weekends and holidays, each with its owner." Step 2: "The client approves it once, on its own Calendar tab." Step 3: "From then on Wared reminds whoever owns the next date, client or Tasama; nobody keeps the calendar in a spreadsheet." | The client's Payroll › Calendar; the Tasama team's notification |
 | 5 | Interlude | — | — |
-| 6 | **From offer to first payslip** (4 steps) | Step 2: "The contract is drafted from the accepted offer." Step 3: "The signed contract reaches Tasama HR operations; the same record becomes the employee and is registered with GOSI." Step 4: "The days worked this month are paid, and nobody typed the salary twice." | The one employee record, created once |
+| 6 | **The cut-off without chasing** (5 steps) | Step 1: "Wared listed Riyadh Air's changes and reminded HR operations in the app; nobody chased by email." Step 2: "A promotion arrives two days after the cut-off." Step 3: "HR operations agrees to move it to next month as back pay." Step 5: "Payroll receives the month already checked by Lama; it calculates, it does not enter." | Pane 03: the change on Oracle HCM's worker record; the effect on next month shown to the client |
 | 7 | Interlude | — | — |
-| 8 | **Back pay and a leaver** (4 steps) | Step 1: "A raise dated three months back." Step 3: "A colleague resigns after seven years; Lama checked the settlement against the record." Step 4: "Both are in this month's run, and no closed month is reopened." | The three recalculated months; two thirds of the award (Art. 85), the advance recovered |
+| 8 | **From offer to first payslip** (4 steps) | Step 2: "The contract is drafted from the accepted offer." Step 3: "The signed contract reaches Tasama HR operations; the same record becomes the employee and is registered with GOSI." Step 4: "The days worked this month are paid, and nobody typed the salary twice." | The one employee record, created once |
 | 9 | Interlude | — | — |
 | 10 | **A contract from the client** (4 steps) | Step 1: "ROSHN emailed a signed contract; Aqd read it against ROSHN's policy." Step 2: "Housing is below the policy and the IBAN letter is missing, so Lama sends it back instead of entering it." Step 4: "Entered once: the record, the pay, the documents and the joiner in the month." | The two differences, then the joiner on Inputs |
 | 11 | Interlude | — | — |
-| 12 and 13 | Cards: real, Claude, simulated; next step | As above. | — |
+| 12 | **Back pay and a leaver** (4 steps) | Step 1: "A raise dated three months back." Step 3: "A colleague resigns after seven years; Lama checked the settlement against the record." Step 4: "Both are in this month's run, and no closed month is reopened." | The three recalculated months; two thirds of the award (Art. 85), the advance recovered |
+| 13 | Interlude | — | — |
+| 14 and 15 | Cards: real, Claude, simulated; next step | As above. | — |
 
 ## From run to ledger, for payroll leads, the client's HR operations and finance
 
@@ -62,7 +66,7 @@ The question this storyline answers: "Can one month go from the run to the bank,
 | # | On screen | Say, in one sentence | Point at |
 |---|---|---|---|
 | 1 to 3 | Cards: numbers, the rule, the agenda | As above. | — |
-| 4 | **Run, explain, approve** (5 steps) | Step 1: "Two checks stopped Red Sea Global's run, and Nasser has cleared them." Step 3: "Sharifa validates; she never validates a run she prepared." Step 4: "The client's HR operations approves, knowing why every riyal moved." | The waterfall of differences from last month |
+| 4 | **Run, explain, approve** (6 steps) | Step 1: "Two checks stopped Red Sea Global's run, and Nasser has cleared them." Step 3: "Sharifa validates; she never validates a run she prepared." Step 4: "Lama in Tasama HR operations reads Mutabaqa's explanation and delivers the run to the client; the client's questions come to her." Step 5: "The client's HR operations approves, knowing why every riyal moved; where the contract names the CHRO too, the CHRO signs last." | The waterfall of differences; the sign-off cards, Tasama's three then the client's chain |
 | 5 | Interlude | — | — |
 | 6 | **Bank file, WPS and Mudad** (7 steps) | Step 1: "Five release checks pass, and the value date moves off a Saturday." Step 2: "Sharifa uploads the file to the bank portal herself; no bank is connected." Step 3: "The client's finance controller approves it in the bank and records it on Payments." Step 4: "Nasser reads the bank's return file: one salary came back, the account is closed." Step 5: "Lama enters the new IBAN from the bank letter." Step 6: "A follow-up file pays it." Step 7: "Nasser files the signed WPS file and records Mudad." | The bank file and the failed line; the follow-up's value date |
 | 7 | Interlude | — | — |

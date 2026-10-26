@@ -1,14 +1,14 @@
 /**
  * Add a payroll client (design/payroll-addendum.md §13, §19): the team drops a client's folder and
  * seven lanes fill as Intiqal and the other agents read it. Nothing reaches a client master until
- * the payroll lead approves; that decision follows the lanes.
+ * the payroll manager approves; that decision follows the lanes.
  */
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { HeroFeature, Panel } from '@cognirise/atelier/layout';
-import { BookOpen, Building2, CalendarClock, FileSignature, FolderUp, History, Mail, Users } from 'lucide-react';
+import { BookOpen, Building2, CalendarClock, ClipboardCheck, FileSignature, FolderUp, History, Mail, Users } from 'lucide-react';
 import { api, bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
-import { num } from '../lib/format';
+import { date, num } from '../lib/format';
 import { AgentTag, Btn, Chip, Hero, Screen } from '../app/ui';
 import { useApp } from '../app/state';
 import { onboardingCard } from '../app/decision';
@@ -98,7 +98,7 @@ export function AddPayrollClient() {
     <Screen hero={<Hero tone="surface" eyebrow="Add a payroll client" title={title}
       lede={o?.state === 'LIVE' ? `${t('Its master is in Tasama HR, its questions are with its HR operations, and')} ${month} ${t('is open for changes.')}`
         : o?.state === 'RETURNED' ? `${o.decided_by}: ${o.reason}`
-        : t('Spreadsheets, the policy manual, contracts and letters go into a staging area. Nothing reaches a client master until the payroll lead approves.')}
+        : t('Spreadsheets, the policy manual, contracts and letters go into a staging area. Nothing reaches a client master until the payroll manager approves.')}
       feature={o?.state === 'LIVE' ? <HeroFeature label="Need the client" value={num(o.counts.client)} support={<span className="text-xs text-muted-foreground">{t('Tasama settles')} {num(o.counts.issues - o.counts.client)}</span>} /> : undefined}
       actions={o && fileCount ? <>
         {o.state === 'LIVE' ? <Btn small kind="primary" onClick={() => go('payroll-inputs')}>{t('Open the first month')}</Btn> : null}
@@ -122,7 +122,7 @@ export function AddPayrollClient() {
               <div>
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{card.kind}</span>
                 <h2 className="mt-1.5 text-lg font-semibold leading-snug">{card.headline}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{lead ? t('Your decision as payroll lead') : `${t('Waiting on')} Sharifa AlMousa, ${t('payroll lead')}`}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{lead ? t('Your decision as payroll manager') : `${t('Waiting on')} Sharifa AlMousa, ${t('payroll manager')}`}</p>
               </div>
               <FactGrid facts={card.facts} />
               {card.rec ? <Recommendation rec={card.rec} agent={card.agent ?? null} /> : null}
@@ -150,9 +150,39 @@ export function AddPayrollClient() {
               <IssueList title="Tasama settles these" items={issues.filter((i) => i.who === 'TASAMA')} tone="warn" />
             </div>
           ) : null}
+          {o.checklist ? <ActivationChecklist o={o} onChange={() => { bump(); reload(); }} /> : null}
         </>
       )}
     </Screen>
+  );
+}
+
+/**
+ * The activation checklist (walkthrough addendum R40): the 26 requirements Tasama asks a new client for, in seven
+ * categories, inside nine working days and before the first cut-off. Intiqal ticks what the files cover; Tasama HR
+ * operations ticks the rest as it arrives.
+ */
+function ActivationChecklist({ o, onChange }: { o: any; onChange: () => void }) {
+  const { t, bi, lang } = useLang();
+  const c = o.checklist;
+  const [busy, setBusy] = useState<number | null>(null);
+  const receive = async (n: number) => { setBusy(n); try { await post(`/onboarding/${o.id}/activation/${n}/received`); onChange(); } finally { setBusy(null); } };
+  const cats = [...new Set(c.items.map((i: any) => i.category))] as string[];
+  const fromFiles = c.items.filter((i: any) => i.state === 'FROM_FILES').length;
+  return (
+    <Panel icon={<ClipboardCheck size={16} />} title={c.received === c.total ? t('Every activation requirement is in: the client can go live before its first cut-off') : `${c.received} ${t('of')} ${c.total} ${t('activation requirements are in')}: ${fromFiles} ${t('read from the files')}, ${c.total - c.received} ${t('to collect by')} ${date(c.due_on, lang)}`}
+      action={<span className="text-xs text-muted-foreground">{t('SLA')} {c.sla_days} {t('working days')}{c.overdue ? ` · ${t('past due')}` : ''}</span>}>
+      <div className="grid gap-x-6 gap-y-3 md:grid-cols-2 xl:grid-cols-3">{cats.map((cat) => { const rows = c.items.filter((i: any) => i.category === cat); return (
+        <div key={cat}>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{bi(cat, rows[0].category_ar)} · {rows.filter((i: any) => i.state !== 'PENDING').length}/{rows.length}</p>
+          <ul className="space-y-1">{rows.map((i: any) => (
+            <li key={i.n} className="flex items-center gap-2 text-sm">
+              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border text-[10px] ${i.state === 'FROM_FILES' ? 'border-primary bg-primary text-white' : i.state === 'RECEIVED' ? 'border-success bg-success text-white' : 'border-border'}`}>{i.state === 'PENDING' ? '' : '✓'}</span>
+              <span className={`flex-1 ${i.state === 'PENDING' ? '' : 'text-muted-foreground'}`}>{bi(i.label, i.label_ar)}</span>
+              {i.state === 'FROM_FILES' ? <span className="text-[10px] text-primary">{t('from the files')}</span> : i.state === 'PENDING' && o.state !== 'LIVE' ? <button type="button" className="text-[11px] text-primary hover:underline" disabled={busy === i.n} onClick={() => receive(i.n)}>{t('Received')}</button> : null}
+            </li>))}</ul>
+        </div>); })}</div>
+    </Panel>
   );
 }
 

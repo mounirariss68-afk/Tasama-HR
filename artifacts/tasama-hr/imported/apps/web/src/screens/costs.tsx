@@ -71,9 +71,32 @@ export function CostsReports() {
                   <td className="text-end tabular-nums">{num(m.people)}</td><td className="text-end tabular-nums">{num(m.gross, 2)}</td><td className="text-end tabular-nums">{num(m.net, 2)}</td>
                   <td className="text-end tabular-nums">{num(m.employer, 2)}</td><td className="text-end font-medium tabular-nums">{num(cost(m), 2)}</td></tr>))}</tbody></Table>
           </Panel>
+          <DepartmentSummary d={data?.departments} />
         </>
       ) : <Empty>{t('No approved run yet.')}</Empty>}
     </Screen>
+  );
+}
+
+/** The summary finance posts: the paid month by department and cost centre, totals only (walkthrough addendum R26). */
+export function DepartmentSummary({ d }: { d: { period: string | null; rows: any[] } | undefined }) {
+  const { t, bi, lang } = useLang();
+  if (!d?.rows?.length) return null;
+  const rows = d.rows;
+  const total = rows.reduce((s, r) => s + r.gross + r.employer + r.provisions, 0);
+  const max = Math.max(1, ...rows.map((r) => r.gross + r.employer + r.provisions));
+  const top = [...rows].sort((a, b) => (b.gross + b.employer + b.provisions) - (a.gross + a.employer + a.provisions))[0];
+  return (
+    <Panel icon={<Landmark size={16} />} title={`${mon(d.period!, lang, true)} ${t('by cost centre:')} ${bi(top.department, top.department_ar)} ${t('carries')} ${((top.gross + top.employer + top.provisions) / total * 100).toFixed(0)}% ${t('of the cost')}`}>
+      <p className="mb-3 text-sm text-muted-foreground">{t('What finance posts to the ledger: each department under its cost centre, totals only. The provisions charge is the month\'s change in end of service and leave owed.')}</p>
+      <Table><thead><tr><th>{t('Department')}</th><th>{t('Cost centre')}</th><th className="text-end">{t('People')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Net pay')}</th><th className="text-end">{t('Employer contributions')}</th><th className="text-end">{t('Provisions charge')}</th><th className="w-40">{t('Cost to the company')}</th></tr></thead>
+        <tbody>{rows.map((r) => { const c = r.gross + r.employer + r.provisions; return (
+          <tr key={r.cost_center + r.department}><td className="text-sm font-medium">{bi(r.department, r.department_ar)}<span className="block text-[11px] text-muted-foreground">{r.division}</span></td><td className="font-mono text-xs">{r.cost_center}</td>
+            <td className="text-end tabular-nums">{num(r.people)}</td><td className="text-end tabular-nums">{num(r.gross, 2)}</td><td className="text-end tabular-nums">{num(r.net, 2)}</td><td className="text-end tabular-nums">{num(r.employer, 2)}</td><td className="text-end tabular-nums">{num(r.provisions, 2)}</td>
+            <td><span className="flex items-center gap-2"><span className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted/60"><span className="block h-full rounded-full bg-primary/70" style={{ width: `${(c / max) * 100}%` }} /></span><span className="w-20 text-end text-xs tabular-nums">{sarM(c, lang)}</span></span></td></tr>); })}</tbody>
+        <tfoot><tr className="font-semibold"><td colSpan={2}>{t('Total')}</td><td className="text-end tabular-nums">{num(rows.reduce((s, r) => s + r.people, 0))}</td><td className="text-end tabular-nums">{num(rows.reduce((s, r) => s + r.gross, 0), 2)}</td><td className="text-end tabular-nums">{num(rows.reduce((s, r) => s + r.net, 0), 2)}</td><td className="text-end tabular-nums">{num(rows.reduce((s, r) => s + r.employer, 0), 2)}</td><td className="text-end tabular-nums">{num(rows.reduce((s, r) => s + r.provisions, 0), 2)}</td><td className="text-end tabular-nums">{sarM(total, lang)}</td></tr></tfoot>
+      </Table>
+    </Panel>
   );
 }
 
@@ -147,7 +170,7 @@ export function CostsJournals() {
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll costs"
       title={waiting.length ? `${mon(waiting[0].period, lang, true)}${t('’s journals are with Tasama for approval; the other')} ${posted.length} ${t('months are in')} ${t(ledger)}` : `${t('Every paid month is in')} ${t(ledger)}: ${posted.length} ${t('months, every journal balanced')}`}
-      lede={t('Tasama posts four journals for each paid month from your account map. A new pay element gets an account once, approved by Tasama\'s payroll lead, and is mapped from then on.')}
+      lede={t('Tasama posts four journals for each paid month from your account map. A new pay element gets an account once, approved by Tasama\'s payroll manager, and is mapped from then on.')}
       feature={<HeroFeature label="Posted" value={num(posted.length)} support={<span className="text-xs text-muted-foreground">{t('months')} · {t(ledger)}</span>} />} />}>
       {months.length ? (
         <Panel icon={<BookOpenCheck size={16} />} title={t('The accrual is the month\'s full cost; the payment is what the bank paid out')}>

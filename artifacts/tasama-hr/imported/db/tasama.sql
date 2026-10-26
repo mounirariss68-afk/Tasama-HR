@@ -265,3 +265,14 @@ CREATE TABLE tasama.client_banks (
   from_period  text NOT NULL,
   PRIMARY KEY (client_key, from_period)
 );
+
+-- The activation checklist of a client coming on (design/walkthrough-addendum.md R40): the 26 requirements Tasama asks the
+-- client for, the ones the files cover ticked by Intiqal, inside an SLA of 9 working days, before the first cut-off.
+CREATE TABLE IF NOT EXISTS tasama.activation_checklist (
+  id           serial PRIMARY KEY,
+  onboarding_id int NOT NULL,
+  items        jsonb NOT NULL,            -- [{ n, category, label, state: 'FROM_FILES' | 'RECEIVED' | 'PENDING', at }]
+  requested_at timestamptz NOT NULL,
+  due_on       date NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);

@@ -64,7 +64,7 @@ const workingDays = (from: string, to: string) => { let n = 0; const d = new Dat
 export const KIND: Record<string, string> = {
   'WF-01': 'New position', 'WF-02': 'Requisition', 'WF-03': 'Shortlist', 'WF-05': 'Offer', 'WF-06': 'Pre-boarding', 'WF-08': 'Probation review',
   'WF-10': 'Calibration', 'WF-12': 'Promotion', 'WF-13': 'Payroll pre-run', 'WF-14': 'Letter request', 'WF-15': 'Leave request', 'WF-16': 'Salary advance',
-  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-34': 'Journals', 'WF-35': 'Back pay', 'WF-37': 'Contract from the client',
+  'WF-19': 'Resignation', 'WF-20': 'Termination request', 'WF-26': 'Client policy', 'WF-29': 'Attendance month', 'WF-36': 'Payroll question', 'WF-27': 'Payroll changes', 'WF-28': 'Employment contract', 'WF-30': 'Payroll run', 'WF-33': 'Bank file', 'WF-34': 'Journals', 'WF-35': 'Back pay', 'WF-37': 'Contract from the client', 'WF-38': 'Payroll calendar', 'WF-39': 'Client handover',
 };
 const LEAVE: Record<string, string> = { ANNUAL: 'annual leave', SICK: 'sick leave', UNPAID: 'unpaid leave', PARENTAL: 'parental leave', BEREAVEMENT: 'bereavement leave', STUDY: 'study leave' };
 const LETTER: Record<string, string> = { SALARY_CERTIFICATE: 'a salary certificate', EMPLOYMENT_CERTIFICATE: 'an employment certificate', SALARY_TRANSFER: 'a salary transfer letter', NOC_TRAVEL: 'a no-objection letter for travel', NOC_DRIVING: 'an introduction letter', EXPERIENCE: 'an experience letter' };
@@ -333,7 +333,7 @@ export function caseCard(c: any, x: T): Card {
       const sar = (v: number) => aed(v, lang);
       const step = c.current_step;
       const facts: Fact[] = [];
-      if (dx && ['approve', 'write', 'payslips', null, undefined].includes(step)) {
+      if (dx && ['deliver', 'approve', 'approve_chro', 'write', 'payslips', null, undefined].includes(step)) {
         facts.push({ k: t('Why net pay moved'), v: `${dx.thisNet - dx.lastNet >= 0 ? '+' : '−'}${sar(Math.abs(dx.thisNet - dx.lastNet))}`, wide: true,
           note: dx.unexplained ? t('Part of the change is not explained.') : `${dx.people} ${t('people paid differently; every difference explained')}`,
           viz: <ChangeWaterfall from={dx.lastNet} to={dx.thisNet} fromLabel={t('Last month')} toLabel={month} steps={dx.steps.map((x: any) => ({ label: t(x.label), amount: x.amount }))} format={(v) => sar(v)} /> });
@@ -341,12 +341,39 @@ export function caseCard(c: any, x: T): Card {
         facts.push({ k: t('Net pay'), v: sar(ck.net ?? 0), note: `${ck.people ?? '—'} ${t('people')} · ${t('gross')} ${sar(ck.gross ?? 0)}` });
         facts.push({ k: t('Checks'), v: ck.blocks ? `${ck.blocks} ${t(ck.blocks === 1 ? 'stops the run' : 'stop the run')}` : t('Nothing stops the run'), tone: ck.blocks ? 'danger' : undefined, note: ck.blocks ? t('Cleared on Runs › Checks, each with who settles it') : undefined });
       }
-      facts.push({ k: t('Prepared by'), v: p.prepared_by_name ?? '—', note: p.validated_by_name ? `${t('Validated by')} ${p.validated_by_name}` : step === 'validate' ? t('Validated by someone else') : undefined });
+      facts.push({ k: t('Prepared by'), v: p.prepared_by_name ?? '—', note: p.validated_by_name ? `${t('Validated by')} ${p.validated_by_name}${p.delivered_by_name ? `, ${t('delivered by')} ${p.delivered_by_name}` : ''}` : step === 'validate' ? t('Validated by someone else') : undefined });
       const done = c.status === 'COMPLETED';
       const headline = done ? `${month} ${t('payroll approved, written and paid out in')} ${r.payslips ?? ''} ${t('payslips')}`
+        : step === 'deliver' ? `${month} ${t('payroll is validated: deliver it to the client with the explanation')}`
+        : step === 'approve_chro' ? `${month} ${t('payroll:')} ${sar(dx?.thisNet ?? 0)} ${t('net, approved by HR operations; the CHRO signs last')}`
         : step === 'approve' ? `${month} ${t('payroll:')} ${sar(dx?.thisNet ?? 0)} ${t('net, every difference from last month explained')}`
         : step === 'validate' ? `${month} ${t('payroll is prepared by')} ${p.prepared_by_name ?? t('the specialist')}${t(': validate it')}`
         : ck.blocks ? `${month} ${t('payroll:')} ${ck.blocks} ${t(ck.blocks === 1 ? 'check stops it' : 'checks stop it')}` : `${month} ${t('payroll is ready to send for validation')}`;
+      return { kind, headline, facts, rec: recOf(c) };
+    }
+    case 'WF-38': {
+      const first = r.first ?? {};
+      const done = c.status === 'COMPLETED';
+      const facts: Fact[] = [
+        { k: t('Year'), v: String(p.year ?? r.year ?? ''), note: `${r.moved ?? 0} ${t('dates moved off weekends and holidays')}` },
+        { k: t('January’s cut-off'), v: first.cutoff ? date(first.cutoff, lang) : '—', note: first.approval ? `${t('Approval')} ${date(first.approval, lang)}` : undefined },
+        { k: t('January’s payment date'), v: first.pay ? date(first.pay, lang) : '—', note: first.bank ? `${t('Bank upload')} ${date(first.bank, lang)}` : undefined },
+      ];
+      const headline = done ? `${p.year}${t('’s payroll calendar is in force and the reminders follow it')}` : `${p.year}${t('’s payroll calendar: seven dates a month, laid out from your cut-off and pay day')}`;
+      return { kind, headline, facts, rec: recOf(c) };
+    }
+    case 'WF-39': {
+      const step = c.current_step;
+      const done = c.status === 'COMPLETED';
+      const facts: Fact[] = [
+        { k: t('Checklist'), v: `${p.items ?? 20} ${t('items')}`, note: t('payroll files, records, templates, platform access') },
+        { k: t('Due by'), v: p.due_on ? date(p.due_on, lang) : '—', note: `${p.sla_days ?? 7} ${t('working days')}` },
+        { k: t('Started by'), v: p.started_by ?? '—' },
+      ];
+      const headline = done ? `${p.client} ${t('is handed back: the files are with the client, Tasama\'s access and copies are gone')}`
+        : step === 'prepare' ? `${t('Share')} ${p.client}${t('\'s payroll files and records through the folder, every item on the checklist')}`
+        : step === 'signoff' ? `${p.client}${t('\'s files and access are in the shared folder: sign the handover')}`
+        : `${p.client} ${t('signed the handover: close the client, revoke Tasama\'s access and delete its copies')}`;
       return { kind, headline, facts, rec: recOf(c) };
     }
     case 'WF-33': {
@@ -509,6 +536,6 @@ export function rowParts(r: any, bi: (en: any, ar: any) => string, t: (s: string
   return { who, what: what || bi(r.title, r.title_ar), kind: t(KIND[r.workflow_id] ?? 'Request') };
 }
 
-const OWNER: Record<string, string> = { EMPLOYEE: 'You', CLINIC: 'Clinic', INSURER: 'Insurer', HR_OPS: 'HR operations', LINE_MANAGER: 'Line manager', MANAGER: 'Manager', IT: 'IT', PAYROLL: 'Payroll', TA: 'Talent acquisition', HRBP: 'HR business partner', TASAMA_HR_OPS: 'Tasama HR operations', TASAMA_PAYROLL: 'Tasama payroll', TASAMA_PAYROLL_LEAD: 'Tasama payroll lead' };
+const OWNER: Record<string, string> = { EMPLOYEE: 'You', CLINIC: 'Clinic', INSURER: 'Insurer', HR_OPS: 'HR operations', LINE_MANAGER: 'Line manager', MANAGER: 'Manager', IT: 'IT', PAYROLL: 'Payroll', TA: 'Talent acquisition', HRBP: 'HR business partner', TASAMA_HR_OPS: 'Tasama HR operations', TASAMA_PAYROLL: 'Tasama payroll', TASAMA_PAYROLL_LEAD: 'Tasama payroll manager' };
 /** A task owner in words: role codes become the role. */
 export const owner = (s: string | null | undefined) => (s ? OWNER[s] ?? (/^[A-Z_]+$/.test(s) && s.length > 4 ? s[0] + s.slice(1).toLowerCase().replace(/_/g, ' ') : s) : '');

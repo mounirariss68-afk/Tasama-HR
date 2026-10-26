@@ -7,7 +7,7 @@
 - Firat's prototype review: the workbook's columns G–H, plus his Word file of improvement areas. He reviewed the build from before v6.6.
 - `design/hr-ops-addendum.md`, with Tasama's answer to Q2.
 
-**Precedence.** This addendum overrides `design/payroll-addendum.md` §20 (the bank, WPS and Mudad) wherever they differ.
+**Precedence.** This addendum overrides `design/payroll-addendum.md` §20 (the bank, WPS and Mudad) wherever they differ. `design/walkthrough-addendum.md` (26 October) overrides the run's steps here: after validation the run goes back through Tasama HR operations, and the client's approval runs through the chain its contract names.
 
 ## 1. What changes, step by step
 

@@ -79,7 +79,7 @@ export function PayrollJournals() {
   }, {})) as any[];
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll" title={title}
-      lede={t('Qaid builds four journals from each paid month, accrual, provisions, payment and provision use, from the client\'s own account map, and proposes an account for anything new. Nothing is posted until the payroll lead approves.')}
+      lede={t('Qaid builds four journals from each paid month, accrual, provisions, payment and provision use, from the client\'s own account map, and proposes an account for anything new. Nothing is posted until the payroll manager approves.')}
       actions={first?.m.case ? <Btn kind="primary" onClick={() => openCase(first.m.case, first.c.key)}>{t(blockedFirst ? 'Review the account and post' : 'Review and post')}</Btn> : undefined}
       feature={<HeroFeature label="Months to approve" value={num(waiting.length)} support={<span className="text-xs text-muted-foreground">{t(waiting.length === 1 ? 'month' : 'months')}{blockedFirst ? ` · ${t('1 does not balance')}` : ''}</span>} />} />}>
       <Panel icon={<BookOpenCheck size={16} />} title={`${clients.reduce((s, c) => s + c.months.filter((m: any) => m.state === 'POSTED').length, 0)} ${t('months posted in the last six; every posted journal balanced to the halala')}`}>
@@ -115,7 +115,7 @@ export function PayrollJournals() {
               <div className="rounded-xl glass-l3 p-3">
                 <p className="text-xs text-muted-foreground">{t('Status')}</p>
                 <p className="mt-0.5 text-sm font-semibold">{t(j.state === 'POSTED' ? 'Posted' : j.state === 'BLOCKED' ? 'Does not balance' : j.state === 'APPROVED' ? 'Approved' : 'To post')}</p>
-                <p className="text-xs text-muted-foreground">{j.state === 'POSTED' ? `${date(j.posted_at, lang)} · ${j.import_status ?? ''}` : j.approved_by ? `${t('Approved by')} ${j.approved_by}` : t('Waiting on the payroll lead')}</p>
+                <p className="text-xs text-muted-foreground">{j.state === 'POSTED' ? `${date(j.posted_at, lang)} · ${j.import_status ?? ''}` : j.approved_by ? `${t('Approved by')} ${j.approved_by}` : t('Waiting on the payroll manager')}</p>
               </div>
               <div className="rounded-xl glass-l3 p-3">
                 <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-sm font-semibold">{t(data.file.layout)}</p><p className="text-xs text-muted-foreground">{num(data.file.rows)} {t('rows')} {data.file.illustrative ? <Chip tone="warn">{t('Illustrative layout')}</Chip> : null}</p></div>

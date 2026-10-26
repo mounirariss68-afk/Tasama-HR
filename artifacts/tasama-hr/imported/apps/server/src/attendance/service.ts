@@ -5,7 +5,7 @@
  */
 import type { PoolClient } from 'pg';
 import { rng } from '../domain/rng.js';
-import { evaluateDays, assess, proposeColumnMap, monthDays, PENALTY_TABLE, FINE_CAP_DAYS, type Punch, type Schedule } from '../domain/attendance.js';
+import { evaluateDays, assess, proposeColumnMap, monthDays, PENALTY_TABLE, FINE_CAP_DAYS, type Punch, type Schedule, type DayResult } from '../domain/attendance.js';
 
 type Q = PoolClient | { query: PoolClient['query'] };
 const d10 = (v: any) => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
@@ -47,14 +47,31 @@ export async function deviceExport(c: Q) {
   return { fileName: `SCC_Attendance_${month}.csv`, csv: lines.join('\n') + '\n', rows: lines.length - 1, from: meta.from, to: meta.to };
 }
 
+/** The client's approved summary for the same month (walkthrough addendum R8): what its management signed off, one row per employee. */
+export async function summaryExport(c: Q) {
+  const meta = (await c.query(`SELECT value FROM layer.meta WHERE key='attendance'`)).rows[0]?.value;
+  if (!meta) return null;
+  const people = (await c.query(`SELECT p.id, p.person_number, p.display_name FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id WHERE wr.worker_type='E' AND wr.start_date <= $2 AND (wr.end_date IS NULL OR wr.end_date >= $1) ORDER BY p.person_number`, [meta.from, meta.to])).rows;
+  const lines = ['Emp No.,Employee,Late days,Late minutes,Absent days,Approved by'];
+  for (const p of people) {
+    const lates = (meta.lates[p.id] as any[] | undefined) ?? [];
+    const absent = (meta.absent as any[]).filter((a) => a.personId === p.id).length;
+    if (!lates.length && !absent) continue;
+    lines.push(`${p.person_number},${p.display_name},${lates.length},${lates.reduce((n, l) => n + l.minutes, 0)},${absent},HR operations`);
+  }
+  const month = new Date(`${meta.from}T00:00:00Z`).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }).replace(' ', '-');
+  return { fileName: `SCC_Attendance_Summary_${month}.csv`, csv: lines.join('\n') + '\n', rows: lines.length - 1, from: meta.from, to: meta.to };
+}
+
 export function headersOf(csv: string) { return csv.split(/\r?\n/)[0].split(',').map((h) => h.trim()); }
 export const proposeMap = (csv: string) => proposeColumnMap(headersOf(csv));
 
 /** Store the file's punches under a confirmed column map. */
-export async function ingest(c: Q, o: { fileName: string; csv: string; map: Record<string, string | null>; by: string }) {
+export async function ingest(c: Q, o: { fileName: string; csv: string; map: Record<string, string | null>; by: string; month?: string }) {
   const [head, ...rows] = o.csv.split(/\r?\n/).filter((l) => l.trim());
   const h = head.split(',').map((x) => x.trim());
   const col = (f: string) => (o.map[f] ? h.indexOf(o.map[f]!) : -1);
+  if (o.map.kind === 'SUMMARY') return ingestSummary(c, o, h, rows, col);
   const [ce, cd, ct, cdir, cdev] = ['employee', 'date', 'time', 'direction', 'device'].map(col);
   if (ce < 0 || cd < 0 || ct < 0) throw new Error('The column map needs the employee, the date and the time.');
   const byNumber = new Map((await c.query(`SELECT id, person_number FROM hcm.persons`)).rows.map((r: any) => [r.person_number, r.id]));
@@ -70,6 +87,42 @@ export async function ingest(c: Q, o: { fileName: string; csv: string; map: Reco
     await c.query(`INSERT INTO layer.attendance_punches (upload_id, person_id, employee_code, at, direction, device) VALUES ${chunk.map((_, j) => `($${j * 6 + 1},$${j * 6 + 2},$${j * 6 + 3},$${j * 6 + 4},$${j * 6 + 5},$${j * 6 + 6})`).join(',')}`, chunk.flat());
   }
   return { uploadId: up, rows: parsed.length, people: new Set(parsed.map((p) => p.code)).size, unknown: [...unknown] };
+}
+
+/**
+ * The client's approved summary (walkthrough addendum R8): one row per employee with late minutes or late days, absent
+ * days, and who approved it. There are no punches to match: the days are written straight from the summary, and Hudoor
+ * prices them under the client's penalty table like any month.
+ */
+async function ingestSummary(c: Q, o: { fileName: string; csv: string; map: Record<string, string | null>; by: string; month?: string }, h: string[], rows: string[], col: (f: string) => number) {
+  const [ce, cm, cl, ca, cb] = ['employee', 'late_minutes', 'late_days', 'absent_days', 'approved_by'].map(col);
+  if (ce < 0 || (cm < 0 && cl < 0 && ca < 0)) throw new Error('The summary needs the employee and at least the late minutes, the late days or the absent days.');
+  const month = o.month ?? (await c.query(`SELECT to_char(end_date,'YYYY-MM') m FROM hcm.payroll_periods WHERE status='CLOSED' ORDER BY start_date DESC LIMIT 1`)).rows[0]?.m;
+  const from = `${month}-01`, to = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const byNumber = new Map((await c.query(`SELECT id, person_number FROM hcm.persons`)).rows.map((r: any) => [r.person_number, r.id]));
+  const parsed = rows.map((l) => l.split(',')).map((x) => ({ code: x[ce].trim(), lateMinutes: cm >= 0 ? Number(x[cm]) || 0 : 0, lateDays: cl >= 0 ? Number(x[cl]) || 0 : 0, absent: ca >= 0 ? Number(x[ca]) || 0 : 0, by: cb >= 0 ? x[cb]?.trim() : null }));
+  const approvedBy = parsed.find((p) => p.by)?.by ?? null;
+  const up = (await c.query(`INSERT INTO layer.attendance_uploads (file_name, device, period_start, period_end, rows, column_map, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+    [o.fileName, approvedBy ? `Summary approved by ${approvedBy}` : 'Summary from the client', from, to, parsed.length, JSON.stringify({ ...o.map, summary: true, approved_by: approvedBy }), o.by])).rows[0].id as number;
+  const unknown = new Set<string>();
+  const sch = await schedules(c);
+  const vals: any[] = [];
+  for (const p of parsed) {
+    const pid = byNumber.get(p.code) ?? null;
+    if (!pid) { unknown.add(p.code); continue; }
+    const s = sch.get(pid);
+    const working = monthDays(from, to).filter((d) => !s || s.days.includes(new Date(`${d}T00:00:00Z`).getUTCDay()));
+    let i = 0;
+    const lates = p.lateDays || (p.lateMinutes ? 1 : 0);
+    const perLate = lates ? Math.round(p.lateMinutes / lates) || 15 : 0;
+    for (let k = 0; k < lates && i < working.length; k++, i++) vals.push([up, pid, working[i], true, null, null, perLate, 'LATE', null, 0, 0]);
+    for (let k = 0; k < p.absent && i < working.length; k++, i++) vals.push([up, pid, working[i], true, null, null, 0, 'ABSENT', null, 1, 0]);
+  }
+  for (let i = 0; i < vals.length; i += 400) {
+    const chunk = vals.slice(i, i + 400);
+    await c.query(`INSERT INTO layer.attendance_days (upload_id, person_id, day, scheduled, first_in, last_out, minutes_late, status, leave_ref, unpaid_days, fine) VALUES ${chunk.map((_, j) => `(${Array.from({ length: 11 }, (__, k) => `$${j * 11 + k + 1}`).join(',')})`).join(',')}`, chunk.flat());
+  }
+  return { uploadId: up, rows: parsed.length, people: parsed.length - unknown.size, unknown: [...unknown], summary: true };
 }
 
 async function wagesAndLeave(c: Q, from: string, to: string) {
@@ -88,7 +141,10 @@ export async function readUpload(c: Q, uploadId: number) {
     .filter((p: any) => sch.has(p.person_id)).map((p: any) => ({ personId: p.person_id, schedule: sch.get(p.person_id)!, from: d10(p.start_date), to: p.end_date ? d10(p.end_date) : null }));
   const punches: Punch[] = (await c.query(`SELECT person_id, to_char(at,'YYYY-MM-DD"T"HH24:MI') at, direction FROM layer.attendance_punches WHERE upload_id=$1 AND person_id IS NOT NULL`, [uploadId])).rows.map((r: any) => ({ personId: r.person_id, at: r.at, direction: r.direction }));
   const { wages, leave } = await wagesAndLeave(c, from, to);
-  const days = evaluateDays({ start: from, end: to, people, punches, leave });
+  const summaryMode = Boolean(up.column_map?.summary);
+  const days: DayResult[] = summaryMode
+    ? (await c.query(`SELECT person_id, to_char(day,'YYYY-MM-DD') day, minutes_late, status FROM layer.attendance_days WHERE upload_id=$1`, [uploadId])).rows.map((r: any) => ({ personId: r.person_id, day: r.day, scheduled: true, firstIn: null, lastOut: null, minutesLate: Number(r.minutes_late), status: r.status, leaveRef: null }))
+    : evaluateDays({ start: from, end: to, people, punches, leave });
   const just = (await c.query(`SELECT person_id, day, justification, decision FROM layer.attendance_days WHERE upload_id=$1 AND justification IS NOT NULL`, [uploadId])).rows;
   const keep = new Map(just.map((j: any) => [`${j.person_id}:${d10(j.day)}`, j]));
   const excused = new Set(just.filter((j: any) => j.decision === 'EXCUSED').map((j: any) => `${j.person_id}:${d10(j.day)}`));
@@ -103,7 +159,7 @@ export async function readUpload(c: Q, uploadId: number) {
     const chunk = rows.slice(i, i + 400);
     await c.query(`INSERT INTO layer.attendance_days (upload_id, person_id, day, scheduled, first_in, last_out, minutes_late, status, leave_ref, justification, decision, unpaid_days, fine) VALUES ${chunk.map((_, j) => `(${Array.from({ length: 13 }, (__, k) => `$${j * 13 + k + 1}`).join(',')})`).join(',')}`, chunk.flat());
   }
-  const noPunch = days.filter((d) => d.scheduled && !d.firstIn).length;
+  const noPunch = summaryMode ? 0 : days.filter((d) => d.scheduled && !d.firstIn).length;
   const summary = {
     from, to, people: people.length,
     lates: days.filter((d) => d.status === 'LATE').length,

@@ -3,7 +3,7 @@
  * merged into HANDLERS and WHO in handlers.ts.
  *
  * WF-26 Client policy: Nizam reads the handbook into a draft version; Tasama's
- * payroll lead recommends a reading for every unclear rule; the client's CHRO
+ * payroll manager recommends a reading for every unclear rule; the client's CHRO
  * activates; the platform makes the version active.
  */
 import type { PoolClient } from 'pg';
@@ -39,6 +39,9 @@ export const PAYROLL_WHO: Record<string, Who> = {
   // design/hr-ops-addendum.md 4b: the month's changes are handed to payroll by Tasama HR operations; a late change is not.
   'WF-27:validate': async (_c, req) => (req.type === 'MONTH' ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
   // A returned salary's new IBAN is entered by Tasama HR operations from the client's bank letter; other run questions go to the client.
+  // design/walkthrough-addendum.md items 3 and 4: Tasama HR operations delivers the validated run to the client; the client's chain approves it.
+  'WF-30:deliver': async () => ({ role: 'TASAMA_HR_OPS', personId: null as unknown as number }),
+  'WF-30:approve_chro': async (c) => ((client().contract.approvalChain ?? ['PAYROLL']).includes('CHRO') ? { role: 'CHRO', personId: (await c.query(`SELECT person_id FROM layer.personas WHERE key='chro'`)).rows[0]?.person_id } : null),
   // design/payroll-ops-addendum.md, Exits: at a client whose contract includes HR operations, Tasama HR operations checks the settlement first.
   'WF-19:check': async () => (client().contract.services.includes('HR_OPS') ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
   'WF-20:check': async () => (client().contract.services.includes('HR_OPS') ? { role: 'TASAMA_HR_OPS', personId: null as unknown as number } : null),
@@ -95,7 +98,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     }
     await h.patch({ readings_applied: lines });
     await h.trail({ act: 'PREPARE', summary: `Prepared version ${h.req.payload.version} for the client's decision${lines.length ? `: ${lines.join('; ')}` : ''}.` });
-    return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: `activate version ${h.req.payload.version}${lines.length ? `, with ${lines.join('; ')}, as Tasama's payroll lead recommends` : ''}`, summary_ar: `تفعيل الإصدار ${h.req.payload.version}${lines.length ? ` كما توصي قائدة الرواتب في تسامى` : ''}` } };
+    return { status: 'DONE', recommend: { verdict: 'APPROVE', summary: `activate version ${h.req.payload.version}${lines.length ? `, with ${lines.join('; ')}, as Tasama's payroll manager recommends` : ''}`, summary_ar: `تفعيل الإصدار ${h.req.payload.version}${lines.length ? ` كما توصي مديرة الرواتب في تسامى` : ''}` } };
   },
 
   'WF-29:read': async (h) => {
@@ -125,7 +128,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     return { status: 'DONE', decision: 'Frozen' };
   },
   'WF-30:explain': async (h) => {
-    const { x, d } = await explainRun(h.c, h.req.id, h.req.payload.validated_by_name ?? 'Payroll lead');
+    const { x, d } = await explainRun(h.c, h.req.id, h.req.payload.validated_by_name ?? 'Payroll manager');
     const sar = (n: number) => `SAR ${Math.round(Math.abs(n)).toLocaleString('en-US')}`;
     const moved = x.people.length;
     const top = x.steps.filter((s) => s.key !== 'other').sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 3).map((s) => `${s.label.toLowerCase()} ${s.amount >= 0 ? '+' : '−'}${sar(s.amount)}`).join(', ');
@@ -138,7 +141,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
       recommend: x.unexplained ? { verdict: 'REVIEW', summary: 'return the run: part of the change is not explained' } : { verdict: 'APPROVE', summary: `approve: every one of the ${moved} differences from last month is explained` } };
   },
   'WF-30:write': async (h) => {
-    const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.step_key='approve' AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'the CHRO';
+    const who = (await h.c.query(`SELECT pp.display_name n FROM layer.approvals a JOIN hcm.persons pp ON pp.id=a.approver_person_id WHERE a.request_id=$1 AND a.step_key IN ('approve','approve_chro') AND a.decision='APPROVED' ORDER BY a.decided_at DESC LIMIT 1`, [h.req.id])).rows[0]?.n ?? 'the CHRO';
     const r = await write(h.conn, 'POST', 'payrollResults', `Write the approved ${h.req.payload.period} run`, () => writeRun(h.c, h.req.id, who));
     await h.trail({ act: 'WRITE', summary: `Wrote ${r.rows} people's results for ${r.period} to ${client().hrmsLabel}, as approved by ${who}.`, actor_type: 'SYSTEM', actor_name: 'Connector', autonomy: null });
     return { status: 'DONE', decision: `${r.rows} written` };
@@ -172,7 +175,7 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
   'WF-33:upload': async (h) => {
     const p = (await h.c.query(`SELECT * FROM layer.payments WHERE id=$1`, [h.req.payload.payment_id])).rows[0];
     const bank = bankByCode(p.bank_code)!;
-    // No bank is connected (design/payroll-ops-addendum.md §2): the payroll lead uploaded the file to the portal herself and recorded it.
+    // No bank is connected (design/payroll-ops-addendum.md §2): the payroll manager uploaded the file to the portal herself and recorded it.
     const who = h.req.payload.sent_by_name ?? 'Sharifa AlMousa';
     await markSent(h.c, p.id, who);
     const fin = await financeApprover(h.c);
@@ -228,7 +231,14 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
       const a = runPayroll(mm, x.terms, [before]).employees[0], b = runPayroll(mm, x.terms, [after]).employees[0];
       const ee = Math.round((b.gosi.employee - a.gosi.employee) * 100) / 100, er = Math.round((b.gosi.employer - a.gosi.employer) * 100) / 100;
       total += bp.total; gosiEe += ee; gosiEr += er;
-      per.push({ period: m.period_name, amount: bp.total, gosi: ee, rule: bp.lines[0]?.rule ?? '' });
+      // Walkthrough addendum R19: the retro by element (basic, housing, transport, other), as Tasama's retro tab carries it.
+      const byElement: Record<string, number> = {};
+      for (const l of b.lines) if (l.kind === 'EARNING' && ['basic', 'housing', 'transport', 'other'].includes(l.code)) {
+        const was = a.lines.find((y: any) => y.code === l.code)?.amount ?? 0;
+        const d = Math.round((l.amount - was) * 100) / 100;
+        if (Math.abs(d) >= 0.005) byElement[l.code] = d;
+      }
+      per.push({ period: m.period_name, amount: bp.total, gosi: ee, rule: bp.lines[0]?.rule ?? '', byElement });
     }
     // Both provisions re-measured on the new wage: the catch-up is the jump beyond a normal month (CAL-30).
     const xo = await engineInputs(h.c, open);
@@ -251,9 +261,15 @@ export const PAYROLL_HANDLERS: Record<string, H> = {
     const ps = String(open.start_date instanceof Date ? open.start_date.toISOString() : open.start_date).slice(0, 10), pe = String(open.end_date instanceof Date ? open.end_date.toISOString() : open.end_date).slice(0, 10);
     const n = (await h.c.query(`SELECT count(*)::int n FROM hcm.element_entries WHERE person_id=$1`, [p.person_id])).rows[0].n;
     let i = n;
-    for (const m of r.months) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'BACK_PAY',$3,$4,$5,'RAFEEQ',$6)`,
-      [`BP-${p.person_id}-${++i}`, p.person_id, m.amount, ps, pe, `Back pay, ${new Date(`${m.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })}`]);
-    if (r.gosiEe) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'GOSI_ARREARS',$3,$4,$5,'RAFEEQ','GOSI on back pay')`, [`BP-${p.person_id}-${++i}`, p.person_id, r.gosiEe, ps, pe]);
+    const ELEMENT_WORD: Record<string, string> = { basic: 'basic', housing: 'housing', transport: 'transport', other: 'other allowances' };
+    for (const m of r.months) {
+      const month = new Date(`${m.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+      const parts: [string, number][] = Object.keys(m.byElement ?? {}).length ? Object.entries(m.byElement as Record<string, number>) : [['', m.amount]];
+      // One retro line per element (R19), so the payslip reads like Tasama's retro columns.
+      for (const [code, amount] of parts) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'BACK_PAY',$3,$4,$5,'RAFEEQ',$6)`,
+        [`BP-${p.person_id}-${++i}`, p.person_id, amount, ps, pe, code ? `Retro ${ELEMENT_WORD[code]}, ${month}` : `Back pay, ${month}`]);
+    }
+    if (r.gosiEe) await h.c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, effective_end, source, reference) VALUES ($1,$2,'GOSI_ARREARS',$3,$4,$5,'RAFEEQ','Retro GOSI')`, [`BP-${p.person_id}-${++i}`, p.person_id, r.gosiEe, ps, pe]);
     await h.c.query(`INSERT INTO layer.pay_inputs (period_name, person_id, kind, label, amount, effective, source, state, request_id, confirmed_by, confirmed_at) VALUES ($1,$2,'BACK_PAY',$3,$4,$5,'HRMS_EVENT','CONFIRMED',$6,$7,now())`,
       [open.period_name, p.person_id, `Back pay for ${r.months.length} closed ${r.months.length === 1 ? 'month' : 'months'}`, r.total, p.effective, h.req.id, p.added_by_name ?? 'Tasama payroll']);
     await h.trail({ act: 'WRITE', summary: `Entered ${r.months.length} back-pay lines and the GOSI on them in ${open.period_name}. The closed months were not reopened.`, actor_type: 'SYSTEM', actor_name: 'Tasama HR', autonomy: null });

@@ -299,6 +299,8 @@ No agent runs at A4. Every write to a master or a ledger is a SYSTEM step after 
 
 ## 8. The demo day is the 17th, so every client's month is at a different stage
 
+*Superseded in part on 26 October 2026 by `design/walkthrough-addendum.md` item 5: each client's year now runs on a seven-stage payroll calendar its HR operations approves once; the anchor-relative cut-off below still places the five clients at five stages of the month.*
+
 The seed anchor today is the day the seed runs, so a client's position against its cut-off would change from one rehearsal to the next. **The virtual clock is set to the 17th of the month the seed runs [D].**
 
 | Client | Cut-off | Pay day | State on the 17th |
@@ -776,6 +778,8 @@ The medical-test block is not played in D4; it stays possible for other runs of 
 **Effort:** three Claude sessions, as planned.
 
 ## 18. Phase 5 as built: a run is prepared, validated, explained and approved, and the engine runs for all five clients
+
+*Superseded in part on 26 October 2026 by `design/walkthrough-addendum.md` items 3 and 4: after validation, Tasama HR operations delivers the run to the client, and the client's approval runs through the chain its contract names (HR operations, then the CHRO at ROSHN and Riyadh Air).*
 
 *Added 23 October 2026, at the start of phase 5. It fills in sections 1, 2, 3, 7 and 9 for reconciliation and approval.*
 

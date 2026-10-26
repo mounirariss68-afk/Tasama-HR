@@ -32,6 +32,7 @@ onboarding.post('/onboarding/:id/files', express.raw({ type: () => true, limit: 
   await O.addFile(Number(req.params.id), path, req.body);
   res.json({ ok: true });
 });
+onboarding.post('/onboarding/:id/activation/:n/received', async (req, res) => { try { await O.receiveItem(Number(req.params.id), Number(req.params.n), (req as any).persona?.name ?? 'Tasama HR operations'); res.json({ ok: true }); } catch (e: any) { res.status(400).json({ error: e.message }); } });
 onboarding.post('/onboarding/:id/demo-files', async (req, res) => res.json({ files: await O.addDemoFiles(Number(req.params.id)) }));
 
 /** Read the files into the lanes. `wait` answers when every lane is done; otherwise the screen polls. */
@@ -41,10 +42,10 @@ onboarding.post('/onboarding/:id/read', async (req, res) => {
   if (req.body?.wait) await job;
   res.json(await O.get(id));
 });
-/** WF-24: the payroll lead takes the client on, or returns it with a reason. */
+/** WF-24: the payroll manager takes the client on, or returns it with a reason. */
 onboarding.post('/onboarding/:id/decide', async (req, res) => {
   const p = (req as any).persona;
-  if (p.key !== PAYROLL_LEAD_KEY) return res.status(403).json({ error: 'The payroll lead decides when a client goes live.' });
+  if (p.key !== PAYROLL_LEAD_KEY) return res.status(403).json({ error: 'The payroll manager decides when a client goes live.' });
   try { res.json(await O.decide(Number(req.params.id), req.body?.decision === 'RETURNED' ? 'RETURNED' : 'APPROVED', p.display_name ?? p.label, req.body?.reason)); }
   catch (e: any) { res.status(400).json({ error: e.message }); }
 });

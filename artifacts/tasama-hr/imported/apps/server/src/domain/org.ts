@@ -191,6 +191,19 @@ export const ELEMENT_TYPES = [
   ['EOS_PROVISION', 'End-of-service award provision', 'مخصص مكافأة نهاية الخدمة', 'EMPLOYER_CONTRIBUTION', false],
   ['LEAVE_ENCASH', 'Leave encashment', 'بدل الإجازات غير المستخدمة', 'EARNING', false],
   ['GRATUITY', 'End-of-service gratuity', 'مكافأة نهاية الخدمة', 'EARNING', false],
+  // Tasama's Elements tab (design/walkthrough-addendum.md R6): the non-recurring earnings and deductions its clients use.
+  ['MOBILE', 'Mobile allowance', 'بدل الهاتف', 'EARNING', true],
+  ['BUSINESS_TRIP', 'Business trip allowance', 'بدل رحلة عمل', 'EARNING', false],
+  ['EDUCATION', 'Education allowance', 'بدل التعليم', 'EARNING', false],
+  ['RELOCATION', 'Relocation allowance', 'بدل الانتقال', 'EARNING', false],
+  ['TICKET', 'Air ticket', 'تذكرة السفر', 'EARNING', false],
+  ['VACATION_ALW', 'Vacation allowance', 'بدل الإجازة', 'EARNING', false],
+  ['WELLNESS', 'Wellness allowance', 'بدل الصحة', 'EARNING', false],
+  ['ADV_HOUSING', 'Advance housing', 'بدل السكن المقدم', 'EARNING', false],
+  ['ADV_HOUSING_REC', 'Advance housing recovery', 'استرداد بدل السكن المقدم', 'DEDUCTION', true],
+  ['LOAN_REC', 'Loan deduction', 'خصم القرض', 'DEDUCTION', true],
+  ['DISCIPLINARY', 'Disciplinary deduction', 'خصم تأديبي', 'DEDUCTION', false],
+  ['COC', 'Cost of care deduction', 'خصم تكلفة الرعاية', 'DEDUCTION', false],
 ] as const;
 
 export const ABSENCE_TYPES = [

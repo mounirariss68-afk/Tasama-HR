@@ -133,6 +133,18 @@ export async function runChecks(c: Q, draft: { period: { name: string; start: st
         actions: open ? [] : askOrRaise(`Ask ${ops} whether to pay them`),
       });
     }
+    // Walkthrough addendum R22: GOSI accepts at most a 10% rise a year over 50; the wage is held and HR operations confirms it.
+    if (codes.includes('GOSI_WAGE_CAP')) {
+      const f = r.flags.find((x: any) => x.code === 'GOSI_WAGE_CAP');
+      const g = r.lines.find((l: any) => l.code === 'gosi');
+      checks.push({
+        ...base, severity: 'ASK', codes: ['GOSI_WAGE_CAP'],
+        title: `${r.name}'s raise is above the 10% a year GOSI accepts over 50, so the contributory wage is held`,
+        found: `${f.text}.`,
+        look: `GOSI contributes on the held wage${g ? ` (SAR ${fmt(g.amount)} employee share this month)` : ''}; the salary itself is paid in full. ${hrOps ? 'Tasama HR operations' : `${client().short}'s HR operations`} records the wage GOSI accepted; the rest counts from next year.`,
+        owner: hrOps ? tasamaOps : clientOps, status: null, case_ref: null, actions: [],
+      });
+    }
     // Already settled by the client: who confirmed, and where.
     if ((codes.includes('ABSENCE') || codes.includes('FINE_CAP')) && att) {
       settled.push({ person_id: r.person_id, text: `Attendance confirmed by ${att.by ?? 'HR operations'} on ${d10(att.closed_at)}`, case_ref: att.ref });

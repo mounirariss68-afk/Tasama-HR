@@ -83,6 +83,38 @@ export function read(id: number, pace = 0, columnMap?: Record<string, string>) {
 }
 
 /** What the screen shows: the lanes, the issues and the files, without the staged rows. */
+/**
+ * The activation checklist (design/walkthrough-addendum.md R40): the 26 requirements Tasama asks the client for, inside 9
+ * working days of the activation request and before the first cut-off. An item a lane of the files covers is ticked by
+ * Intiqal once that lane is read; the rest are collected by Tasama HR operations and ticked by hand.
+ */
+export async function activation(id: number, o: { created_at: any; lanes: Lane[]; state: string }) {
+  const { ACTIVATION_ITEMS, ACTIVATION_SLA_DAYS } = await import('../domain/checklists.js');
+  const { workingDaysAfter } = await import('../tasama/handover.js');
+  let row = (await pool.query(`SELECT * FROM tasama.activation_checklist WHERE onboarding_id=$1`, [id])).rows[0];
+  if (!row) {
+    const at = new Date(o.created_at);
+    row = (await pool.query(`INSERT INTO tasama.activation_checklist (onboarding_id, items, requested_at, due_on) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [id, JSON.stringify(ACTIVATION_ITEMS.map((i) => ({ n: i.n, state: 'PENDING', at: null }))), at, workingDaysAfter(at, ACTIVATION_SLA_DAYS).toISOString().slice(0, 10)])).rows[0];
+  }
+  const done = new Set<string>(o.lanes.filter((l) => l.state === 'DONE').map((l) => String(l.key)));
+  const items = ACTIVATION_ITEMS.map((i) => {
+    const st = (row.items as any[]).find((x) => x.n === i.n) ?? { state: 'PENDING', at: null };
+    const fromFiles = i.lane && done.has(i.lane);
+    return { ...i, state: st.state === 'RECEIVED' ? 'RECEIVED' : fromFiles ? 'FROM_FILES' : 'PENDING', at: st.at ?? (fromFiles ? row.requested_at : null) };
+  });
+  const received = items.filter((i) => i.state !== 'PENDING').length;
+  const today = new Date().toISOString().slice(0, 10);
+  const due = String(row.due_on instanceof Date ? row.due_on.toISOString() : row.due_on).slice(0, 10);
+  return { items, received, total: items.length, requested_at: row.requested_at, due_on: due, sla_days: ACTIVATION_SLA_DAYS, overdue: received < items.length && o.state !== 'LIVE' && due < today };
+}
+export async function receiveItem(id: number, n: number, by: string) {
+  const row = (await pool.query(`SELECT * FROM tasama.activation_checklist WHERE onboarding_id=$1`, [id])).rows[0];
+  if (!row) throw new Error('No checklist for this onboarding.');
+  const items = (row.items as any[]).map((x) => (x.n === n ? { ...x, state: 'RECEIVED', at: new Date().toISOString(), by } : x));
+  await pool.query(`UPDATE tasama.activation_checklist SET items=$2 WHERE id=$1`, [row.id, JSON.stringify(items)]);
+}
+
 export async function get(id: number) {
   const o = (await pool.query(`SELECT id, client_key, name, state, lanes, issues, column_map, request_ref, shown, decision, decided_by, decided_at, reason, created_at, read_at, live_at,
       staged->'client' AS client, (SELECT COUNT(*)::int FROM jsonb_array_elements(COALESCE(staged->'roster','[]')) x WHERE x->>'held' IS NULL) AS ready, staged->'columnMap' AS columns, staged->'history'->'months' AS months, staged->'provisions' AS provisions
@@ -99,11 +131,12 @@ export async function get(id: number) {
   const issues = o.issues as Issue[];
   const t = new Date();
   const from = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 1)).toISOString().slice(0, 7);
-  return { ...o, from, files, counts: { issues: issues.length, client: issues.filter((i) => i.who === 'CLIENT').length } };
+  const checklist = await activation(id, { created_at: o.created_at, lanes: o.lanes as Lane[], state: o.state });
+  return { ...o, from, files, checklist, counts: { issues: issues.length, client: issues.filter((i) => i.who === 'CLIENT').length } };
 }
 /**
- * WF-24, the go-live decision. The payroll lead approves and the client is written to Tasama HR, or returns it
- * and the staged client stays as a draft. Only the payroll lead decides; the decision and its reason are kept.
+ * WF-24, the go-live decision. The payroll manager approves and the client is written to Tasama HR, or returns it
+ * and the staged client stays as a draft. Only the payroll manager decides; the decision and its reason are kept.
  */
 export async function decide(id: number, decision: 'APPROVED' | 'RETURNED', by: string, reason?: string) {
   const o = (await pool.query(`SELECT state, name FROM tasama.onboarding WHERE id=$1`, [id])).rows[0];

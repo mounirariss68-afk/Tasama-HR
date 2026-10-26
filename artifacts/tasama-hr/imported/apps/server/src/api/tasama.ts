@@ -1,6 +1,6 @@
 /** Tasama HR Services: portfolio, client accounts, service levels, finance, delivery, escalations, policies. */
 import { Router } from 'express';
-import { pool, withClient } from '../db.js';
+import { pool, withClient, tx } from '../db.js';
 import { CLIENTS, allClients, clientByKey, slasFor, SERVICE_LABELS, type ClientConfig } from '../domain/clients.js';
 import { addDays, iso, monthStart, round2 } from '../domain/rules.js';
 import { now } from '../clock.js';
@@ -8,6 +8,7 @@ import { personaOf, isTasama } from './session.js';
 import { slaFor, closedMonths, workload, raqeebScan, nudge, prepareInvoice, tasamaTrail, monthLabel } from '../tasama/service.js';
 import { precheck } from '../agents/hisab.js';
 import { basiraScan, patterns, patternIssues, assignPattern, closePattern } from '../tasama/basira.js';
+import { currentHandover, startHandover, shareItems } from '../tasama/handover.js';
 
 export const tasama = Router();
 
@@ -108,6 +109,33 @@ tasama.get('/tasama/clients/:key', async (req, res) => {
     waiting: (await pool.query(`SELECT r.ref, r.title, r.title_ar, r.workflow_id, r.waiting_on_role, r.sla_due, p.display_name AS waiting_on FROM layer.requests r LEFT JOIN hcm.persons p ON p.id=r.waiting_on_person_id WHERE r.status IN ('WAITING','ESCALATED') ORDER BY r.sla_due NULLS LAST LIMIT 20`)).rows,
   }));
   res.json({ client: { ...row, services: svc(cl), policy: cl.policy, nitaqat: cl.nitaqat, slas: slasFor(cl) }, slaHistory, finance: fin, team, csat, escalations: esc, payrollRuns: runs, ...ops });
+});
+
+/** Handing a client back (walkthrough addendum R41): the checklist, who shared, who signed, who closed, against the SLA. */
+tasama.get('/tasama/clients/:key/handover', async (req, res) => {
+  const cl = clientByKey(req.params.key);
+  if (!cl) return res.status(404).json({ error: 'No such client' });
+  const h = await inClient(cl, () => currentHandover(pool));
+  res.json({ client: { key: cl.key, short: cl.short, name_ar: cl.name_ar }, handover: h });
+});
+tasama.post('/tasama/clients/:key/handover/start', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isTasama(p)) return res.status(403).json({ error: 'Tasama\'s HR Operations Manager starts a handover.' });
+  const cl = clientByKey(req.params.key);
+  if (!cl) return res.status(404).json({ error: 'No such client' });
+  try {
+    const k = await inClient(cl, () => tx((db) => startHandover(db, p.display_name, { scenario: req.body?.scenario ?? null })));
+    await tasamaTrail(pool, { client_key: cl.key, actor_type: 'HUMAN', actor_id: p.key, actor_name: p.display_name, act: 'SUBMIT', summary: `${p.display_name} started handing ${cl.short} back: the 20-item checklist is open for Tasama HR operations.`, summary_ar: `بدأ ${p.display_name} تسليم ${cl.name_ar}.`, ref: k.ref });
+    res.json({ ref: k.ref });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+tasama.post('/tasama/clients/:key/handover/share', async (req, res) => {
+  const p = await personaOf(req);
+  if (!isTasama(p) && !p.roles.includes('TASAMA_HR_OPS')) return res.status(403).json({ error: 'Tasama HR operations shares the files.' });
+  const cl = clientByKey(req.params.key);
+  if (!cl) return res.status(404).json({ error: 'No such client' });
+  try { res.json({ shared: await inClient(cl, () => shareItems(pool, req.body?.items === 'all' ? 'all' : (req.body?.items ?? []).map(Number), p.display_name)) }); }
+  catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 tasama.get('/tasama/sla', async (_req, res) => {

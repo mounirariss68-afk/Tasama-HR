@@ -57,8 +57,30 @@ async function seedRemoteSite(c: PoolClient) {
   for (const p of staff) await c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, source, reference) VALUES ($1,$2,'REMOTE_SITE',1500,$3,'ORACLE_HCM','Remote-site allowance, Al Widyan site')`, [`RSA-${p.id}`, p.id, last.s]);
 }
 
+/**
+ * Walkthrough addendum R22: at Red Sea Global, one Saudi employee over 50 had a 12% raise two months ago. GOSI accepts at most 10%
+ * a year, so the draft run holds the contributory wage and names HR operations.
+ */
+async function seedOver50Raise(c: PoolClient) {
+  const open = (await c.query(`SELECT to_char(start_date,'YYYY-MM-DD') s FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
+  if (!open) return;
+  const from = new Date(Date.parse(`${open.s}T00:00:00Z`)); from.setUTCMonth(from.getUTCMonth() - 2);
+  const p = (await c.query(`SELECT p.id FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id AND wr.worker_type='E' AND wr.end_date IS NULL
+     WHERE p.is_saudi AND p.date_of_birth <= ($1::date - interval '50 years') AND wr.start_date < ($1::date - interval '2 years')
+       AND (SELECT SUM(amount) FROM hcm.element_entries e WHERE e.person_id=p.id AND e.element_code IN ('BASIC','HOUSING') AND e.effective_end='4712-12-31') < 38000 ORDER BY p.date_of_birth LIMIT 1`, [open.s])).rows[0];
+  if (!p) return;
+  const rows = (await c.query(`SELECT * FROM hcm.element_entries WHERE person_id=$1 AND element_code IN ('BASIC','HOUSING') AND effective_end='4712-12-31'`, [p.id])).rows;
+  const f = from.toISOString().slice(0, 10);
+  for (const r of rows) {
+    await c.query(`UPDATE hcm.element_entries SET effective_end=($1::date - 1) WHERE id=$2`, [f, r.id]);
+    await c.query(`INSERT INTO hcm.element_entries (entry_number, person_id, element_code, amount, effective_start, source, reference) VALUES ($1,$2,$3,$4,$5,'ORACLE_HCM','Salary increase, 12%')`,
+      [`${r.entry_number}-R`, p.id, r.element_code, Math.round(Number(r.amount) * 1.12), f]);
+  }
+}
+
 export async function seedRuns(c: PoolClient, base: BaseResult, cl: ClientConfig) {
   if (cl.key === 'roshn') await seedRemoteSite(c);
+  if (cl.key === 'redsea') await seedOver50Raise(c);
   await replayClosedMonths(c);
   if (!['riyadhair', 'redsea'].includes(cl.key)) return;
   const per = (await c.query(`SELECT period_name, to_char(start_date,'YYYY-MM-DD') s, to_char(end_date,'YYYY-MM-DD') e, to_char(cutoff_date,'YYYY-MM-DD') co FROM hcm.payroll_periods WHERE status='OPEN' ORDER BY start_date DESC LIMIT 1`)).rows[0];
@@ -89,8 +111,13 @@ export async function seedRuns(c: PoolClient, base: BaseResult, cl: ClientConfig
     await decide(c, { requestId: k.id, personId: 0, decision: 'APPROVED', reason: 'Checks cleared', edits: nasser, actorName: 'Nasser AlFarraj, Tasama' });
     setClock(new Date(cutoff + DAY + 15 * 3600e3));
     await decide(c, { requestId: k.id, personId: 0, decision: 'APPROVED', reason: 'Lines and totals checked', edits: { validated_by_name: 'Sharifa AlMousa' }, actorName: 'Sharifa AlMousa, Tasama' });
+    // design/walkthrough-addendum.md: Lama delivers the run to the client; Riyadh Air's chain is HR operations then the CHRO.
+    setClock(new Date(cutoff + DAY + 16 * 3600e3));
+    await decide(c, { requestId: k.id, personId: 0, decision: 'APPROVED', reason: 'Explanation read; delivered to Riyadh Air', edits: { delivered_by_name: 'Lama Al Dossary' }, actorName: 'Lama Al Dossary, Tasama' });
+    setClock(new Date(cutoff + 2 * DAY - 8 * 3600e3));
+    await decide(c, { requestId: k.id, personId: base.persona.payroll, decision: 'APPROVED', reason: 'Differences reviewed' });
     setClock(new Date(cutoff + 2 * DAY - 6 * 3600e3));
-    await decide(c, { requestId: k.id, personId: base.persona.chro, decision: 'APPROVED', reason: 'Differences reviewed' });
+    await decide(c, { requestId: k.id, personId: base.persona.chro, decision: 'APPROVED', reason: 'Approved for payment' });
   }
   setClock(null);
 }

@@ -44,6 +44,10 @@ export type PolicyParams = {
   bonusTargetPct: number;         // target bonus, % of annual basic, rating 3
   payDay: number;                 // day of month salaries are paid
   cutoffDay: number;              // payroll input cut-off
+  leaveDayDivisor?: 22 | 30 | 'ENTITLEMENT';   // a leave day in the provision: the month ÷ 22 working days, ÷ 30, or ÷ the annual entitlement (walkthrough addendum item 16)
+  gosiProrate?: boolean;          // GOSI × pay days ÷ month days in a partial month, as Tasama's sheet does (walkthrough addendum item 28)
+  eosYearDays?: 365 | 360;        // end of service on calendar days, or on 30-day months with a flat monthly cost (walkthrough addendum R18)
+  leaveNetMonth?: boolean;        // the leave month cost nets the days taken in the month (walkthrough addendum R27)
 };
 
 export type ClientSla = { key: string; label: string; label_ar: string; target: number; unit: '%'; creditPct: number };
@@ -62,6 +66,8 @@ export type ClientConfig = {
   nitaqat: { activity: string; band: string; requiredPct: number };
   slowness: number;               // 1 = typical approver speed; >1 slower (drives SLA results)
   policy: PolicyParams;
+  /** Who at Tasama serves this client (walkthrough addendum R3): the payroll specialist who calculates and the HR operations specialist who is its point of contact. The names stay until Tasama confirms them. */
+  team?: { payrollSpecialist: string; hrOps: string };
   contract: {
     model: string; model_ar: string;
     services: string[];           // PAYROLL, HR_OPS, EMPLOYEE_SERVICES, RECRUITMENT, ONBOARDING, OFFBOARDING, PERFORMANCE_ADMIN
@@ -70,6 +76,7 @@ export type ClientConfig = {
     start: string; term: number;  // months
     phase: 'BUILD' | 'OPERATE' | 'TRANSFER';
     creditCapPct: number;         // service credits capped at % of monthly fee
+    approvalChain?: ('PAYROLL' | 'CHRO')[];   // who approves a payroll run at the client, in order (design/walkthrough-addendum.md item 4); HR operations alone when absent
   };
   orgRename: Record<string, [string, string, string?, string?]>;    // dept code -> [name, name_ar, division?, division_ar?]
   roleRename: Record<string, [string, string]>;                     // role code -> [title, title_ar]
@@ -118,13 +125,14 @@ const CORP_ROLES: ClientConfig['roleRename'] = {
 export const CLIENTS: ClientConfig[] = [
   {
     key: 'roshn', code: 'RSN', name: 'ROSHN Group', name_ar: 'مجموعة روشن', short: 'ROSHN',
+    team: { payrollSpecialist: 'Nasser AlFarraj', hrOps: 'Lama Al Dossary' },
     sector: 'Real estate development', sector_ar: 'التطوير العقاري', city: 'Riyadh', city_ar: 'الرياض',
     hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', finance: 'ORACLE_FIN', size: 236, saudiShare: 0.72,
     nitaqat: { activity: 'Real estate development', band: 'High Green', requiredPct: 0.38 }, slowness: 1.0,
     policy: { annualLeave: 25, annualLeaveAfter5: 30, carryForwardMax: 10, probationDays: 90, housingPct: 25, transportPct: 10, weeklyHours: 40, remoteDays: 2,
       advanceMultiple: 2, advanceBasis: 'basic', advanceMinServiceMonths: 6, advanceMaxTerm: 18, letterHours: 8, ticket: 'annual', educationAllowance: 20000, educationChildren: 2,
       medicalClass: 'A', sickTopUpDays: 30, seniorNoticeDays: 90, bonusTargetPct: 15, payDay: 27, cutoffDay: 18 },
-    contract: { model: 'Full HR outsourcing', model_ar: 'تعهيد كامل للموارد البشرية', services: ['PAYROLL', 'HR_OPS', 'EMPLOYEE_SERVICES', 'RECRUITMENT', 'ONBOARDING', 'OFFBOARDING', 'PERFORMANCE_ADMIN'],
+    contract: { approvalChain: ['PAYROLL', 'CHRO'], model: 'Full HR outsourcing', model_ar: 'تعهيد كامل للموارد البشرية', services: ['PAYROLL', 'HR_OPS', 'EMPLOYEE_SERVICES', 'RECRUITMENT', 'ONBOARDING', 'OFFBOARDING', 'PERFORMANCE_ADMIN'],
       pepm: 395, perHire: 3200, start: '2025-09-01', term: 36, phase: 'OPERATE', creditCapPct: 10 },
     orgRename: { ...CORP_RENAMES,
       COM: ['Commercial', 'القطاع التجاري'], RSL: ['Residential Sales', 'مبيعات الوحدات السكنية'], COR: ['Commercial Leasing', 'التأجير التجاري'],
@@ -143,13 +151,14 @@ export const CLIENTS: ClientConfig[] = [
   },
   {
     key: 'riyadhair', code: 'RXI', name: 'Riyadh Air', name_ar: 'طيران الرياض', short: 'Riyadh Air',
+    team: { payrollSpecialist: 'Nasser AlFarraj', hrOps: 'Lama Al Dossary' },
     sector: 'Aviation', sector_ar: 'الطيران', city: 'Riyadh', city_ar: 'الرياض',
     hrms: 'ORACLE', hrmsLabel: 'Oracle Fusion Cloud HCM', finance: 'ORACLE_FIN', size: 224, saudiShare: 0.58,
     nitaqat: { activity: 'Air transport', band: 'Medium Green', requiredPct: 0.30 }, slowness: 1.9,
     policy: { annualLeave: 30, annualLeaveAfter5: 35, carryForwardMax: 15, probationDays: 180, housingPct: 25, transportPct: 10, weeklyHours: 40, remoteDays: 1,
       advanceMultiple: 1, advanceBasis: 'gross', advanceMinServiceMonths: 6, advanceMaxTerm: 12, letterHours: 8, ticket: 'staff-travel', educationAllowance: 25000, educationChildren: 3,
       medicalClass: 'VIP', sickTopUpDays: 60, seniorNoticeDays: 90, bonusTargetPct: 15, payDay: 25, cutoffDay: 15 },
-    contract: { model: 'Full HR outsourcing with recruitment', model_ar: 'تعهيد كامل مع التوظيف', services: ['PAYROLL', 'HR_OPS', 'EMPLOYEE_SERVICES', 'RECRUITMENT', 'ONBOARDING', 'OFFBOARDING'],
+    contract: { approvalChain: ['PAYROLL', 'CHRO'], model: 'Full HR outsourcing with recruitment', model_ar: 'تعهيد كامل مع التوظيف', services: ['PAYROLL', 'HR_OPS', 'EMPLOYEE_SERVICES', 'RECRUITMENT', 'ONBOARDING', 'OFFBOARDING'],
       pepm: 410, perHire: 4500, start: '2025-11-01', term: 36, phase: 'OPERATE', creditCapPct: 10 },
     orgRename: { ...CORP_RENAMES,
       COM: ['Commercial', 'القطاع التجاري'], RSL: ['Sales and Distribution', 'المبيعات والتوزيع'], COR: ['Corporate and Partner Sales', 'مبيعات الشركات والشركاء'],
@@ -169,12 +178,13 @@ export const CLIENTS: ClientConfig[] = [
   },
   {
     key: 'redsea', code: 'RSG', name: 'Red Sea Global', name_ar: 'البحر الأحمر الدولية', short: 'Red Sea Global',
+    team: { payrollSpecialist: 'Nasser AlFarraj', hrOps: 'Lama Al Dossary' },
     sector: 'Tourism and hospitality', sector_ar: 'السياحة والضيافة', city: 'Riyadh and the Red Sea destination', city_ar: 'الرياض ووجهة البحر الأحمر',
     hrms: 'PLATFORM', hrmsLabel: 'Tasama HR employee master', finance: 'ORACLE_FIN', size: 204, saudiShare: 0.55,
     nitaqat: { activity: 'Hotels and tourism', band: 'Medium Green', requiredPct: 0.32 }, slowness: 1.2,
     policy: { annualLeave: 26, annualLeaveAfter5: 30, carryForwardMax: 10, probationDays: 90, housingPct: 30, transportPct: 10, weeklyHours: 48, remoteDays: 0,
       advanceMultiple: 1, advanceBasis: 'basic', advanceMinServiceMonths: 6, advanceMaxTerm: 12, letterHours: 16, ticket: 'annual', educationAllowance: 30000, educationChildren: 3,
-      medicalClass: 'A', sickTopUpDays: 0, seniorNoticeDays: 90, bonusTargetPct: 12, payDay: 26, cutoffDay: 16 },
+      medicalClass: 'A', sickTopUpDays: 0, seniorNoticeDays: 90, bonusTargetPct: 12, payDay: 26, cutoffDay: 16, eosYearDays: 360 },
     contract: { model: 'Payroll and employee services', model_ar: 'الرواتب وخدمات الموظفين', services: ['PAYROLL', 'EMPLOYEE_SERVICES', 'OFFBOARDING'],
       pepm: 240, perHire: 0, start: '2026-01-01', term: 24, phase: 'OPERATE', creditCapPct: 8 },
     orgRename: { ...CORP_RENAMES,
@@ -194,6 +204,7 @@ export const CLIENTS: ClientConfig[] = [
   },
   {
     key: 'seven', code: 'SVN', name: 'Saudi Entertainment Ventures (SEVEN)', name_ar: 'شركة الترفيه السعودية (سفن)', short: 'SEVEN',
+    team: { payrollSpecialist: 'Nasser AlFarraj', hrOps: 'Lama Al Dossary' },
     sector: 'Entertainment', sector_ar: 'الترفيه', city: 'Riyadh', city_ar: 'الرياض',
     hrms: 'PLATFORM', hrmsLabel: 'Tasama HR employee master', finance: 'ODOO_ACC', size: 148, saudiShare: 0.66,
     nitaqat: { activity: 'Entertainment', band: 'High Green', requiredPct: 0.35 }, slowness: 1.0,
@@ -219,12 +230,13 @@ export const CLIENTS: ClientConfig[] = [
   },
   {
     key: 'saudicoffee', code: 'SCC', name: 'Saudi Coffee Company', name_ar: 'الشركة السعودية للقهوة', short: 'Saudi Coffee',
+    team: { payrollSpecialist: 'Nasser AlFarraj', hrOps: 'Lama Al Dossary' },
     sector: 'Food and agriculture', sector_ar: 'الأغذية والزراعة', city: 'Jazan and Riyadh', city_ar: 'جازان والرياض',
     hrms: 'PLATFORM', hrmsLabel: 'Tasama HR employee master', finance: 'ODOO_ACC', size: 104, saudiShare: 0.62,
     nitaqat: { activity: 'Food manufacturing', band: 'Low Green', requiredPct: 0.28 }, slowness: 1.4,
     policy: { annualLeave: 21, annualLeaveAfter5: 30, carryForwardMax: 0, probationDays: 90, housingPct: 20, transportPct: 10, weeklyHours: 48, remoteDays: 0,
       advanceMultiple: 0.5, advanceBasis: 'gross', advanceMinServiceMonths: 12, advanceMaxTerm: 6, letterHours: 16, ticket: 'none', educationAllowance: 0, educationChildren: 0,
-      medicalClass: 'C', sickTopUpDays: 0, seniorNoticeDays: 60, bonusTargetPct: 8, payDay: 28, cutoffDay: 20 },
+      medicalClass: 'C', sickTopUpDays: 0, seniorNoticeDays: 60, bonusTargetPct: 8, payDay: 28, cutoffDay: 20, leaveDayDivisor: 22, leaveNetMonth: true, gosiProrate: true },
     contract: { model: 'Payroll managed service (Build, Operate, Transfer)', model_ar: 'خدمة الرواتب المُدارة (بناء، تشغيل، نقل)', services: ['PAYROLL'],
       pepm: 95, perHire: 0, start: '2026-06-01', term: 24, phase: 'OPERATE', creditCapPct: 8 },
     orgRename: { ...CORP_RENAMES,

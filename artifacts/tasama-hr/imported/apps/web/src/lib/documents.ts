@@ -50,19 +50,23 @@ export function letterDocument(d: any): DocumentSpec {
     addressee: d.addressee,
   };
 }
-export function payslipDocument(p: any, employee: string, language: string): DocumentSpec {
+export function payslipDocument(p: any, employee: string, language: string, w?: { job?: string; person_number?: string; bank_name?: string; iban_masked?: string; employer?: string }): DocumentSpec {
   const ar = language === 'ar';
   const amount = (v: unknown) => new Intl.NumberFormat(ar ? 'ar-SA' : 'en-SA', { style: 'currency', currency: 'SAR' }).format(Number(v));
+  const day = (d: string) => (d ? String(d).slice(0, 10) : '');
   return {
     title: ar ? 'قسيمة راتب' : 'Payslip', reference: `PAY-${p.period_name}-${p.id}`,
     date: p.pay_date, language, status: 'PAYROLL RECORD', employee,
+    // Tasama's payslip layout (walkthrough addendum R30): employer, person, position, period and payment date, the lines, then the bank block.
     body: [
-      `${ar ? 'الموظف' : 'Employee'}: ${employee}`,
-      `${ar ? 'الفترة' : 'Period'}: ${p.period_name}`,
+      ...(w?.employer ? [`${ar ? 'صاحب العمل' : 'Employer'}: ${w.employer}`] : []),
+      `${ar ? 'الموظف' : 'Employee'}: ${employee}${w?.person_number ? ` (${w.person_number})` : ''}${w?.job ? ` · ${w.job}` : ''}`,
+      `${ar ? 'الفترة' : 'Period'}: ${p.period_name}${p.start_date ? ` (${day(p.start_date)} – ${day(p.end_date)})` : ''} · ${ar ? 'تاريخ الصرف' : 'Payment date'}: ${day(p.pay_date)}`,
       ...p.lines.map((l: any) => `${l.name}: ${l.kind === 'DEDUCTION' ? '−' : ''}${amount(l.amount)}`),
       '', `${ar ? 'الإجمالي' : 'Gross'}: ${amount(p.gross)}`,
       `${ar ? 'الاستقطاعات' : 'Deductions'}: ${amount(p.deductions)}`,
       `${ar ? 'الصافي' : 'Net'}: ${amount(p.net)}`, '',
+      ...(w?.iban_masked ? [`${ar ? 'الآيبان' : 'IBAN'}: ${w.iban_masked} · ${ar ? 'البنك' : 'Bank'}: ${w.bank_name ?? ''} · SAR ${Number(p.net).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, ''] : []),
       ar ? 'نتيجة رواتب تجريبية. اشتراكات صاحب العمل معروضة ولا تدفع للموظف.' : 'Synthetic payroll result. Employer contributions are shown but not paid to you.',
     ].join('\n'),
   };

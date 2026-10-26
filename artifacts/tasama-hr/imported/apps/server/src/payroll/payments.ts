@@ -5,7 +5,7 @@
 import type { PoolClient } from 'pg';
 import { pool } from '../db.js';
 import { client } from '../domain/rules.js';
-import { now } from '../clock.js';
+import { now, setClock } from '../clock.js';
 import {
   BANKS, CLIENT_BANKS, FORMATS, bankByCode, bankByIban, bankByName, buildFile, formatByKey, ibanValid, readFile, syntheticIban,
   type Format, type FileCtx,
@@ -208,6 +208,9 @@ async function reportAt(c: Q, id: number, days: number) {
 
 export async function bankFeedback(c: PoolClient, id: number, fail: number[] = []) {
   await markFeedback(c, id, fail.map((person_id) => ({ person_id, ...RETURN })), await reportAt(c, id, 0));
+  // The bank's report, as the portal gives it, reconciled against the payroll before the ledger (walkthrough addendum R37).
+  const bankLines = (await c.query(`SELECT employee_no, amount::float amount, status FROM layer.payment_lines WHERE payment_id=$1`, [id])).rows.map((l: any) => ({ employee_no: l.employee_no, amount: l.amount, status: l.status === 'FAILED' ? 'RETURNED' : 'PAID' }));
+  await reconcile(c, id, bankLines);
   const pp = (await c.query(`SELECT value FROM layer.meta WHERE key='people'`)).rows[0]?.value?.persona ?? {};
   const pay = (await c.query(`SELECT * FROM layer.payments WHERE id=$1`, [id])).rows[0];
   const bank = bankByCode(pay.bank_code)!;
@@ -269,12 +272,15 @@ export async function seedPaymentHistory(c: PoolClient) {
     await markSent(c, p.id, 'Sharifa AlMousa', new Date(built.getTime() + 2 * 3600e3));
     await markApproved(c, p.id, fin, new Date(pay - 2 * DAY + 11 * 3600e3));
     await markFeedback(c, p.id, [], new Date(pay + 10 * 3600e3));
+    setClock(new Date(pay + 11 * 3600e3));
+    await reconcile(c, p.id, (await c.query(`SELECT employee_no, amount::float amount FROM layer.payment_lines WHERE payment_id=$1`, [p.id])).rows.map((l: any) => ({ employee_no: l.employee_no, amount: l.amount, status: 'PAID' })));
+    setClock(null);
     await markWps(c, p.id, new Date(pay + 5 * DAY));
     await markMudad(c, p.id, 'ACKNOWLEDGED', new Date(pay + 6 * DAY));
   }
 }
 
-/** Opens the payment case for a month's approved run: Tahweel builds it, the payroll lead sends it (WF-33). */
+/** Opens the payment case for a month's approved run: Tahweel builds it, the payroll manager sends it (WF-33). */
 export async function startPayment(c: PoolClient, period: string, runId: number | null, requester: number, extra: Record<string, any> = {}) {
   const { startCase } = await import('../engine/core.js');
   const month = new Date(`${period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -362,7 +368,36 @@ export async function readReturnFile(c: PoolClient, id: number, csv: string) {
   const unknown = rows.filter((r) => !byNo.has(r[1]));
   if (unknown.length) throw new Error(`${unknown.length} rows name employees who are not in this payment.`);
   const fail = rows.filter((r) => r[4] === 'RETURNED').map((r) => byNo.get(r[1]) as number);
-  return bankFeedback(c, id, fail);
+  const out = await bankFeedback(c, id, fail);
+  const rec = await reconcile(c, id, rows.map((r) => ({ employee_no: r[1], amount: Number(r[3]), status: r[4] })));
+  return { ...out, reconciliation: rec };
+}
+
+/**
+ * The bank reconciliation (walkthrough addendum R37): what the bank reports paid against what the payroll says, line by
+ * line and in total, before anything goes to the ledger. Ahmed did this with a VLOOKUP; here the file is read once.
+ */
+export async function reconcile(c: PoolClient, id: number, bankRows: { employee_no: string; amount: number; status: string }[]) {
+  const p = (await c.query(`SELECT * FROM layer.payments WHERE id=$1`, [id])).rows[0];
+  const ls = (await c.query(`SELECT employee_no, name, amount::float amount, person_id FROM layer.payment_lines WHERE payment_id=$1`, [id])).rows;
+  const payrollNet = Number((await c.query(`SELECT COALESCE(SUM(r.net),0) n FROM hcm.payroll_results r JOIN hcm.payroll_periods pp ON pp.id=r.period_id WHERE pp.period_name=$1 AND r.person_id = ANY($2)`, [p.period_name, ls.map((l: any) => l.person_id)])).rows[0].n);
+  const byNo = new Map(bankRows.map((r) => [String(r.employee_no), r]));
+  const differences: { employee_no: string; name: string; payroll: number; bank: number | null; why: string }[] = [];
+  let bankPaid = 0, returned = 0, matched = 0;
+  for (const l of ls) {
+    const b = byNo.get(String(l.employee_no));
+    if (!b) { differences.push({ employee_no: l.employee_no, name: l.name, payroll: l.amount, bank: null, why: 'Not on the bank\'s report' }); continue; }
+    if (b.status === 'RETURNED') { returned += b.amount; matched++; continue; }
+    bankPaid += b.amount;
+    if (Math.abs(b.amount - l.amount) > 0.005) differences.push({ employee_no: l.employee_no, name: l.name, payroll: l.amount, bank: b.amount, why: 'The bank paid a different amount' });
+    else matched++;
+  }
+  for (const b of bankRows) if (!ls.some((l: any) => String(l.employee_no) === String(b.employee_no))) differences.push({ employee_no: b.employee_no, name: '—', payroll: 0, bank: b.amount, why: 'Paid by the bank, not in the payroll' });
+  const fileTotal = Number(p.total);
+  const rec = { at: p.feedback_at ? new Date(p.feedback_at) : now(), bank_paid: r2(bankPaid), returned: r2(returned), file_total: fileTotal, payroll_net: r2(payrollNet), matched, lines: ls.length,
+    totals_match: Math.abs(bankPaid + returned - fileTotal) < 0.01 && Math.abs(fileTotal - payrollNet) < 0.01, differences, reconciled: differences.length === 0 && Math.abs(bankPaid + returned - fileTotal) < 0.01 };
+  await c.query(`UPDATE layer.payments SET reconciliation=$2 WHERE id=$1`, [id, JSON.stringify(rec)]);
+  return rec;
 }
 
 /** The signed WPS file, taken from the bank portal and filed against what was paid. */

@@ -7,7 +7,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { HeroFeature, PageColumns, Panel, PanelAction, StatTile, StatusRow } from '@cognirise/atelier/layout';
 import { ProvenanceNote } from '@cognirise/atelier/archetypes';
-import { AlertTriangle, ArrowLeft, Banknote, BookOpen, Building2, CalendarClock, ClipboardList, Gauge, Network, Receipt, Scale, Users, Workflow } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Banknote, BookOpen, Building2, CalendarClock, ClipboardList, DoorOpen, Gauge, Network, Receipt, Scale, Users, Workflow } from 'lucide-react';
 import { bump, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
 import { aed, aedShort, ago, date, dateTime, month, num } from '../lib/format';
@@ -126,9 +126,10 @@ export function TasamaPortfolio() {
 export function TasamaAccount() {
   const { t, bi, lang } = useLang();
   const { route, go, switchClient, openCase, session } = useApp();
-  const key = route.param ?? session?.clients[0]?.key ?? 'roshn';
+  const [key, sub] = (route.param ?? session?.clients[0]?.key ?? 'roshn').split('+');
   const { data } = useApi<any>(`/tasama/clients/${key}`, { poll: 20000 });
-  const [tab, setTab] = useState('sla');
+  const [tab, setTab] = useState(sub === 'handover' ? 'handover' : 'sla');
+  useEffect(() => { if (sub === 'handover') setTab('handover'); }, [sub, key]);
   if (!data) return null;
   const c = data.client;
   const slaKeys = c.slas.map((s: any) => s.key);
@@ -137,7 +138,7 @@ export function TasamaAccount() {
   const scored = last ? last.results.filter((r: any) => r.ok !== null).length : 0;
   const maxCsat = 5;
   const enter = (screen: string, ref?: string) => { switchClient(c.key, screen); if (ref) setTimeout(() => openCase(ref), 300); };
-  const ACCOUNT_TABS = [{ id: 'sla', label: 'Service levels' }, { id: 'waiting', label: 'Waiting cases' }, { id: 'team', label: 'Delivery team' }, { id: 'invoices', label: 'Invoices' }, { id: 'payroll', label: 'Payroll runs' }, { id: 'hrms', label: 'HRMS health' }];
+  const ACCOUNT_TABS = [{ id: 'sla', label: 'Service levels' }, { id: 'waiting', label: 'Waiting cases' }, { id: 'team', label: 'Delivery team' }, { id: 'invoices', label: 'Invoices' }, { id: 'payroll', label: 'Payroll runs' }, { id: 'hrms', label: 'HRMS health' }, { id: 'handover', label: 'Handover' }];
   return (
     <Screen hero={<Hero eyebrow={EYEBROW} title={`${bi(c.short, c.name_ar)} ${t('met')} ${met} ${t('of')} ${scored} ${t('service levels last month')}`} lede={`${bi(c.sector, c.sector_ar)} · ${bi(c.city, c.city_ar)} · ${bi(c.model, c.model_ar)} · ${c.hrms_label}. ${t('Account manager')}: ${bi(c.account_manager, c.account_manager_ar)}.`}
       actions={<><Btn onClick={() => go('tasama-portfolio')}><ArrowLeft className="h-4 w-4 rtl:rotate-180" />{t('Overview')}</Btn><Btn kind="primary" onClick={() => enter('hr-inbox')}>{t('Enter its HR')}</Btn></>} />}>
@@ -188,7 +189,53 @@ export function TasamaAccount() {
       {tab === 'hrms' ? <Panel icon={<Network size={16} />} title="HRMS connector, last 7 days">
           {data.hrms.map((h: any) => <StatusRow key={h.system} name={plain(h.system)} detail={`${num(h.calls)} ${t('calls')} · ${h.avg_ms} ms`} status={<Chip tone={h.errors ? 'danger' : 'success'}>{h.errors ? `${h.errors} ${t('errors')}` : t('healthy')}</Chip>} />)}
         </Panel> : null}
+      {tab === 'handover' ? <Handover clientKey={c.key} short={bi(c.short, c.name_ar)} /> : null}
     </Screen>
+  );
+}
+
+/**
+ * Handing a client back (walkthrough addendum R41): Tasama shares the payroll files and records on the 20-item checklist,
+ * the client signs, Tasama closes and deletes its copies; SLA 7 working days.
+ */
+function Handover({ clientKey, short }: { clientKey: string; short: string }) {
+  const { t, bi, lang } = useLang();
+  const { openCase, persona } = useApp();
+  const { data, reload } = useApi<any>(`/tasama/clients/${clientKey}/handover`, { poll: 8000 });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const h = data?.handover;
+  const act = async (path: string, body?: any) => { setBusy(true); setErr(null); try { await post(`/tasama/clients/${clientKey}/handover/${path}`, body ?? {}); bump(); reload(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
+  const isTasama = persona?.key === 'tasama';
+  const canShare = h && h.status === 'SHARING' && (isTasama || persona?.roles.includes('TASAMA_HR_OPS'));
+  const STATUS: Record<string, [string, 'primary' | 'warn' | 'success' | 'danger' | undefined]> = { SHARING: ['Tasama is sharing the files', 'primary'], SIGNING: ['Waiting for the client\'s sign-off', 'warn'], CLOSING: ['Signed; Tasama closes the client', 'warn'], CLOSED: ['Handed back', 'success'], CANCELLED: ['Cancelled', undefined] };
+  if (!data) return null;
+  if (!h || h.status === 'CANCELLED') return (
+    <Panel icon={<DoorOpen size={16} />} title={`${short} ${t('stays with Tasama; nothing is being handed back')}`}>
+      <p className="text-sm text-muted-foreground">{t('When a client\'s contract ends, Tasama shares its payroll files, records and access on a 20-item checklist, the client\'s HR operations signs the handover, and Tasama deletes its copies, inside seven working days.')}</p>
+      {isTasama ? <div className="mt-3"><Btn kind="primary" onClick={() => act('start')} disabled={busy}>{t('Start handing the client back')}</Btn></div> : null}
+      {err ? <p className="mt-2 text-sm text-danger">{err}</p> : null}
+    </Panel>);
+  const steps: [string, string | null, string | null][] = [[t('Files shared'), h.shared_by, h.shared_at], [t('Signed by the client'), h.signed_by, h.signed_at], [t('Closed by Tasama'), h.closed_by, h.closed_at], [t('Access revoked, files deleted'), h.status === 'CLOSED' ? t('Platform') : null, h.status === 'CLOSED' ? h.closed_at : null]];
+  return (
+    <>
+      <Panel icon={<DoorOpen size={16} />} title={h.status === 'CLOSED' ? `${short} ${t('was handed back on')} ${date(h.closed_at, lang)}${h.overdue ? '' : `, ${t('inside the seven working days')}`}` : `${short}: ${h.shared} ${t('of')} ${h.total} ${t('items shared; due by')} ${date(h.due_on, lang)}`}
+        action={<span className="flex items-center gap-2"><Chip tone={STATUS[h.status]?.[1]}>{t(STATUS[h.status]?.[0] ?? h.status)}</Chip>{h.ref ? <Btn small onClick={() => openCase(h.ref, clientKey)}>{t('Open the case')}</Btn> : null}</span>}>
+        <div className="grid gap-3 md:grid-cols-4">{steps.map(([k, who, at]) => (
+          <div key={k} className={`rounded-xl p-3 ${who ? 'glass-l3' : 'border border-dashed border-border/70'}`}><p className="text-xs text-muted-foreground">{k}</p><p className="mt-0.5 text-sm font-semibold">{who ?? t('Not yet')}</p><p className="text-xs text-muted-foreground">{at ? date(at, lang) : ''}</p></div>))}</div>
+        <div className="mt-3"><Progress done={h.shared} total={h.total} /></div>
+        {h.overdue ? <p className="mt-2 text-sm text-danger">{t('Past the seven working days.')}</p> : null}
+        {err ? <p className="mt-2 text-sm text-danger">{err}</p> : null}
+      </Panel>
+      <Panel icon={<ClipboardList size={16} />} title={t('The twenty items the client receives through the shared folder')} action={canShare && h.shared < h.total ? <PanelAction onClick={() => act('share', { items: 'all' })}>{t('Mark all as shared')}</PanelAction> : undefined}>
+        <ol className="grid gap-1.5 md:grid-cols-2">{h.items.map((i: any) => (
+          <li key={i.n} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${i.shared_at ? 'bg-success/5' : ''}`}>
+            <button type="button" disabled={!canShare || Boolean(i.shared_at) || busy} onClick={() => act('share', { items: [i.n] })} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[11px] ${i.shared_at ? 'border-success bg-success text-white' : 'border-border'}`}>{i.shared_at ? '✓' : ''}</button>
+            <span className="flex-1">{bi(i.label, i.label_ar)}</span>
+            {i.shared_at ? <span className="text-[11px] text-muted-foreground">{date(i.shared_at, lang)}</span> : null}
+          </li>))}</ol>
+      </Panel>
+    </>
   );
 }
 

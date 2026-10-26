@@ -32,6 +32,8 @@ import { dropClient } from './onboarding/golive.js';
 import * as Pay from './payroll/payments.js';
 import { startJournals } from './payroll/journals.js';
 import { currentRun } from './payroll/runs.js';
+import { calendarReminders, calendarFor, monthOn, monthStages } from './payroll/calendar.js';
+import { startHandover, cancelHandover, shareItems, currentHandover } from './tasama/handover.js';
 import { syntheticIban, bankByCode, bankByIban, BANKS } from './domain/banks.js';
 
 type Ctx = { key: string; client: string; refs: Record<string, string>; P: Record<string, number>; T: Record<string, number>; out: Record<string, any> };
@@ -41,7 +43,7 @@ type Action =
   | { kind: 'overtime_inputs' }
   | { kind: 'justify_late'; text: string }
   | { kind: 'start'; starter: keyof typeof STARTERS; as: string }
-  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; also?: Record<string, string>; edits?: Record<string, any> }
+  | { kind: 'decide'; ref: string; decision: 'APPROVED' | 'REJECTED'; reason: string; onBehalf?: boolean; followon?: string; also?: Record<string, string>; edits?: Record<string, any>; as?: string }
   | { kind: 'raqeeb_scan' }
   | { kind: 'nudge'; ref: string }
   | { kind: 'basira_scan' }
@@ -52,7 +54,9 @@ type Action =
   | { kind: 'onboard_reveal'; upto: number | null }
   | { kind: 'onboard_decide' }
   | { kind: 'bank'; event: 'approved' | 'feedback' | 'paid'; ref: string }
-  | { kind: 'new_iban'; ref: string; as: string };
+  | { kind: 'new_iban'; ref: string; as: string }
+  | { kind: 'calendar_remind' }
+  | { kind: 'handover_share'; ref: string; reason: string };
 /** One line in pane 01 of the Stage: what the person asking said, or what reached them. */
 export type Line = { by: 'person' | 'agent' | 'system'; who: string; via?: string; text: string };
 /** A record as the client's HRMS (or Tasama's own system) holds it, for pane 03. A representative screen. */
@@ -61,7 +65,7 @@ export type Rec = { system: string; title: string; fields: [string, string][] };
 type Focus = 'invoice' | 'document' | 'sla' | 'refusal' | { fact: Text };
 type Step = {
   id: string; title: string; title_ar: string; trigger: string; persona: string; screen: string;
-  open?: string;            // 'case:<name>' (a case the scenario created) or 'pattern:<riyadhair|cross>'
+  open?: string;            // 'case:<name>' (a case the scenario created), 'pattern:<riyadhair|cross>', or 'param:<screen parameter>'
   action: Action; say: Text; say_ar?: Text;
   chat?: (c: Ctx) => Promise<Line[]> | Line[];
   focus?: Focus;
@@ -152,7 +156,7 @@ async function backpayRecord(c: Ctx): Promise<Rec | null> {
   const r = k?.result?.backpay;
   const st = c.out.resign?.settlement;
   const f: [string, string][] = [];
-  if (r) { for (const m of r.months) f.push([`Back pay, ${new Date(`${m.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`, sar(m.amount)]); f.push(['GOSI on the back pay', sar(r.gosiEe)], ['End of service re-measured', `+${sar(r.catchUp.eos)}`], ['Leave provision re-measured', `+${sar(r.catchUp.leave)}`]); }
+  if (r) { for (const m of r.months) { const month = new Date(`${m.period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }); const by = Object.entries((m.byElement ?? {}) as Record<string, number>); f.push([`Retro, ${month}`, by.length ? by.map(([k, v]) => `${k} ${sar(v)}`).join(' + ') : sar(m.amount)]); } f.push(['Retro GOSI', sar(r.gosiEe)], ['End of service re-measured', `+${sar(r.catchUp.eos)}`], ['Leave provision re-measured', `+${sar(r.catchUp.leave)}`]); }
   if (st) { f.push(['Leaver', `${st.person.name}, last day ${fmtDate(st.lastDay)}`]); for (const l of st.lines.filter((x: any) => ['GRATUITY', 'LEAVE_ENCASH', 'ADVANCE_RECOVERY'].includes(x.code))) f.push([l.label, sar(l.amount)]); f.push(['Settlement', sar(st.total)]); }
   if (!f.length) return null;
   return { system: clientByKey(c.client)!.hrmsLabel, title: 'Back pay and final settlement', fields: f.slice(0, 12) };
@@ -431,9 +435,28 @@ const STARTERS = {
     if (!k) throw new Error('The contract could not be read');
     return k.ref as string;
   },
+  /** The year's calendar proposed again for the client, replacing the one seeded for the day (and its reminders). */
+  calendar: async (c: Ctx) => {
+    const year = now().getUTCFullYear();
+    await tx(async (q) => {
+      const old = (await q.query(`SELECT id FROM layer.requests WHERE workflow_id='WF-38' AND (payload->>'year')::int=$1`, [year])).rows;
+      for (const o of old) await q.query(`UPDATE layer.requests SET status='CANCELLED', waiting_on_role=NULL, waiting_on_person_id=NULL, closed_at=now() WHERE id=$1 AND status NOT IN ('COMPLETED','CANCELLED')`, [o.id]);
+      await q.query(`DELETE FROM layer.payroll_calendar WHERE year=$1`, [year]);
+      await q.query(`DELETE FROM layer.notifications WHERE link LIKE 'calendar:%'`);
+    });
+    const cl = clientByKey(c.client)!;
+    const k = await tx((q) => startCase(q, { workflowId: 'WF-38', type: 'PAYROLL_CALENDAR', title: `${cl.short}'s payroll calendar for ${year}`, title_ar: `تقويم رواتب ${cl.name_ar} لعام ${year}`, requester: c.P.payroll, subject: c.P.payroll, channel: 'SCHEDULE', scenario: c.key, payload: { year, client: cl.short } }));
+    return k.ref as string;
+  },
+  /** Handing the client back (WF-39): any handover in progress is cancelled and a fresh one starts. */
+  handover: async (c: Ctx) => {
+    await tx((q) => cancelHandover(q));
+    const k = await tx((q) => startHandover(q, 'Faisal Al Harbi', { scenario: c.key }));
+    return k.ref as string;
+  },
   journals: async (_c: Ctx) => {
     const k = (await pool.query(`SELECT ref FROM layer.requests WHERE workflow_id='WF-34' AND status='WAITING' ORDER BY id DESC LIMIT 1`)).rows[0];
-    if (!k) throw new Error('No journals are waiting on the payroll lead');
+    if (!k) throw new Error('No journals are waiting on the payroll manager');
     return k.ref as string;
   },
   payment: async (_c: Ctx) => {
@@ -642,7 +665,7 @@ async function onboardingRecord(c: Ctx): Promise<Rec | null> {
   const read = (o.lanes ?? []).filter((l: any) => l.state === 'DONE').length;
   return { system: 'Tasama HR, staging', title: o.client?.name ?? 'The dropped folder', fields: [
     ['Files', String(files)], ['Lanes read', `${read} of 7`], ['Employees ready', `${o.ready ?? 0} of ${o.client?.headcount ?? 0}`],
-    ['Issues for the client', String(o.counts.client)], ['Issues Tasama settles', String(o.counts.issues - o.counts.client)], ['State', o.state === 'LIVE' ? `Live from ${o.from}` : o.state === 'STAGED' ? 'Waiting for the payroll lead' : 'Reading'],
+    ['Issues for the client', String(o.counts.client)], ['Issues Tasama settles', String(o.counts.issues - o.counts.client)], ['State', o.state === 'LIVE' ? `Live from ${o.from}` : o.state === 'STAGED' ? 'Waiting for the payroll manager' : 'Reading'],
   ] };
 }
 
@@ -727,13 +750,13 @@ export const SCRIPTS: Scenario[] = [
         () => 'The next step is an improvement plan with the manager, not an exit. Agents stop work that should not proceed, not only work that is slow.', 'case:term'),
     ] },
   { key: 'policy-reading', level: 'tasama', client: 'redsea', shape: 'Governance, with a refusal', shape_ar: 'حوكمة مع رفض', title: 'A handbook becomes rules', title_ar: 'دليل يتحول إلى قواعد',
-    summary: 'Red Sea Global sends a revised handbook. Nizam reads it into rules on the 27 dimensions payroll needs and marks the one clause that can be read two ways. Tasama\'s payroll lead recommends a reading, Red Sea Global\'s CHRO activates the version, and the rule SEVEN\'s handbook got wrong is shown refused.', summary_ar: 'ترسل البحر الأحمر الدولية دليلاً معدلاً، فيقرؤه نظام إلى قواعد على الأبعاد السبعة والعشرين ويحدد البند الذي يحتمل قراءتين؛ توصي قائدة الرواتب بقراءة، ويفعّل الرئيس التنفيذي للموارد البشرية النسخة.',
+    summary: 'Red Sea Global sends a revised handbook. Nizam reads it into rules on the 27 dimensions payroll needs and marks the one clause that can be read two ways. Tasama\'s payroll manager recommends a reading, Red Sea Global\'s CHRO activates the version, and the rule SEVEN\'s handbook got wrong is shown refused.', summary_ar: 'ترسل البحر الأحمر الدولية دليلاً معدلاً، فيقرؤه نظام إلى قواعد على الأبعاد السبعة والعشرين ويحدد البند الذي يحتمل قراءتين؛ توصي مديرة الرواتب بقراءة، ويفعّل الرئيس التنفيذي للموارد البشرية النسخة.',
     record: async (c) => policyRecord(c),
     steps: [
       S('d1', 'Nizam reads the revised handbook', 'نظام يقرأ الدليل المعدل', 'Handbook received from the client (WF-26)', 'tasama-lead', 'payroll-policies', { kind: 'start', starter: 'handbook', as: 'pol' },
         async (c) => { const k = await caseOf(c.refs.pol); const rd = k.result?.reading; const u = rd?.flagged.find((f: any) => f.flag === 'UNCLEAR'); return `Red Sea Global's HR sent a revised handbook. Nizam read ${rd?.clauses ?? 'its'} clauses into ${rd?.rules ?? ''} rules on all ${rd?.dims ?? 27} dimensions payroll needs, each with the clause it came from. One rule can be read two ways: ${u ? `the ${String(u.label).toLowerCase()}, "time and a half" with no wage named` : 'see the case'}. The handbook sets no per diem for business trips. Nothing is used until Red Sea Global's CHRO activates it.`; }, 'case:pol',
         { chat: async (c) => [person(await nameOf(c.P.chro), 'Attached is our revised HR handbook, effective this month. Please update payroll.', 'Email to Tasama payroll'), agent('Nizam', 'Read into 40 rules on all 27 dimensions. One needs a decision: overtime is "time and a half" with no wage named. Business trips have no per diem in the handbook.')] }),
-      S('d2', 'The lead recommends a reading', 'قائدة الرواتب توصي بقراءة', 'Human step: Tasama payroll lead', 'tasama-lead', 'payroll-inbox', { kind: 'decide', ref: 'pol', decision: 'APPROVED', reason: 'The words favour the employee; a more generous term binds the company', edits: { readings: { 'overtime.rate': 'GROSS_1_5' } } },
+      S('d2', 'The lead recommends a reading', 'مديرة الرواتب توصي بقراءة', 'Human step: Tasama payroll manager', 'tasama-lead', 'payroll-inbox', { kind: 'decide', ref: 'pol', decision: 'APPROVED', reason: 'The words favour the employee; a more generous term binds the company', edits: { readings: { 'overtime.rate': 'GROSS_1_5' } } },
         (c) => `Sharifa read the clause and recommended reading it as 1.5 × the full hourly wage: the words favour the employee, and a term more generous than the law binds the company (Art. 8). (${by(c, 'pol')})`, 'case:pol',
         { chat: async (c) => [agent('Nizam', `Version ${(await caseOf(c.refs.pol))?.payload?.version ?? '2.0'} is ready for Red Sea Global with overtime read as 1.5 × the full hourly wage, as Sharifa recommends.`, 'To the client\'s CHRO')] }),
       S('d3', 'The client activates it', 'العميل يفعّلها', 'Human step: the client\'s CHRO', 'chro', 'hr-inbox', { kind: 'decide', ref: 'pol', decision: 'APPROVED', reason: 'Agreed with the reading' },
@@ -783,7 +806,7 @@ export const SCRIPTS: Scenario[] = [
         () => `Nasser opens Riyadh Air's run: the month's changes are in it as Lama handed them over, each checked against its document. Payroll calculates and validates; it does not enter changes.`),
     ] },
   { key: 'run-approve', level: 'tasama', client: 'redsea', shape: 'Happy path', shape_ar: 'المسار المعتاد', title: 'Run, explain, approve', title_ar: 'التشغيل والتفسير والاعتماد',
-    summary: 'Red Sea Global\'s cut-off passed yesterday and two checks stop its run. Nasser clears them and sends the run; Sharifa validates it; Mutabaqa explains every difference from last month; the client\'s HR operations approves knowing why every riyal moved. The run is written to Tasama HR and every payslip goes out.', summary_ar: 'يحسم ناصر ما يوقف رواتب البحر الأحمر ويرسلها، وتراجعها شريفة، ويفسّر مطابقة كل فرق، وتعتمدها عمليات الموارد البشرية لدى العميل، ثم تُصدر القسائم.',
+    summary: 'Red Sea Global\'s cut-off passed yesterday and two checks stop its run. Nasser clears them and sends the run; Sharifa validates it; Mutabaqa explains every difference from last month; Lama delivers it to the client, whose HR operations approves knowing why every riyal moved. The run is written to Tasama HR and every payslip goes out.', summary_ar: 'يحسم ناصر ما يوقف رواتب البحر الأحمر ويرسلها، وتراجعها شريفة، ويفسّر مطابقة كل فرق، وتعتمدها عمليات الموارد البشرية لدى العميل، ثم تُصدر القسائم.',
     record: async (c) => payrollRecord(c),
     steps: [
       S('r1', 'Nasser clears what stops the run', 'ناصر يحسم ما يوقف الرواتب', 'Payroll › Runs › Checks', 'tasama-specialist', 'payroll-runs', { kind: 'start', starter: 'runClear', as: 'run' },
@@ -791,8 +814,10 @@ export const SCRIPTS: Scenario[] = [
         { chat: async () => [agent('Hisab', 'Two checks stop the run: an advance above the legal limit, and a joiner with no GOSI registration.', 'Teams, to Tasama payroll')] }),
       S('r2', 'Nasser sends it for validation', 'ناصر يرسلها للمراجعة', 'Human step: Payroll specialist', 'tasama-specialist', 'payroll-runs', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Checks cleared', edits: { prepared_by: 'tasama-specialist', prepared_by_name: 'Nasser AlFarraj' } },
         (c) => `Nasser sent the run for validation (${by(c, 'run')}). Every line is frozen as calculated: what the client approves is what is paid.`, 'case:run'),
-      S('r3', 'Sharifa validates', 'شريفة تراجع', 'Human step: Payroll lead', 'tasama-lead', 'payroll-inbox', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Lines and totals checked', edits: { validated_by_name: 'Sharifa AlMousa' } },
+      S('r3', 'Sharifa validates', 'شريفة تراجع', 'Human step: Payroll manager', 'tasama-lead', 'payroll-inbox', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Lines and totals checked', edits: { validated_by_name: 'Sharifa AlMousa' } },
         async (c) => { const k = await caseOf(c.refs.run); const dx = k?.result?.differences; return `Sharifa validated the run Nasser prepared (${by(c, 'run')}); she could not have validated her own. Mutabaqa then explained the month: ${dx ? `${dx.people} people paid differently, net ${dx.thisNet - dx.lastNet >= 0 ? 'up' : 'down'} ${sar(Math.abs(dx.thisNet - dx.lastNet))}, every difference explained` : 'every difference explained'}.`; }, 'case:run'),
+      S('r3b', 'Lama delivers the run to Red Sea Global', 'لمى تسلّم الرواتب إلى البحر الأحمر الدولية', 'Human step: Tasama HR operations', 'tasama-hrops', 'payroll-inbox', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Explanation read; delivered to the client', edits: { delivered_by_name: 'Lama Al Dossary' } },
+        async (c) => `Lama read Mutabaqa's explanation and delivered the run to Red Sea Global (${by(c, 'run')}). The client's questions come to her, not to payroll. Red Sea Global's chain is one link: its HR operations.`, 'case:run'),
       S('r4', 'HR operations approves, knowing why every riyal moved', 'عمليات الموارد البشرية تعتمد', 'Human step: the client\'s HR operations', 'payroll', 'hr-payroll', { kind: 'decide', ref: 'run', decision: 'APPROVED', reason: 'Differences reviewed' },
         async (c) => { const k = await caseOf(c.refs.run); return `Red Sea Global's HR operations approved (${by(c, 'run')}). The run was written to the Tasama HR employee master and Wathiqa issued ${k?.result?.payslips ?? 'every'} payslips.`; }, 'case:run',
         { focus: { fact: async (c) => { const k = await caseOf(c.refs.run); const dx = k?.result?.differences; return dx ? `Last month ${sar(dx.lastNet)} → this month ${sar(dx.thisNet)}: ${dx.steps.map((x: any) => `${x.label.toLowerCase()} ${x.amount >= 0 ? '+' : '−'}${sar(Math.abs(x.amount))}`).join(', ')}.` : 'Every difference explained.'; } } }),
@@ -814,6 +839,37 @@ export const SCRIPTS: Scenario[] = [
       S('i4', 'Lama enters it once, and the joiner is in the month', 'لمى تُدخله مرة واحدة ويدخل الموظف الشهر', 'Human step: Tasama HR operations', 'tasama-hrops', 'payroll-inputs', { kind: 'decide', ref: 'ct', decision: 'APPROVED', reason: 'Corrected contract checked' },
         async (c) => { const k = await caseOf(c.refs.ct); const ct = k?.payload?.contract ?? {}; return `Lama entered it (${by(c, 'ct')}). ${k?.payload?.employee?.name ?? 'The joiner'} is on the master from ${fmtDate(ct.start_date)} with ${sar(Number(ct.basic ?? 0) + Number(ct.housing ?? 0) + Number(ct.transport ?? 0))} a month, the contract, iqama and IBAN letter are filed, and the joiner is in this month's changes for payroll. Nobody typed it twice.`; }, 'case:ct'),
     ] },
+  { key: 'year-calendar', level: 'tasama', client: 'saudicoffee', shape: 'Happy path', shape_ar: 'المسار المعتاد', title: 'The year\'s calendar, approved once', title_ar: 'تقويم السنة يُعتمد مرة واحدة',
+    summary: 'Wared lays out Saudi Coffee\'s year from its cut-off and pay day: seven dates a month, off weekends and holidays, each with who owns it. Saudi Coffee\'s HR operations approves the calendar once, on its own Payroll › Calendar. From then on Wared reminds the client the day before its cut-off and its approval date, and the Tasama team the day before each stage it owns. Nobody keeps the calendar in a spreadsheet.',
+    summary_ar: 'يُعدّ وارد تقويم السنة من موعد الإقفال ويوم الصرف لدى العميل: سبعة تواريخ في الشهر بعيداً عن العطل، ولكلٍّ مسؤوله. تعتمده عمليات الموارد البشرية لدى العميل مرة واحدة، ثم يذكّر وارد العميل وفريق تسامى قبل كل موعد بيوم.',
+    record: async () => null,
+    steps: [
+      S('y1', 'Wared lays out the year from the cut-off and the pay day', 'وارد يُعدّ تقويم السنة من موعد الإقفال ويوم الصرف', 'Each January (WF-38)', 'tasama-hrops', 'payroll-months', { kind: 'start', starter: 'calendar', as: 'cal' },
+        async (c) => { const k = await caseOf(c.refs.cal); const r = k?.result ?? {}; return `Wared laid out Saudi Coffee's ${r.year ?? ''} from two numbers, its cut-off day and its pay day. January: cut-off ${fmtDate(r.first?.cutoff)}, then calculation, review and delivery, the client's approval on ${fmtDate(r.first?.approval)}, the bank upload, and payment on ${fmtDate(r.first?.pay)}; the same shape every month, each date with who owns it. ${r.moved ?? 0} dates land on a weekend or a holiday and move to a working day. The calendar waits on Saudi Coffee's HR operations.`; }, 'case:cal',
+        { chat: async (c) => { const k = await caseOf(c.refs.cal); return [agent('Wared', `Saudi Coffee's ${k?.result?.year ?? ''} payroll calendar is laid out: ${k?.result?.moved ?? 0} dates moved off weekends and holidays. It waits for the client's approval.`, 'To Saudi Coffee HR operations')]; },
+          focus: { fact: 'One calendar per client per year, laid out once from two numbers: the cut-off day and the pay day.' } }),
+      S('y2', 'Saudi Coffee approves the calendar on its own Payroll › Calendar', 'القهوة السعودية تعتمد التقويم من شاشتها', 'Human step: the client\'s HR operations', 'payroll', 'hr-payroll', { kind: 'decide', ref: 'cal', decision: 'APPROVED', reason: 'The dates work for us' },
+        async (c) => `Saudi Coffee's HR operations approved the year (${by(c, 'cal')}). The calendar is in force: the client sees it on HR Workspace › Payroll › Calendar, Tasama on Months, and the reminders follow it.`, 'case:cal'),
+      S('y3', 'Wared reminds before the next date, on both sides', 'وارد يذكّر قبل الموعد التالي الطرفين', 'The day before each stage', 'tasama-hrops', 'payroll-months', { kind: 'calendar_remind' },
+        async (c) => { const r = c.out.remind ?? { sent: 0, stages: [] }; const k = await calendarFor(pool, now().getUTCFullYear()); const m = monthOn(k.months, iso(now())); const st = m ? monthStages(m, iso(now())).find((x) => x.key === r.stages[0]) : null; const word: Record<string, string> = { cutoff: 'cut-off', calculation: 'calculation', review: 'payroll manager\'s review', delivery: 'delivery to the client', approval: 'client\'s approval', bank: 'bank upload', pay: 'payment date' }; return st ? `The next date on Saudi Coffee's calendar is the ${word[st.key]}, ${fmtDate(st.date)}. The day before, Wared ${st.owner === 'CLIENT' ? 'reminds Saudi Coffee\'s HR operations' : `tells ${st.owner === 'TASAMA_HR_OPS' ? 'Tasama HR operations' : st.owner === 'TASAMA_PAYROLL' ? 'the payroll specialist' : 'the payroll manager'}`}: ${r.sent} ${r.sent === 1 ? 'notification' : 'notifications'} went out, signed Wared for Tasama HR Operations. Nobody checks a spreadsheet to know what is due.` : 'Nothing is due on the calendar this month.'; }, undefined,
+        { focus: { fact: 'The reminder goes to whoever owns the next date, client or Tasama, from the one calendar both agreed.' } }),
+    ] },
+  { key: 'client-handover', level: 'tasama', client: 'seven', shape: 'End to end', shape_ar: 'من البداية إلى النهاية', title: 'Handing a client back', title_ar: 'إعادة عميل إلى نفسه',
+    summary: 'SEVEN\'s contract ends and its payroll goes back in house. Faisal opens the handover; Lama in Tasama HR operations shares the payroll files, the records, the templates and the platform access on the 20-item checklist through a shared folder; SEVEN\'s HR operations signs the handover; Faisal closes the client, and the platform revokes every access SEVEN gave Tasama and deletes Tasama\'s copies, inside the seven working days.',
+    summary_ar: 'ينتهي عقد سفن ويعود مسير رواتبها إليها. يفتح فيصل التسليم، وتشارك لمى الملفات والسجلات والصلاحيات وفق قائمة من 20 بنداً، وتوقّع عمليات الموارد البشرية لدى سفن، ويغلق فيصل العميل فتُلغى صلاحيات تسامى وتُحذف نسخها خلال سبعة أيام عمل.',
+    record: async () => null,
+    steps: [
+      S('h1', 'Faisal opens the handover: twenty items, seven working days', 'فيصل يفتح التسليم: عشرون بنداً وسبعة أيام عمل', 'The contract ends (WF-39)', 'tasama', 'tasama-account', { kind: 'start', starter: 'handover', as: 'ho' },
+        async (c) => { const k = await caseOf(c.refs.ho); return `Faisal started handing SEVEN back. The checklist lists what SEVEN receives: payroll reports, the medical insurance records, employee letters and leave requests, overtime and promotion history, business trips, the Mudad and GOSI accounts, leavers and end-of-service documents, the employee master with its documents, the HR policy and the templates, the HR mailbox, and every access SEVEN gave Tasama. Due by ${fmtDate(k?.payload?.due_on)}, seven working days. It waits on Tasama HR operations.`; }, 'param:seven+handover',
+        { focus: { fact: 'The handover is a checklist with an owner and a date, not an email thread.' } }),
+      S('h2', 'Lama shares the files and the access through the folder', 'لمى تشارك الملفات والصلاحيات عبر المجلد', 'Human step: Tasama HR operations', 'tasama-hrops', 'payroll-inbox', { kind: 'handover_share', ref: 'ho', reason: 'Every item shared through the folder' },
+        async (c) => `Lama shared all ${c.out.shared ?? 20} items with SEVEN through the shared folder and sent the handover for sign-off (${by(c, 'ho')}). SEVEN's HR operations has the files, the records and the access; nothing was emailed.`, 'case:ho'),
+      S('h3', 'SEVEN\'s HR operations signs the handover', 'عمليات الموارد البشرية لدى سفن توقّع على التسليم', 'Human step: the client\'s HR operations', 'payroll', 'hr-inbox', { kind: 'decide', ref: 'ho', decision: 'APPROVED', reason: 'Files, records and access received' },
+        async (c) => `SEVEN's HR operations signed the handover (${by(c, 'ho')}): the payroll files, the records and the access are received. The case goes back to Tasama's HR Operations Manager to close.`, 'case:ho'),
+      S('h4', 'Faisal closes the client; the platform revokes the access and deletes Tasama\'s copies', 'فيصل يغلق العميل وتُلغى الصلاحيات وتُحذف النسخ', 'Human step: Tasama HR Operations Manager', 'tasama', 'payroll-inbox', { kind: 'decide', ref: 'ho', decision: 'APPROVED', reason: 'Handover signed; client closed', as: 'Faisal Al Harbi, Tasama' },
+        async (c) => { const h = await withClient(c.client, () => currentHandover(pool)); const k = await caseOf(c.refs.ho); const wipe = k ? (await pool.query(`SELECT summary FROM layer.trail WHERE request_id=$1 AND actor_type='SYSTEM' ORDER BY id DESC LIMIT 1`, [k.id])).rows[0]?.summary : null; return `Faisal closed SEVEN (${by(c, 'ho')}). ${wipe ?? 'The platform revoked every access SEVEN gave Tasama and deleted Tasama\'s copies of the payroll files.'}${h?.status === 'CLOSED' ? ` SEVEN's account reads "handed back on ${fmtDate(h.closed_at)}".` : ''}`; }, 'param:seven+handover',
+        { focus: { fact: 'Shared, signed, closed, wiped: four steps with a trail, inside the SLA.' } }),
+    ] },
   { key: 'bank-file', level: 'tasama', client: 'riyadhair', shape: 'Failure handled', shape_ar: 'معالجة التعثر', title: 'Bank file, WPS and Mudad', title_ar: 'ملف البنك وحماية الأجور ومدد',
     summary: 'Riyadh Air\'s HR operations approved the October run. Tahweel wrote it in Saudi National Bank\'s format and as a WPS file, checked both, and moved the value date off a Saturday. Sharifa uploads it to the bank portal; the client\'s finance controller approves it there and records it. Nasser reads the bank\'s return file: one salary came back because the account is closed. Lama in Tasama HR operations enters the new IBAN, a follow-up file pays it, and Nasser files the signed WPS file and records Mudad.',
     summary_ar: 'اعتمدت عمليات الموارد البشرية في طيران الرياض رواتب أكتوبر. أعدّ تحويل الملف بصيغة البنك الأهلي السعودي وكملف لحماية الأجور وفحصهما. ترسل شريفة الملف ويعتمده فريق المالية في البنك. يعود راتب واحد لأن الحساب مغلق، فتعطي عمليات الموارد البشرية رقم الآيبان الجديد وتصرفه دفعة استكمالية، ثم يُغلق الشهر بملف حماية الأجور الموقّع ومدد.',
@@ -823,18 +879,18 @@ export const SCRIPTS: Scenario[] = [
         async (c) => { const p = await paymentOf(c.refs.pay); const ck = (p?.checks ?? []) as any[]; return `Tahweel wrote ${p?.lines ?? ''} lines, ${sar(Number(p?.total ?? 0))}, in Saudi National Bank's format and as a WPS file from the same lines. ${ck.filter((x) => x.ok).length} of ${ck.length} release checks pass: ${ck.find((x) => x.key === 'date')?.text ?? ''}.`; }, 'case:pay',
         { chat: async () => [agent('Tahweel', 'Riyadh Air\'s file for the month is ready. The WPS file matches the bank file line by line, and every release check passes.', 'To Tasama payroll')],
           focus: { fact: 'The bank file, the WPS file and the approved run agree to the halala before anything leaves.' } }),
-      S('k2', 'Sharifa uploads it to the bank portal', 'شريفة ترفعه إلى بوابة البنك', 'Human step: Payroll lead', 'tasama-lead', 'payroll-payments', { kind: 'decide', ref: 'pay', decision: 'APPROVED', reason: 'Checks pass; WPS file matches' },
+      S('k2', 'Sharifa uploads it to the bank portal', 'شريفة ترفعه إلى بوابة البنك', 'Human step: Payroll manager', 'tasama-lead', 'payroll-payments', { kind: 'decide', ref: 'pay', decision: 'APPROVED', reason: 'Checks pass; WPS file matches' },
         async (c) => `Sharifa downloaded the file, uploaded it to Saudi National Bank's portal as the initiator, and recorded it (${by(c, 'pay')}). No bank is connected to the platform. Only Riyadh Air's finance can approve a payment from its account, and Tahweel has told them it is waiting.`, 'case:pay'),
       S('k3', 'The client\'s finance approves it in the bank and records it', 'مالية العميل تعتمده في البنك وتسجّل ذلك', 'Payroll costs › Payments', 'finance', 'costs-payments', { kind: 'bank', event: 'approved', ref: 'pay' },
         (c) => `${c.out.approver ?? 'Riyadh Air\'s finance controller'} gave the bank approvals in Saudi National Bank's portal, set the value date, and recorded the approval on Payments. Tasama now waits for the bank's return file.`, undefined,
         { chat: (c) => [agent('Tahweel', 'Riyadh Air\'s October payroll file is in your Saudi National Bank portal, waiting for your approval.', 'To the finance controller'), person(c.out.approver ?? 'Finance controller', 'Approved in the bank, value date as set.', 'Payroll costs › Payments')] }),
       S('k4', 'Nasser reads the bank\'s return file: one salary came back', 'ناصر يقرأ ملف البنك المرتجع: عاد راتب واحد', 'The bank\'s return file, from the portal', 'tasama-specialist', 'payroll-payments', { kind: 'bank', event: 'feedback', ref: 'pay' },
-        (c) => `Nasser took the bank's return file from the portal and read it: every salary paid but one. ${c.out.returned?.name ?? 'One employee'}'s ${sar(c.out.returned?.amount ?? 0)} came back because the account at ${c.out.returned?.bank ?? 'their bank'} is closed. Tahweel asked Tasama HR operations for the new IBAN; nothing else is held.`, 'case:q',
+        async (c) => { const rec = (await pool.query(`SELECT reconciliation FROM layer.payments WHERE id=$1`, [c.out.payId ?? 0])).rows[0]?.reconciliation; return `Nasser took the bank's return file from the portal and read it: every salary paid but one. ${c.out.returned?.name ?? 'One employee'}'s ${sar(c.out.returned?.amount ?? 0)} came back because the account at ${c.out.returned?.bank ?? 'their bank'} is closed. Tahweel asked Tasama HR operations for the new IBAN; nothing else is held.${rec ? ` The file reconciles with the payroll: the bank paid ${sar(rec.bank_paid)} and returned ${sar(rec.returned)}, ${sar(rec.file_total)} in all, which is the payroll's net; ${rec.matched} of ${rec.lines} lines match, no VLOOKUP.` : ''}`; }, 'case:q',
         { chat: (c) => [system('Saudi National Bank', `Feedback file: ${c.out.returned?.paid ?? 'all but one'} credited, 1 returned (account closed at ${c.out.returned?.bank ?? 'the beneficiary bank'}).`, 'Bank report'), agent('Tahweel', `${c.out.returned?.name ?? 'One salary'} came back. I have asked HR operations for the new IBAN.`, 'To Tasama HR operations')],
           focus: { fact: 'One failed line is followed on its own; the 218 paid salaries are not touched.' } }),
       S('k5', 'Tasama HR operations enters the new IBAN', 'عمليات الموارد البشرية في تسامى تُدخل الآيبان الجديد', 'Human step: Tasama HR operations', 'tasama-hrops', 'payroll-inbox', { kind: 'new_iban', ref: 'q', as: 'fu' },
         (c) => `Riyadh Air sent the employee's bank letter; Lama entered ${c.out.returned?.name ?? 'the employee'}'s new IBAN${c.out.newBank ? ` at ${c.out.newBank}` : ''} (${by(c, 'q')}). Its check digits pass; Tahweel built a follow-up file for the one salary.`, 'case:q'),
-      S('k6', 'Sharifa uploads the follow-up', 'شريفة ترفع الدفعة الاستكمالية', 'Human step: Payroll lead', 'tasama-lead', 'payroll-payments', { kind: 'decide', ref: 'fu', decision: 'APPROVED', reason: 'One line, new IBAN verified' },
+      S('k6', 'Sharifa uploads the follow-up', 'شريفة ترفع الدفعة الاستكمالية', 'Human step: Payroll manager', 'tasama-lead', 'payroll-payments', { kind: 'decide', ref: 'fu', decision: 'APPROVED', reason: 'One line, new IBAN verified' },
         async (c) => { const f = await paymentOf(c.refs.fu); return `Sharifa uploaded the follow-up to the portal (${by(c, 'fu')}): one line, ${sar(Number(f?.total ?? 0))}, value date ${fmtDate(f?.vd)}. The client\'s finance approves it in the bank like any payment.`; }, 'case:fu'),
       S('k7', 'Paid, matched in WPS, acknowledged by Mudad', 'صُرف وتطابق في حماية الأجور وأكّدته مدد', 'Payroll › Payments', 'tasama-specialist', 'payroll-payments', { kind: 'bank', event: 'paid', ref: 'pay' },
         (c) => `The follow-up is paid. Nasser filed the bank's signed WPS file: it lists ${c.out.wps ? c.out.wps.paid - 1 : 'every other'} salaries paid and one returned, which matches what was paid; the follow-up has its own. He uploaded both to Mudad and recorded the acknowledgement. Every Riyadh Air employee is paid for the month.`, undefined,
@@ -851,7 +907,7 @@ export const SCRIPTS: Scenario[] = [
           focus: { fact: 'A journal that does not balance is never posted, and a line with no account never reaches the ledger.' } }),
       S('j2', 'Qaid proposes the account', 'قيد يقترح الحساب', 'Qaid, against ROSHN\'s chart', 'tasama-lead', 'payroll-journals', SHOW,
         async (c) => { const k = await caseOf(c.refs.jr); const pr = (k?.result?.proposals ?? [])[0]; return pr ? `Qaid proposes ${pr.account} ${pr.account_name}: ${pr.why}` : 'Nothing to propose.'; }, 'case:jr'),
-      S('j3', 'Sharifa approves it, and the journals post', 'شريفة تعتمده فتُرحّل القيود', 'Human step: Payroll lead', 'tasama-lead', 'payroll-journals', { kind: 'decide', ref: 'jr', decision: 'APPROVED', reason: 'Site allowances belong with field pay' },
+      S('j3', 'Sharifa approves it, and the journals post', 'شريفة تعتمده فتُرحّل القيود', 'Human step: Payroll manager', 'tasama-lead', 'payroll-journals', { kind: 'decide', ref: 'jr', decision: 'APPROVED', reason: 'Site allowances belong with field pay' },
         async (c) => { const k = await caseOf(c.refs.jr); const r = k?.result?.posted; return `Sharifa approved the account (${by(c, 'jr')}). It is in ROSHN's map from now on. All ${r?.journals ?? 3} journals balance and were posted to Oracle Finance as ${r?.file ?? 'the journal import file'}: ${r?.status ?? 'imported'}.`; }, 'case:jr'),
       S('j4', 'The journals land in Oracle', 'القيود تصل إلى أوراكل', 'Oracle Finance import', 'tasama-lead', 'payroll-journals', SHOW,
         () => 'Oracle\'s journal import read every line: the accrual, the provisions and the payment, each balanced to the halala, every expense on its cost centre. Nobody shaped a spreadsheet for the upload.', undefined,
@@ -964,7 +1020,7 @@ export const SCRIPTS: Scenario[] = [
     steps: [
       S('t1', 'The folder is dropped', 'إفلات المجلد', 'Soudah\'s shared folder, dropped on Add a payroll client', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_drop' },
         async (c) => { const o = await onboardingOf(c); const n = (o?.files ?? []).reduce((s: number, f: any) => s + f.n, 0); const k = (x: string) => (o?.files ?? []).find((f: any) => f.kind === x)?.n ?? 0; return `Soudah Development keeps its payroll in spreadsheets. Its folder holds ${n} files: the master data, ${k('PAYROLL')} months of payroll, provisions, a leave tracker, the policy manual, ${k('CONTRACT')} contracts and ${k('LETTER')} letters. Intiqal reads them into a staging area; nothing reaches a master until Sharifa decides.`; }, undefined,
-        { chat: () => [person('Soudah Development HR', 'Our payroll folder is in the shared drive: the master data, six months of payroll, the policy manual, contracts and letters.', 'Email to Tasama'), agent('Intiqal', 'Received. Reading it into a staging area; nothing is written to a master until the payroll lead approves.')] }),
+        { chat: () => [person('Soudah Development HR', 'Our payroll folder is in the shared drive: the master data, six months of payroll, the policy manual, contracts and letters.', 'Email to Tasama'), agent('Intiqal', 'Received. Reading it into a staging area; nothing is written to a master until the payroll manager approves.')] }),
       S('t2', 'The client and its roster', 'العميل وموظفوه', 'Intiqal reads the master data', 'tasama-hrops', 'payroll-add-client', { kind: 'onboard_reveal', upto: 2 },
         async (c) => { const o = await onboardingOf(c); const held = (o?.issues ?? []).filter((i: any) => i.lane === 'roster' && i.who === 'CLIENT'); return `${laneOf(o, 'client')?.headline ?? ''}. ${laneOf(o, 'roster')?.headline ?? ''}: ${held.map((i: any) => i.title).join('; ')}.`; }),
       S('t3', 'Nizam reads the policy, and refuses two rules', 'نظام يقرأ السياسة ويرفض قاعدتين', 'Nizam reads the policy manual', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: 3 },
@@ -975,9 +1031,9 @@ export const SCRIPTS: Scenario[] = [
       S('t5', 'Six months recalculated', 'إعادة احتساب ستة أشهر', 'Hisab recalculates each month under the policy', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: 7 },
         async (c) => { const o = await onboardingOf(c); const h = (o?.issues ?? []).filter((i: any) => i.lane === 'history'); return `Hisab recalculated each month Soudah paid with the same engine that pays every client. Three differences: ${h.map((i: any) => i.title).join('; ')}.`; },
         undefined, { focus: { fact: 'Every month Soudah paid, recalculated with the engine that will pay it from now on.' } }),
-      S('t6', 'One decision for the payroll lead', 'قرار واحد لقائدة الرواتب', 'The decision card', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: null },
+      S('t6', 'One decision for the payroll manager', 'قرار واحد لمديرة الرواتب', 'The decision card', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_reveal', upto: null },
         async (c) => { const o = await onboardingOf(c); return `Take Soudah on from ${o?.from ? new Date(`${o.from}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'next month'}: ${o?.counts.issues ?? 15} issues, ${o?.counts.client ?? 7} need the client. ${o?.ready ?? 61} of ${o?.client?.headcount ?? 64} employees are ready; the rest are held until the client answers and are still paid.`; }),
-      S('t7', 'Sharifa takes Soudah on', 'شريفة تعتمد النقل', 'Human step: Payroll lead (WF-24)', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_decide' },
+      S('t7', 'Sharifa takes Soudah on', 'شريفة تعتمد النقل', 'Human step: Payroll manager (WF-24)', 'tasama-lead', 'payroll-add-client', { kind: 'onboard_decide' },
         async (c) => { const o = await onboardingOf(c); return `Sharifa approved. Soudah's master was written to Tasama HR from the staging area: ${o?.client?.headcount ?? 64} employees, six months as paid, the policy as Nizam read it. Its ${o?.counts.client ?? 7} issues are questions in its HR operations inbox, and back pay and GOSI arrears are booked in the first month.`; }),
       S('t8', 'Soudah\'s HR sees its first month', 'السودة ترى شهرها الأول', 'Soudah HR operations', 'payroll', 'hr-payroll', SHOW,
         async () => { const per = (await pool.query(`SELECT period_name, to_char(cutoff_date,'DD Mon') co FROM hcm.payroll_periods WHERE status='OPEN' LIMIT 1`)).rows[0]; const q = (await pool.query(`SELECT count(*)::int n FROM layer.requests WHERE workflow_id='WF-36' AND status='WAITING'`)).rows[0].n; return `Soudah's HR operations signs in and sees ${per ? new Date(`${per.period_name}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' }) : 'its first month'} open, cut-off on ${per?.co ?? 'the policy day'}, and ${q} questions from Tasama to answer before it.`; },
@@ -1026,7 +1082,7 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
         const old = (await pool.query(`SELECT iban, bank_name FROM hcm.persons WHERE id=$1`, [l.person_id])).rows[0];
         await pool.query(`INSERT INTO layer.meta (key, value) VALUES ('d7', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify({ person: l.person_id, iban: old.iban, bank: old.bank_name })]);
         const r = await tx((x) => Pay.bankFeedback(x, p.id, [l.person_id]));
-        c.refs.q = r.asked[0]; c.out.returned = { name: l.name, amount: Number(l.amount), bank: bankByCode(l.bank_code)?.name ?? '', paid: r.paid };
+        c.refs.q = r.asked[0]; c.out.payId = p.id; c.out.returned = { name: l.name, amount: Number(l.amount), bank: bankByCode(l.bank_code)?.name ?? '', paid: r.paid };
         return `${r.paid} paid, ${r.failed} returned`;
       }
       // paid: the follow-up is approved and paid; the signed WPS files come back and Mudad acknowledges both.
@@ -1057,11 +1113,21 @@ async function execute(a: Action, c: Ctx, hand = false): Promise<string> {
       if (!k || k.status !== 'WAITING') return `${c.refs[a.ref]} is not waiting on anyone`;
       const who = k.waiting_name ?? (k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa' : k.waiting_on_role === 'TASAMA_PAYROLL' ? 'Nasser AlFarraj' : k.waiting_on_role === 'TASAMA_HR_OPS' ? 'Lama Al Dossary' : 'the approver');
       const tasamaName = k.waiting_on_role === 'TASAMA_PAYROLL_LEAD' ? 'Sharifa AlMousa, Tasama' : k.waiting_on_role === 'TASAMA_PAYROLL' ? 'Nasser AlFarraj, Tasama' : k.waiting_on_role === 'TASAMA_HR_OPS' ? 'Lama Al Dossary, Tasama' : null;
-      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, edits: a.edits, actorName: a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : tasamaName ?? undefined }));
+      await tx((x) => decide(x, { requestId: k.id, personId: k.waiting_on_person_id ?? 0, decision: a.decision, reason: `${a.reason} (decided by the scenario)`, edits: a.edits, actorName: a.as ?? (a.onBehalf ? `Faisal Al Harbi (Tasama HR Operations, on behalf of ${who})` : tasamaName ?? undefined) }));
       await capture(c, k.id, a);
       return `${a.decision === 'APPROVED' ? 'Approved' : 'Declined'} for ${who}`;
     }
     case 'raqeeb_scan': { const f = await raqeebScan(); return `${f.length} new flag${f.length === 1 ? '' : 's'}`; }
+    case 'handover_share': {
+      const k = await caseOf(c.refs[a.ref]);
+      if (!k) return 'No handover case';
+      const n = await tx((q) => shareItems(q, 'all', 'Lama Al Dossary'));
+      c.out.shared = n;
+      if (hand || k.status !== 'WAITING') { c.out[`hand_${a.ref}`] = true; return 'Decided in the room'; }
+      await tx((x) => decide(x, { requestId: k.id, personId: 0, decision: 'APPROVED', reason: `${a.reason} (decided by the scenario)`, actorName: 'Lama Al Dossary, Tasama' }));
+      return `${n} items shared; files sent`;
+    }
+    case 'calendar_remind': { const r = await tx((q) => calendarReminders(q, undefined, { ahead: true })); c.out.remind = r; return `${r.sent} reminder${r.sent === 1 ? '' : 's'} for ${r.stages.join(', ') || 'nothing'}`; }
     case 'nudge': {
       const e = (await pool.query(`SELECT id FROM tasama.escalations WHERE client_key=$1 AND case_ref=$2`, [c.client, c.refs[a.ref]])).rows[0];
       if (!e) return 'No escalation for this case yet';
@@ -1210,6 +1276,7 @@ export async function runStep(runId: number, index: number, hand = false) {
     let caseRef: string | null = null, pattern: string | null = null;
     if (st.open?.startsWith('case:')) caseRef = c.refs[st.open.slice(5)] ?? null;
     if (st.open?.startsWith('pattern:')) pattern = (await patternOf(st.open.slice(8) as any))?.ref ?? null;
+    if (st.open?.startsWith('param:')) pattern = st.open.slice(6); // a screen parameter as is (the client account's Handover tab)
     // The Stage: what the person asking saw, the record as the system holds it, and the one idea under it.
     let chat: Line[] = [], record: Rec | null = null, focus: any = null;
     try { chat = st.chat ? await st.chat(c) : []; } catch (e: any) { console.error('[director] chat', s.key, st.id, e); }

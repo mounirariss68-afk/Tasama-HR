@@ -12,7 +12,7 @@ import { plain } from './decision';
 
 const PERSONA_LABEL: Record<string, [string, string]> = {
   tasama: ['Tasama HR Operations Manager', 'مدير عمليات الموارد البشرية في تسامى'], employee: ['Employee', 'موظف'], manager: ['Line manager', 'مدير مباشر'],
-  hrbp: ['HR business partner', 'شريك أعمال الموارد البشرية'], ta: ['Talent acquisition', 'استقطاب المواهب'], payroll: ['Client HR operations', 'عمليات الموارد البشرية لدى العميل'], 'tasama-hrops': ['HR operations, Tasama', 'عمليات الموارد البشرية، تسامى'], finance: ['Finance controller', 'المراقب المالي'], 'tasama-lead': ['Payroll lead, Tasama', 'قائدة الرواتب، تسامى'], 'tasama-specialist': ['Payroll specialist, Tasama', 'أخصائي الرواتب، تسامى'],
+  hrbp: ['HR business partner', 'شريك أعمال الموارد البشرية'], ta: ['Talent acquisition', 'استقطاب المواهب'], payroll: ['Client HR operations', 'عمليات الموارد البشرية لدى العميل'], 'tasama-hrops': ['HR operations, Tasama', 'عمليات الموارد البشرية، تسامى'], finance: ['Finance controller', 'المراقب المالي'], 'tasama-lead': ['Payroll manager, Tasama', 'مديرة الرواتب، تسامى'], 'tasama-specialist': ['Payroll specialist, Tasama', 'أخصائي الرواتب، تسامى'],
   chro: ['CHRO', 'الرئيس التنفيذي للموارد البشرية'], joiner: ['New joiner', 'موظف جديد'],
 };
 

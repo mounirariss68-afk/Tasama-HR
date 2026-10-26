@@ -4,7 +4,7 @@
  * `x-persona`, and the server — not the browser — decides what that persona
  * may see and approve. Eight personas exist inside each client; four Tasama
  * people (the HR Operations Manager, the HR operations specialist, and the
- * payroll lead and specialist) work across all clients.
+ * payroll manager and specialist) work across all clients.
  */
 import type { Request } from 'express';
 import { pool, currentClient } from '../db.js';
@@ -48,8 +48,8 @@ export const PAYROLL_SPECIALIST: Persona = {
   display_name: 'Nasser AlFarraj', display_name_ar: 'ناصر الفراج', person_number: 'TASAMA-0021', photo_seed: 121,
 };
 export const PAYROLL_LEAD: Persona = {
-  key: PAYROLL_LEAD_KEY, person_id: 0, label: 'Payroll lead, Tasama', label_ar: 'قائدة الرواتب، تسامى',
-  role_title: 'Payroll Lead, Tasama HR Services', role_title_ar: 'قائدة الرواتب، خدمات الموارد البشرية في تسامى',
+  key: PAYROLL_LEAD_KEY, person_id: 0, label: 'Payroll manager, Tasama', label_ar: 'مديرة الرواتب، تسامى',
+  role_title: 'Payroll Manager, Tasama HR Services', role_title_ar: 'مديرة الرواتب، خدمات الموارد البشرية في تسامى',
   lenses: ['payroll'], roles: ['TASAMA_STAFF', 'TASAMA_PAYROLL', 'TASAMA_PAYROLL_LEAD'], scope: { data: 'all' },
   approval_limits: [
     { what: 'Validates runs she did not prepare', what_ar: 'تعتمد المسيرات التي لم تُعدّها' },

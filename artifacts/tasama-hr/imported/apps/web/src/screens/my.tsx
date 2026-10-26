@@ -304,7 +304,8 @@ export function MyPay() {
       <Dialog open={!!slip} onOpenChange={(o) => !o && setSlip(null)}>
         <DialogContent className="max-w-lg"><DialogTitle>{t('Payslip')} · {slip ? month(slip.period_name, lang) : ''}</DialogTitle>
           {slip ? <Table><tbody>{slip.lines.map((l: any) => <tr key={l.code}><td>{t(l.name)}</td><td className="text-end tabular-nums">{l.kind === 'DEDUCTION' ? '−' : ''}{aed(l.amount, lang)}</td></tr>)}<tr><td className="font-semibold">{t('Net')}</td><td className="text-end font-semibold tabular-nums">{aed(slip.net, lang)}</td></tr></tbody></Table> : null}
-          {slip ? <DocumentDownload document={payslipDocument(slip, bi(w.display_name, w.display_name_ar), lang)} /> : null}
+          {slip ? <p className="mt-2 text-xs text-muted-foreground">{t('Paid to')} {w.bank_name} · {w.iban_masked} · {t('payment date')} {date(slip.pay_date, lang)}</p> : null}
+          {slip ? <DocumentDownload document={payslipDocument(slip, bi(w.display_name, w.display_name_ar), lang, { job: bi(w.job_name, w.job_name_ar), person_number: w.person_number, bank_name: w.bank_name, iban_masked: w.iban_masked, employer: client?.name })} /> : null}
         </DialogContent>
       </Dialog>
       <Dialog open={!!doc} onOpenChange={(o) => !o && setDoc(null)}>

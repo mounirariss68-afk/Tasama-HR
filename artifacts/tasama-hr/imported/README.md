@@ -12,14 +12,14 @@ Tasama runs HR and payroll for several client companies. This platform is the ag
   - every client's policies.
 
   Five agents support this: Raqeeb (service levels), Basira (pattern watch and root cause), Fatoora (billing), Tawzee (workload) and Intiqal (a new client's files read into the platform).
-- **Tasama HR operations** works in the HR Operations lens: one inbox across clients, every client's month, the inputs, attendance, each employee's documents and each client's policy. Lama Al Dossary checks each change and each contract the client sends against its document, answers payroll's questions or takes them to the client, and hands the month to payroll. Faisal, the HR Operations Manager, sees the same inbox (`design/hr-ops-addendum.md`, `design/payroll-ops-addendum.md`).
-- **Tasama's payroll team** works in the Payroll lens: every client's month, one inbox across clients, the runs, payments, journals and each client's policy. The team is Sharifa AlMousa, the Payroll lead, and Nasser AlFarraj, the Payroll specialist. Payroll validates the changes; it does not enter them. Eight agents each do one step, and none of them can approve a run or release a payment:
+- **Tasama HR operations** works in the HR Operations lens: one inbox across clients, every client's month, the inputs, attendance, each employee's documents and each client's policy. Lama Al Dossary checks each change and each contract the client sends against its document, answers payroll's questions or takes them to the client, hands the month to payroll, and delivers the calculated run back to the client with its explanation (`design/walkthrough-addendum.md`). Faisal, the HR Operations Manager, sees the same inbox (`design/hr-ops-addendum.md`, `design/payroll-ops-addendum.md`).
+- **Tasama's payroll team** works in the Payroll lens: every client's month, one inbox across clients, the runs, payments, journals and each client's policy. The team is Sharifa AlMousa, the Payroll manager, and Nasser AlFarraj, the Payroll specialist. Payroll validates the changes; it does not enter them. Each client's year runs on a payroll calendar its HR operations approved once: seven dates a month, and Wared reminds whoever owns the next one. Eight agents each do one step, and none of them can approve a run or release a payment:
 
   | Agent | Step |
   |---|---|
   | Nizam | Reads a handbook into rules |
   | Hudoor | Reads attendance |
-  | Wared | Collects the month's changes before the cut-off |
+  | Wared | Lays out the year's calendar; collects the month's changes before the cut-off |
   | Aqd | Drafts contracts |
   | Tamin | Registers with GOSI |
   | Mutabaqa | Explains every difference from last month |
@@ -65,7 +65,7 @@ To return to a clean state, use **Demo → Reset the demo data**. It rebuilds ev
 
 ## Present mode and the Stage
 
-The demo runs without PowerPoint (`design/stage-addendum.md`, canon stage 5). **Demo › Present** opens a storyline: cards with live numbers from the five client accounts, three scenarios on the Stage, a card after each with what it did, and the close. Five storylines ship: **Tasama leadership** (salary certificate, advance exception, service level rescue), **Compliance and Legal** (screening refusal, termination stop, payroll pre-run), and three for Tasama's payroll managers, in the order they named their problems: **Every client's own rules** (a new client from Excel, same overtime with different pay, a month of attendance), **Changes on time** (the cut-off without chasing, offer to first payslip, back pay and a leaver) and **From run to ledger** (run and approve, bank file, WPS and Mudad, the journal in Oracle). Edit them in Settings › Present mode; they are saved on the server and survive a reset.
+The demo runs without PowerPoint (`design/stage-addendum.md`, canon stage 5). **Demo › Present** opens a storyline: cards with live numbers from the five client accounts, three scenarios on the Stage, a card after each with what it did, and the close. Five storylines ship: **Tasama leadership** (salary certificate, advance exception, service level rescue), **Compliance and Legal** (screening refusal, termination stop, payroll pre-run), and three for Tasama's payroll managers, in the order they named their problems: **Every client's own rules** (a new client from Excel, same overtime with different pay, a month of attendance, handing a client back), **Changes on time** (the year's calendar approved once, the cut-off without chasing, offer to first payslip, a contract from the client, back pay and a leaver) and **From run to ledger** (run and approve, bank file, WPS and Mudad, the journal in Oracle). Edit them in Settings › Present mode; they are saved on the server and survive a reset.
 
 On the **Stage** a scenario runs on one screen: **01 The request** (the employee in Rafeeq, the hiring manager's message, the schedule, Raqeeb's reminder), **02 The agents** (the narration and what the agents did, in plain words), **03 the client's system** (the record as the HRMS holds it, with "agent wrote" on what changed, and the decision card under it). When the next step is a decision the person on screen may take, pane 02 says "Your move": decide in pane 03 and the scenario moves on by itself, or press → and the scenario decides as scripted. Keys: → or space next, ← back, F full screen, Esc leave. The **App** toggle shows the product's own screens for the same step.
 
@@ -123,7 +123,7 @@ Every work surface keeps to the canon's `SCREEN-DISCIPLINE.md`. Each decision is
 | The screen lint | `npm run check:screens` (needs Playwright; run in the Cognirise container) | 190 views, 0 problems |
 | The screen lint in Arabic | `npm run check:arabic`: English left on a work surface | 190 views; the Payroll, HR Operations and Payroll costs lenses clean; 21 left in HR and Tasama screens (Basira's findings, text people typed). The Stage's narration is English |
 | The payroll engine | `npm run check:golden`: Tasama's July 2025 template run, and hand-worked cases | 43 of 43 figures match; 22 of 22 cases |
-| The Director | Every scenario, every step, twice through the Director's routes | 19 scenarios, 84 steps, 0 failing |
+| The Director | Every scenario, every step, twice through the Director's routes | 21 scenarios, 92 steps, 0 failing |
 
 Deviations from the canon: the canon's `<DemoControl>`, `<ConfirmCard>` and `<Provenance>` are Atelier components; this repo's copy of Atelier has none of them, so the confirm card and the disclosure are built in the app. The canon's agent budget is exceeded on purpose: the payroll addendum brings the platform to 27 agents, all built, each with its own job (`design/payroll-addendum.md` §6).
 
@@ -144,7 +144,7 @@ apps/server/src/payroll/            runs, inputs, payments (bank, WPS, Mudad) an
 apps/server/src/domain/banks.ts     the banks and the bank file layouts
 apps/server/src/domain/ledger.ts    the illustrative chart of accounts and the Oracle and Odoo journal files
 apps/server/src/onboarding/         a new client read from its files into seven lanes, and go-live
-apps/server/src/director.ts         the 19 scenarios the Demo Director plays on the Stage
+apps/server/src/director.ts         the 21 scenarios the Demo Director plays on the Stage
 apps/web/src/app/present.tsx        Present mode and its five storylines
 apps/web/src/lib/ar.ts              the Arabic interface strings and templates
 demo-files/soudah/                  the files Soudah Development hands over (generated by tools/new-client/)

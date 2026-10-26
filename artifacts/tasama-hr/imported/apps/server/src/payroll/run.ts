@@ -9,6 +9,7 @@ import type { PoolClient } from 'pg';
 import { runPayroll, finalSettlement, type EngineEmployee, type RunResult } from '../domain/payroll/engine.js';
 import { ELEMENT_OF, termsFromRules, gosiAbsorbedGrades } from '../domain/payroll/terms.js';
 import { activeVersion, rulesOf } from './policy.js';
+import { client } from '../domain/rules.js';
 
 type Q = PoolClient | { query: PoolClient['query'] };
 const d10 = (v: any) => (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
@@ -25,11 +26,15 @@ export async function engineInputs(c: Q, period: { start_date: any; end_date: an
   const ps = d10(period.start_date), pe = d10(period.end_date);
   const version = await activeVersion(c);
   const rules = version ? (await rulesOf(c, version.id)).map((r: any) => ({ key: r.key, dim: r.dim, value: r.value, num: r.num == null ? null : Number(r.num), flag: r.flag, clause: r.clause, resolution: r.resolution })) : [];
-  const terms = termsFromRules(version ? `policy ${version.version}` : 'the law', rules);
+  const po = client().policy;
+  const terms = termsFromRules(version ? `policy ${version.version}` : 'the law', rules, { eosYearDays: po.eosYearDays, leaveDayDivisor: po.leaveDayDivisor, gosiProrate: po.gosiProrate, leaveNetMonth: po.leaveNetMonth });
   const absorbed = new Set(gosiAbsorbedGrades(rules));
   const people = (await c.query(
-    `SELECT p.id, p.person_number, p.display_name, p.display_name_ar, p.is_saudi, wr.start_date, wr.end_date, wr.termination_action, d.name AS department, g.code AS grade,
+    `SELECT p.id, p.person_number, p.display_name, p.display_name_ar, p.is_saudi, p.date_of_birth, wr.start_date, wr.end_date, wr.termination_action, d.name AS department, g.code AS grade,
             gr.first_registered,
+            (SELECT SUM(ee.amount) FROM hcm.element_entries ee WHERE ee.person_id=p.id AND ee.element_code IN ('BASIC','HOUSING')
+               AND ee.effective_start <= GREATEST($2::date - 365, (SELECT MIN(effective_start) FROM hcm.element_entries x WHERE x.person_id=p.id AND x.element_code='BASIC'))
+               AND ee.effective_end >= GREATEST($2::date - 365, (SELECT MIN(effective_start) FROM hcm.element_entries x WHERE x.person_id=p.id AND x.element_code='BASIC'))) AS gosi_wage_last_year,
             (SELECT entitlement FROM hcm.absence_balances b WHERE b.person_id=p.id AND b.type_code='ANNUAL' ORDER BY year DESC LIMIT 1) ent,
             (SELECT carried_over FROM hcm.absence_balances b WHERE b.person_id=p.id AND b.type_code='ANNUAL' ORDER BY year DESC LIMIT 1) carried
        FROM hcm.persons p JOIN hcm.work_relationships wr ON wr.person_id=p.id
@@ -51,11 +56,15 @@ export async function engineInputs(c: Q, period: { start_date: any; end_date: an
     const year = pe.slice(0, 4);
     const used = absences.filter((a: any) => a.person_id === p.id && a.type_code === 'ANNUAL' && a.status === 'COMPLETED' && d10(a.end_date) <= pe && d10(a.start_date) >= `${year}-01-01`).reduce((n: number, a: any) => n + Number(a.days), 0);
     const unpaid = absences.filter((a: any) => a.person_id === p.id && a.type_code === 'UNPAID' && d10(a.end_date) >= ps).reduce((n: number, a: any) => n + Number(a.days), 0);
+    const usedThisMonth = absences.filter((a: any) => a.person_id === p.id && a.type_code === 'ANNUAL' && a.status === 'COMPLETED' && d10(a.end_date) >= ps && d10(a.end_date) <= pe).reduce((n: number, a: any) => n + Number(a.days), 0);
+    const age = Math.floor((Date.parse(pe) - Date.parse(d10(p.date_of_birth))) / (365.25 * 86_400_000));
     input.push({
       ref: String(p.id), isSaudi: p.is_saudi, hire: d10(p.start_date), lastDay: p.end_date ? d10(p.end_date) : null,
       gosiFirstRegistered: p.first_registered ? d10(p.first_registered) : d10(p.start_date),
       gosiRegistered: es.some((e: any) => e.element_code === 'GOSI_ER'),
       gosiAbsorbed: absorbed.has(p.grade) || undefined,
+      age, gosiWageLastYear: p.gosi_wage_last_year == null ? undefined : Number(p.gosi_wage_last_year),
+      leaveUsedThisMonth: usedThisMonth || undefined,
       elements, unpaidLeaveDays: unpaid || undefined,
       overtimeHours: es.filter((e: any) => e.element_code === 'OT_HOURS').reduce((n: number, e: any) => n + Number(e.amount), 0) || undefined,
       earnings: [

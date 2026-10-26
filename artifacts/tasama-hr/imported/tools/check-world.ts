@@ -67,9 +67,87 @@ async function main() {
   }
 
   // design/hr-ops-addendum.md: Tasama HR operations is its own persona and lens; payroll validates, it does not enter changes.
-  await check('The client\'s HR operations approves every run, not the CHRO (Tasama\'s answer to Q2)', async () => {
-    const r = await one(`SELECT count(*) FILTER (WHERE approver_role='PAYROLL') AS hr, count(*) FILTER (WHERE approver_role='CHRO') AS chro FROM layer_riyadhair.approvals a JOIN layer_riyadhair.requests q ON q.id=a.request_id WHERE q.workflow_id='WF-30' AND a.step_key='approve'`);
-    return [Number(r.hr) >= 1 && Number(r.chro) === 0, `${r.hr} by HR operations, ${r.chro} by the CHRO`];
+  await check('The client\'s HR operations approves every run; the CHRO only where the contract names it (Q2, then walkthrough item 4)', async () => {
+    const r = await one(`SELECT count(*) FILTER (WHERE approver_role='PAYROLL' AND a.step_key='approve') AS hr, count(*) FILTER (WHERE approver_role='CHRO' AND a.step_key='approve') AS chro, count(*) FILTER (WHERE approver_role='CHRO' AND a.step_key='approve_chro') AS chain FROM layer_riyadhair.approvals a JOIN layer_riyadhair.requests q ON q.id=a.request_id WHERE q.workflow_id='WF-30'`);
+    return [Number(r.hr) >= 1 && Number(r.chro) === 0 && Number(r.chain) >= 1, `${r.hr} by HR operations, ${r.chro} by the CHRO at the approve step, ${r.chain} at the chain's CHRO step`];
+  });
+  // design/walkthrough-addendum.md (session 2): the run goes back through Tasama HR operations, the client's chain, the year's calendar.
+  await check('Riyadh Air\'s run was delivered by Lama and approved by both links of its chain; Red Sea Global\'s chain is one link', async () => {
+    const rx = await (await fetch(`${BASE}/api/payroll/approval`, { headers: { 'x-persona': 'payroll', 'x-client': 'riyadhair' } })).json();
+    const rs = await (await fetch(`${BASE}/api/payroll/approval`, { headers: { 'x-persona': 'payroll', 'x-client': 'redsea' } })).json();
+    const ok = rx.run?.deliverer === 'Lama Al Dossary' && rx.run?.chain?.length === 2 && rx.run.chain.every((l: any) => l.who && l.at) && rx.run.state === 'APPROVED' && rs.run?.chain?.length === 1;
+    return [ok, `Riyadh Air: delivered by ${rx.run?.deliverer}, chain ${(rx.run?.chain ?? []).map((l: any) => `${l.label}=${l.who ?? '—'}`).join(' → ')}; Red Sea Global chain ${rs.run?.chain?.length}`];
+  });
+  await check('Every client has a 2026 payroll calendar with seven stages a month; four approved in January, Saudi Coffee\'s waiting on its HR operations', async () => {
+    const out: string[] = [];
+    let ok = true;
+    for (const k of ['roshn', 'riyadhair', 'redsea', 'seven', 'saudicoffee']) {
+      const d = await (await fetch(`${BASE}/api/payroll/calendar`, { headers: { 'x-persona': 'payroll', 'x-client': k } })).json();
+      const open = d.months?.find((m: any) => m.open);
+      const good = d.months?.length === 12 && open?.stages?.length === 7 && d.months.every((m: any) => m.stages.every((s: any, i: number, a: any[]) => i === 0 || s.date >= a[i - 1].date)) && (k === 'saudicoffee' ? d.status === 'PROPOSED' && d.canApprove : d.status === 'APPROVED' && String(d.approved_at).startsWith('2026-01'));
+      ok = ok && good;
+      out.push(`${k} ${d.status}${open ? ` ${open.period}` : ''}`);
+    }
+    return [ok, out.join(', ')];
+  });
+  // design/walkthrough-addendum.md §5 (session 3): the rules from the formula bars, the two checklists, the reconciliation.
+  await check('Over 50, GOSI accepts at most a 10% rise a year: Red Sea Global\'s draft holds the contributory wage and names HR operations', async () => {
+    const d = await (await fetch(`${BASE}/api/payroll/runs/redsea`, { headers: { 'x-persona': 'tasama-specialist', 'x-client': 'redsea' } })).json();
+    const k = (d.review?.checks ?? []).find((x: any) => x.codes?.includes('GOSI_WAGE_CAP'));
+    return [Boolean(k) && k.severity === 'ASK' && /held at/.test(k.found), k ? k.title : 'no GOSI_WAGE_CAP check'];
+  });
+  await check('Saudi Coffee prorates GOSI by the days worked and divides the leave day by 22; Red Sea Global runs end of service at 360', async () => {
+    const sc = await (await fetch(`${BASE}/api/payroll/runs/saudicoffee`, { headers: { 'x-persona': 'tasama-specialist', 'x-client': 'saudicoffee' } })).json();
+    const rs = await (await fetch(`${BASE}/api/payroll/runs/redsea`, { headers: { 'x-persona': 'tasama-specialist', 'x-client': 'redsea' } })).json();
+    const rows: any[] = sc.draft?.rows ?? [];
+    const partial = rows.find((r) => r.pay_days < 28 && r.lines.some((l: any) => l.code === 'gosi'));
+    const prorated = partial ? /prorates GOSI/.test(partial.lines.find((l: any) => l.code === 'gosi').rule) : null;
+    const div22 = rows.length ? /÷ 22/.test(rows[0].leave.rule) : false;
+    const eos360 = (rs.draft?.rows ?? []).length ? /360 a year/.test(rs.draft.rows[0].eos.rule) : false;
+    return [div22 && eos360 && prorated !== false, `Saudi Coffee leave ÷22: ${div22}; prorated partial month: ${prorated ?? 'no partial month this month'}; Red Sea Global EOS 360: ${eos360}`];
+  });
+  await check('Element catalogue: Tasama\'s elements in four groups on Client policies, with this month\'s use', async () => {
+    const d = await (await fetch(`${BASE}/api/payroll/policies/roshn`, { headers: { 'x-persona': 'tasama-lead', 'x-client': 'roshn' } })).json();
+    const el: any[] = d.elements ?? [];
+    const groups = new Set(el.map((e) => e.group));
+    return [el.length >= 28 && groups.size === 4 && el.some((e) => e.code === 'BASIC' && e.people > 100) && el.some((e) => e.code === 'WELLNESS'), `${el.length} elements, ${groups.size} groups, basic used by ${el.find((e) => e.code === 'BASIC')?.people}`];
+  });
+  await check('Reports: the paid month summarised by department and cost centre, totals only, for HR and for finance', async () => {
+    const d = await (await fetch(`${BASE}/api/costs`, { headers: { 'x-persona': 'finance', 'x-client': 'roshn' } })).json();
+    const rows: any[] = d.departments?.rows ?? [];
+    const months: any[] = d.months ?? [];
+    const last = [...months].reverse().find((m) => m.status === 'CLOSED');
+    const sum = rows.reduce((s, r) => s + r.net, 0);
+    return [rows.length > 5 && rows.every((r) => r.cost_center) && last && Math.abs(sum - last.net) < 1, `${rows.length} departments; net ${Math.round(sum)} vs month ${Math.round(last?.net ?? 0)}`];
+  });
+  await check('Bank reconciliation: every paid month reconciles with the payroll before its journals; the figures are on the payment', async () => {
+    const r = await one(`SELECT count(*) FILTER (WHERE reconciliation IS NULL) AS missing, count(*) FILTER (WHERE (reconciliation->>'reconciled')::boolean) AS ok, count(*) AS n FROM layer_roshn.payments WHERE state IN ('PAID','PART_FAILED')`);
+    return [Number(r.missing) === 0 && Number(r.ok) === Number(r.n), `${r.ok} of ${r.n} reconciled, ${r.missing} without a reconciliation`];
+  });
+  await check('Attendance: the client\'s approved summary is read as a summary (no punches) and priced', async () => {
+    const h = { 'x-persona': 'tasama-hrops', 'x-client': 'saudicoffee', 'content-type': 'application/json' };
+    const csv = await (await fetch(`${BASE}/api/payroll/attendance/saudicoffee/export?kind=summary`, { headers: h })).text();
+    const m = await (await fetch(`${BASE}/api/payroll/attendance/saudicoffee/map`, { method: 'POST', headers: h, body: JSON.stringify({ csv }) })).json();
+    return [Boolean(m.summary) && m.map.kind === 'SUMMARY' && m.map.employee && m.map.absent_days, `summary ${m.summary}; columns ${JSON.stringify(m.map)}`];
+  });
+  await check('Handover: the 20-item checklist and the 7-working-day SLA start from the client account; nothing is in progress on the demo day', async () => {
+    const d = await (await fetch(`${BASE}/api/tasama/clients/seven/handover`, { headers: { 'x-persona': 'tasama' } })).json();
+    const { HANDOVER_ITEMS, ACTIVATION_ITEMS } = await import('../apps/server/src/domain/checklists.ts');
+    return [(d.handover == null || d.handover.status === 'CLOSED' || d.handover.status === 'CANCELLED') && HANDOVER_ITEMS.length === 20 && ACTIVATION_ITEMS.length === 26, `handover: ${d.handover?.status ?? 'none'}; checklist items ${HANDOVER_ITEMS.length} and ${ACTIVATION_ITEMS.length}`];
+  });
+  await check('Art. 87: a woman resigning within six months of marriage receives the full award', async () => {
+    const { finalSettlement } = await import('../apps/server/src/domain/payroll/engine.ts');
+    const { termsFromRules } = await import('../apps/server/src/domain/payroll/terms.ts');
+    const terms = termsFromRules('check', []);
+    const e = { ref: '1', isSaudi: true, hire: '2022-01-01', elements: { basic: 10000, housing: 2500, transport: 1000 }, leave: { entitlementDays: 21, carryoverDays: 0, usedDaysYtd: 0 } } as any;
+    const a = finalSettlement({ start: '2026-10-01', end: '2026-10-31' }, terms, { ...e, lastDay: '2026-10-31' }, { leaving: 'ART_87' });
+    const b = finalSettlement({ start: '2026-10-01', end: '2026-10-31' }, terms, { ...e, lastDay: '2026-10-31' }, { leaving: 'RESIGNATION' });
+    return [a.factor === 1 && b.factor === 1 / 3, `marriage factor ${a.factor}, resignation after 4.8 years ${b.factor.toFixed(2)}`];
+  });
+  await check('Tasama\'s Months shows each client\'s next calendar stage', async () => {
+    const d = await (await fetch(`${BASE}/api/payroll/months`, { headers: { 'x-persona': 'tasama-hrops' } })).json();
+    const ok = d.clients.length >= 5 && d.clients.every((c: any) => c.calendar?.stages?.length === 7 && c.calendar.current);
+    return [ok, d.clients.map((c: any) => `${c.key}: ${c.calendar?.status} ${c.calendar?.current}`).join(', ')];
   });
   // design/payroll-ops-addendum.md: the intake, the questions, the bank by file and the package.
   await check('Documents: every client has a document set with three gaps for Tasama HR operations to chase', async () => {
@@ -153,7 +231,7 @@ async function main() {
   await check('Tasama: every client has invoices', async () => { const c = await n(`SELECT count(DISTINCT client_key) FROM tasama.invoices`); return [c === 5, `${c}`]; });
   await check('Tasama: delivery staff allocated', async () => { const c = await n(`SELECT count(*) FROM tasama.allocations`); return [c >= 5, `${c}`]; });
 
-  await check('API: nineteen Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 19, `${d.length}`]; });
+  await check('API: twenty-one Director scenarios', async () => { const d = await api('/director/scenarios'); return [d.length === 21, `${d.length}`]; });
   await check('API: twenty-seven agents, none autonomous', async () => { const d = await api('/agents'); return [d.length === 27 && !d.some((a: any) => a.autonomy === 'A4'), `${d.length}; A4: ${d.filter((a: any) => a.autonomy === 'A4').length}`]; });
   await check('API: the employee balance matches the leave screen', async () => { const me = await api('/me', 'employee'); const a = me.balances.find((b: any) => b.type_code === 'ANNUAL'); return [a && a.balance >= 0 && Math.abs(a.entitlement + a.carried_over - a.taken - a.booked - a.balance) < 0.6, a ? `${a.entitlement}+${a.carried_over}-${a.taken}-${a.booked}=${a.balance}` : 'none']; });
   await check('API: the manager inbox holds a leave decision', async () => { const d = await api('/requests?view=inbox', 'manager'); return [d.some((r: any) => r.workflow_id === 'WF-15'), `${d.length} waiting`]; });
@@ -164,7 +242,7 @@ async function main() {
   });
   await check('API: an employee cannot open a person outside their scope', async () => { const r = await fetch(`${BASE}/api/people/1`, { headers: { 'x-persona': 'employee', 'x-client': 'roshn' } }); return [r.status === 403, `HTTP ${r.status}`]; });
 
-  await check('API: the payroll lead sees every client\'s month', async () => { const d = await api('/payroll/months', 'tasama-lead'); return [d.clients.length === 5 && d.clients.filter((c: any) => c.stage === 'RUN').length === 2, d.clients.map((c: any) => `${c.key}:${c.stage}`).join(' ')]; });
+  await check('API: the payroll manager sees every client\'s month', async () => { const d = await api('/payroll/months', 'tasama-lead'); return [d.clients.length === 5 && d.clients.filter((c: any) => c.stage === 'RUN').length === 2, d.clients.map((c: any) => `${c.key}:${c.stage}`).join(' ')]; });
   await check('API: a client employee cannot read the payroll months', async () => { const r = await fetch(`${BASE}/api/payroll/months`, { headers: { 'x-persona': 'employee', 'x-client': 'roshn' } }); return [r.status === 403, `HTTP ${r.status}`]; });
 
   // Phase 2 (design/payroll-addendum.md §5): the clients held in Tasama HR are paid by the engine.
@@ -192,7 +270,7 @@ async function main() {
     const rows = await q1(`SELECT g.system, g.source, pp.end_date, (SELECT (l->>'amount')::numeric FROM jsonb_array_elements(r.lines) l WHERE l->>'code'='GOSI_EE') ee,
         (SELECT SUM((l->>'amount')::numeric) FROM jsonb_array_elements(r.lines) l WHERE l->>'code' IN ('BASIC','HOUSING')) wage, r.days_paid
       FROM hcm_seven.payroll_results r JOIN hcm_seven.payroll_periods pp ON pp.id=r.period_id JOIN hcm_seven.gosi_registrations g ON g.person_id=r.person_id
-      JOIN hcm_seven.persons p ON p.id=r.person_id WHERE p.is_saudi AND r.days_paid >= 28`);
+      JOIN hcm_seven.persons p ON p.id=r.person_id WHERE p.is_saudi AND r.days_paid >= extract(day FROM pp.end_date)`); // a full month only: GOSI is on the full wage, the lines on the days paid
     const want = (sys: string, end: string) => sys === 'LEGACY' ? 0.0975 : end >= '2026-07-01' ? 0.1075 : end >= '2025-07-01' ? 0.1025 : 0.0975;
     const prior = rows.filter((x: any) => x.source === 'PRIOR_EMPLOYER');
     const bad = rows.filter((x: any) => x.ee != null && Math.abs(Number(x.ee) / Math.min(45000, Number(x.wage)) - want(x.system, new Date(x.end_date).toISOString().slice(0, 10))) > 0.002);
@@ -298,7 +376,7 @@ async function main() {
     for (const k of clients) for (const r of (await pool.query(`SELECT iban FROM hcm_${k}.persons WHERE iban IS NOT NULL`)).rows) { all++; if (!ibanValid(r.iban)) bad++; }
     return [all > 800 && bad === 0, `${all} IBANs, ${bad} invalid`];
   });
-  await check('Payments: Riyadh Air\'s approved run waits on the payroll lead to send its file, every release check passing (D7)', async () => {
+  await check('Payments: Riyadh Air\'s approved run waits on the payroll manager to send its file, every release check passing (D7)', async () => {
     const p = await one(`SELECT p.*, to_char(p.value_date,'YYYY-MM-DD') vd, to_char(p.pay_date,'YYYY-MM-DD') pd, r.status, r.current_step, r.waiting_on_role FROM layer_riyadhair.payments p JOIN layer_riyadhair.requests r ON r.id=p.request_id WHERE p.kind='REGULAR' ORDER BY p.id DESC LIMIT 1`);
     const failing = (p?.checks ?? []).filter((x: any) => !x.ok).length;
     const dow = new Date(`${p?.vd}T00:00:00Z`).getUTCDay();
@@ -330,7 +408,7 @@ async function main() {
     }
     return [months >= 30 && !bad.length, `${months} months; ${bad.length ? 'differ: ' + bad.slice(0, 3).join(', ') : 'owed equals paid'}`];
   });
-  await check('Journals: ROSHN\'s last month waits on the payroll lead, short by the remote-site allowance Qaid proposes an account for (D8)', async () => {
+  await check('Journals: ROSHN\'s last month waits on the payroll manager, short by the remote-site allowance Qaid proposes an account for (D8)', async () => {
     const j = await one(`SELECT debit, credit, state, unmapped FROM layer_roshn.journals WHERE kind='ACCRUAL' ORDER BY period_name DESC LIMIT 1`);
     const k = await one(`SELECT status, current_step, waiting_on_role FROM layer_roshn.requests WHERE workflow_id='WF-34' ORDER BY id DESC LIMIT 1`);
     const m = await one(`SELECT account, status FROM layer_roshn.account_map WHERE code='REMOTE_SITE'`);

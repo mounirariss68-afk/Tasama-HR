@@ -969,7 +969,8 @@ CREATE TABLE layer.payments (
   approved_by   text, approved_at timestamptz,      -- the client's finance approvals in the bank portal, as the bank reports them
   feedback_at   timestamptz,
   wps_at        timestamptz,
-  mudad_at      timestamptz, mudad_ref text, mudad_by text
+  mudad_at      timestamptz, mudad_ref text, mudad_by text,
+  reconciliation jsonb                               -- the bank's paid report against the payroll: totals, matched lines, differences (walkthrough addendum R37)
 );
 -- One employee's line in a payment, with what the bank's feedback file said about it.
 CREATE TABLE layer.payment_lines (
@@ -1076,3 +1077,30 @@ CREATE TABLE layer.employee_documents (
   source       text                       -- the client's email, Tasama HR, the hiring module
 );
 CREATE INDEX ON layer.employee_documents (person_id);
+
+-- The client's payroll calendar for a year, agreed once (design/walkthrough-addendum.md item 5): the seven
+-- stages of each month, proposed by Wared from the client's cut-off and pay days and approved by its HR operations.
+CREATE TABLE layer.payroll_calendar (
+  id           serial PRIMARY KEY,
+  year         int NOT NULL UNIQUE,
+  status       text NOT NULL,             -- PROPOSED | APPROVED
+  months       jsonb NOT NULL,            -- [{ period, stages: { cutoff, calculation, review, delivery, approval, bank, pay }, moved }]
+  request_id   int,
+  approved_by  text,
+  approved_at  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- Handing a client back (design/walkthrough-addendum.md R41): the 20-item checklist Tasama shares, the client's sign-off,
+-- the closure, inside an SLA of 7 working days.
+CREATE TABLE layer.handovers (
+  id           serial PRIMARY KEY,
+  request_id   int,
+  status       text NOT NULL,             -- SHARING | SIGNING | CLOSING | CLOSED | CANCELLED
+  items        jsonb NOT NULL,            -- [{ n, label, label_ar, shared_at }]
+  started_at   timestamptz NOT NULL,
+  due_on       date NOT NULL,
+  started_by   text,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+

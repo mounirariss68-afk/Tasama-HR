@@ -1,6 +1,6 @@
 /**
  * The payroll package (design/payroll-ops-addendum.md 2.9, 2.11): what the client approves, as a PDF
- * summary with the three sign-offs and an Excel detail of every line. Built from the run's frozen lines,
+ * summary with every sign-off (Tasama's three, then the client's chain) and an Excel detail of every line. Built from the run's frozen lines,
  * or from the live draft before it is sent for validation; filed with the month's documents.
  */
 import PDFDocument from 'pdfkit';
@@ -28,8 +28,9 @@ export async function packageData(c: Q) {
     differences: run?.differences ?? null,
     signoffs: [
       ['Prepared', run?.preparer ?? null, run?.prepared_at ?? null, 'Payroll specialist, Tasama'],
-      ['Validated', run?.validator ?? null, run?.validated_at ?? null, 'Payroll lead, Tasama'],
-      ['Approved', run?.approver ?? null, run?.approved_at ?? null, `HR operations, ${client().short}`],
+      ['Validated', run?.validator ?? null, run?.validated_at ?? null, 'Payroll manager, Tasama'],
+      ['Delivered', run?.deliverer ?? null, run?.delivered_at ?? null, 'HR operations, Tasama'],
+      ...((run?.chain ?? []) as any[]).map((l) => ['Approved', l.who ?? null, l.at ?? null, `${l.role === 'CHRO' ? 'CHRO' : 'HR operations'}, ${client().short}`]),
     ] as [string, string | null, any, string][],
     fileBase: `${client().code}_Payroll_${d.period.name.replace('-', '')}`,
   };
@@ -105,8 +106,16 @@ export async function packageXlsx(c: Q): Promise<{ name: string; buf: Buffer } |
 }
 
 /** Payroll reports for the client's finance (3.9): each month's cost, as Excel. */
-export async function reportsXlsx(months: any[], clientName: string): Promise<Buffer> {
+export async function reportsXlsx(months: any[], clientName: string, departments?: { period: string | null; rows: any[] }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
+  if (departments?.rows.length) {
+    // The summary finance posts by department and cost centre (walkthrough addendum R26).
+    const wd = wb.addWorksheet(`By cost centre ${departments.period}`);
+    wd.columns = [{ header: 'Division', key: 'dv', width: 22 }, { header: 'Department', key: 'd', width: 30 }, { header: 'Cost centre', key: 'cc', width: 12 }, { header: 'Employees', key: 'p', width: 11 }, { header: 'Gross', key: 'g', width: 16 }, { header: 'Deductions', key: 'dd', width: 14 }, { header: 'Net pay', key: 'n', width: 16 }, { header: 'Employer contributions', key: 'e', width: 22 }, { header: 'Provisions charge', key: 'pv', width: 18 }, { header: 'Cost to the company', key: 'c', width: 20 }];
+    for (const r of departments.rows) wd.addRow({ dv: r.division, d: r.department, cc: r.cost_center, p: r.people, g: r.gross, dd: r.deductions, n: r.net, e: r.employer, pv: r.provisions, c: r.gross + r.employer + r.provisions });
+    wd.getRow(1).font = { bold: true };
+    wd.eachRow((row, i) => { if (i > 1) row.eachCell((cell, col) => { if (col > 4) cell.numFmt = '#,##0.00'; }); });
+  }
   const ws = wb.addWorksheet('Payroll costs');
   ws.columns = [{ header: 'Month', key: 'm', width: 12 }, { header: 'Employees', key: 'p', width: 11 }, { header: 'Gross', key: 'g', width: 16 }, { header: 'Net pay', key: 'n', width: 16 },
     { header: 'Employer contributions', key: 'e', width: 22 }, { header: 'Cost to the company', key: 'c', width: 20 }, { header: 'End of service owed', key: 'eos', width: 20 }, { header: 'Leave owed', key: 'lv', width: 16 }];

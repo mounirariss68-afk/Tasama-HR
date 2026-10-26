@@ -87,6 +87,7 @@ function Timeline({ p, counts, followUps }: { p: any; counts: any; followUps: an
     [t('Approved in the bank'), p.approved_at, t(p.approved_by ?? ''), p.approved_at ? 'success' : 'muted'],
     [t('Bank return file'), p.feedback_at, p.feedback_at ? `${num(counts?.paid ?? 0)} ${t('paid')}${(counts?.failed ?? 0) + (counts?.repaid ?? 0) ? `, ${(counts?.failed ?? 0) + (counts?.repaid ?? 0)} ${t('returned')}` : ''}` : '', p.feedback_at ? ((counts?.failed ?? 0) ? 'warn' : 'success') : 'muted'],
     ...(fu ? [[t('Follow-up'), fu.state === 'PAID' ? fu.valueDate : null, `${fu.lines} ${t('line')} · ${aed(fu.total, lang)} · ${t(fu.state === 'PAID' ? 'paid' : fu.state === 'BUILT' ? 'to send' : 'in the bank')}`, fu.state === 'PAID' ? 'success' : 'warn'] as [string, string | null, string, 'success' | 'warn' | 'muted']] : []),
+    [t('Reconciled with the payroll'), p.reconciliation?.at ?? null, p.reconciliation ? (p.reconciliation.reconciled ? `${num(p.reconciliation.matched)} ${t('of')} ${num(p.reconciliation.lines)} ${t('lines match')}` : `${p.reconciliation.differences.length} ${t('differences')}`) : '', p.reconciliation ? (p.reconciliation.reconciled ? 'success' : 'warn') : 'muted'],
     [t('Signed WPS file'), p.wps_at, p.wps_state === 'ACCEPTED' ? t('matches what was paid') : '', p.wps_at ? 'success' : 'muted'],
     [t('Mudad'), p.mudad_at, p.mudad_state === 'ACKNOWLEDGED' ? t('acknowledged') : '', p.mudad_state === 'ACKNOWLEDGED' ? 'success' : 'muted'],
   ];
@@ -102,6 +103,22 @@ function Timeline({ p, counts, followUps }: { p: any; counts: any; followUps: an
   );
 }
 
+
+/** The bank's report against the payroll, read once from the return file (walkthrough addendum R37): no VLOOKUP. */
+function Reconciliation({ r }: { r: any }) {
+  const { t, lang } = useLang();
+  const ok = r.reconciled;
+  return (
+    <div className={`mb-4 rounded-xl border p-3 ${ok ? 'border-success/40 bg-success/5' : 'border-warn/50 bg-warn/5'}`}>
+      <p className="text-sm font-semibold">{ok ? `${t('The bank paid')} ${aed(r.bank_paid, lang)}${r.returned ? ` ${t('and returned')} ${aed(r.returned, lang)}` : ''}: ${t('it equals the file and the payroll to the halala')}` : `${r.differences.length} ${t(r.differences.length === 1 ? 'line differs between the bank and the payroll' : 'lines differ between the bank and the payroll')}`}</p>
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-4">
+        {[[t('Payroll net'), r.payroll_net], [t('Bank file'), r.file_total], [t('Bank paid'), r.bank_paid], [t('Returned'), r.returned]].map(([k, v]: any) => <div key={k}><p className="text-muted-foreground">{k}</p><p className="font-medium tabular-nums">{aed(v, lang)}</p></div>)}
+      </div>
+      {r.differences.length ? <ul className="mt-2 space-y-1 text-xs">{r.differences.map((d: any) => <li key={d.employee_no}>{d.name} ({d.employee_no}): {t('payroll')} {aed(d.payroll, lang)}, {t('bank')} {d.bank == null ? '—' : aed(d.bank, lang)} · {t(d.why)}</li>)}</ul> : null}
+      <p className="mt-2 text-[11px] text-muted-foreground">{t(ok ? 'The journals go to the ledger from a reconciled month only.' : 'The journals wait until the differences are settled.')}</p>
+    </div>
+  );
+}
 
 /**
  * Tasama's next step on a payment, done by a person because no bank is connected
@@ -198,6 +215,7 @@ export function PayrollPayments() {
             <span><span className="text-muted-foreground">{t('Stage')} </span><Chip tone={p.state === 'PAID' ? 'success' : p.state === 'PART_FAILED' ? 'warn' : 'primary'}>{t(STATE[p.state] ?? p.state)}</Chip></span>
           </div>
           <Timeline p={p} counts={data.counts ?? {}} followUps={data.followUps ?? []} />
+          {p.reconciliation ? <Reconciliation r={p.reconciliation} /> : null}
           <NextStep client={cl.key} p={p} />
           {(data.followUps ?? []).filter((fu: any) => ['SENT', 'APPROVED'].includes(fu.state)).map((fu: any) => <NextStep key={fu.id} client={cl.key} p={{ id: fu.id, state: fu.state, wps_state: fu.wps, mudad_state: fu.mudad }} />)}
           <TabStrip items={[{ id: 'checks', label: 'Release checks' }, { id: 'files', label: 'Bank file and WPS file' }, { id: 'lines', label: 'Lines' }]} value={tab} onChange={setTab} />

@@ -16,7 +16,7 @@ export const READINGS: Record<string, { code: string; label: string; label_ar: s
     { code: 'LEGAL', label: 'The law\'s formula: hourly wage + 50% of the basic hourly wage', label_ar: 'صيغة النظام: أجر الساعة + 50% من أجر الساعة الأساسي', value: 'Hourly wage + 50% of basic hourly', num: 1.5 },
   ],
 };
-/** What Tasama's payroll lead recommends for each unclear rule, and why. */
+/** What Tasama's payroll manager recommends for each unclear rule, and why. */
 export const RECOMMENDED: Record<string, { code: string; why: string; why_ar: string }> = {
   'overtime.rate': { code: 'GROSS_1_5', why: 'the words favour the employee, and a term more generous than the law binds the company (Art. 8)', why_ar: 'النص في صالح الموظف، والشرط الأفضل من النظام ملزم للشركة (المادة 8)' },
 };

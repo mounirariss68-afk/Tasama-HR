@@ -40,6 +40,10 @@ export type EngineTerms = {
   overtimeSource?: string;
   /** The company pays the employee's GOSI share (dimension 13). */
   gosiAbsorbed?: boolean;
+  /** GOSI × pay days ÷ month days in a partial month, as Tasama's sheet does for some clients (walkthrough addendum R21). */
+  gosiProrate?: boolean;
+  /** The leave month cost nets the days taken in the month (walkthrough addendum R27). */
+  leaveNetMonth?: boolean;
 };
 
 export type Money = { code: string; label: string; amount: number };
@@ -54,6 +58,11 @@ export type EngineEmployee = {
   gosiRegistered?: boolean;
   /** The company pays this person's GOSI share (a handbook limited to some grades); overrides the terms. */
   gosiAbsorbed?: boolean;
+  /** Age at the period's end and the contributory wage a year ago: GOSI accepts at most 10% a year of increase over 50 (walkthrough addendum R22). */
+  age?: number;
+  gosiWageLastYear?: number;
+  /** Annual leave days taken inside this month, for the netted month cost. */
+  leaveUsedThisMonth?: number;
   lastDay?: string | null;
   /** Monthly contractual amounts by element code: basic, housing, transport, mobile, … */
   elements: Record<string, number>;
@@ -103,6 +112,12 @@ const label = (c: string) => LABEL[c] ?? c.charAt(0).toUpperCase() + c.slice(1);
 const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Art. 84: half a month's wage a year for five years, a month a year after. */
+/** Days between two dates on the 30/360 convention (each month 30 days), for clients whose EOS runs at 360. */
+export function days360(a: string, b: string) {
+  const A = new Date(`${a.slice(0, 10)}T00:00:00Z`), B = new Date(`${b.slice(0, 10)}T00:00:00Z`);
+  const d1 = Math.min(A.getUTCDate(), 30), d2 = Math.min(B.getUTCDate(), 30);
+  return Math.max(0, (B.getUTCFullYear() - A.getUTCFullYear()) * 360 + (B.getUTCMonth() - A.getUTCMonth()) * 30 + (d2 - d1) + 1);
+}
 export function eosAccrued(wage: number, serviceDays: number, yearDays = 365) {
   const years = serviceDays / yearDays;
   return wage * (Math.min(years, 5) * 0.5 + Math.max(0, years - 5));
@@ -166,11 +181,21 @@ export function runPayroll(period: { start: string; end: string }, terms: Engine
 
     // GOSI on the registered wage, by first registration and the period's last day.
     const registered = e.gosiRegistered !== false;
-    const g0 = gosiContribution(sum(e.elements, terms.gosiElements), e.isSaudi, e.gosiFirstRegistered ?? e.hire, period.end);
+    let gosiWage = sum(e.elements, terms.gosiElements);
+    // Over 50, GOSI accepts at most 10% a year of increase in the contributory wage: the rest is held, and HR operations is told.
+    if (e.isSaudi && (e.age ?? 0) >= 50 && e.gosiWageLastYear && gosiWage > e.gosiWageLastYear * 1.1 + 0.005) {
+      const held = r2(gosiWage - e.gosiWageLastYear * 1.1);
+      gosiWage = r2(e.gosiWageLastYear * 1.1);
+      flags.push({ code: 'GOSI_WAGE_CAP', severity: 'WARN', text: `Over 50: GOSI accepts at most a 10% rise a year in the contributory wage, so it is held at ${fmt(gosiWage)} (last year's ${fmt(e.gosiWageLastYear)} + 10%); ${fmt(held)} of the wage is outside GOSI. HR operations confirms the registered wage with GOSI` });
+    }
+    const g1 = gosiContribution(gosiWage, e.isSaudi, e.gosiFirstRegistered ?? e.hire, period.end);
+    // Some clients prorate the month's contribution by the days worked (Tasama's sheet); GOSI itself charges the full month.
+    const prorated = terms.gosiProrate && share < 1;
+    const g0 = prorated ? { ...g1, employee: r2(g1.employee * share), employer: r2(g1.employer * share) } : g1;
     const g = registered ? g0 : { ...g0, employee: 0, employer: 0 };
     if (!registered) flags.push({ code: 'GOSI_NOT_REGISTERED', severity: 'BLOCK', text: `Not registered with GOSI: ${fmt(g0.employee + g0.employer)} a month is not being contributed` });
     const absorbed = e.gosiAbsorbed ?? terms.gosiAbsorbed;
-    const gRule = `${(g.eeRate * 100).toFixed(2)}% employee, ${(g.erRate * 100).toFixed(2)}% employer on ${fmt(g.wage)} (${terms.gosiElements.join(' + ')}, capped at 45,000)`;
+    const gRule = `${(g.eeRate * 100).toFixed(2)}% employee, ${(g.erRate * 100).toFixed(2)}% employer on ${fmt(g.wage)} (${terms.gosiElements.join(' + ')}, capped at 45,000)${prorated ? `, × ${dayRule} (the client's policy prorates GOSI)` : ''}`;
     if (g.employee) {
       if (absorbed) lines.push({ kind: 'EMPLOYER', code: 'gosi_ee_absorbed', label: 'GOSI, employee share paid by the company', amount: g.employee, rule: gRule });
       else lines.push({ kind: 'DEDUCTION', code: 'gosi', label: 'GOSI', amount: g.employee, rule: gRule });
@@ -202,8 +227,9 @@ export function runPayroll(period: { start: string; end: string }, terms: Engine
     // End of service: the accrued award at the period's end; the month's charge is its change.
     const eWage = sum(e.elements, terms.eosElements);
     const excluded = e.eosExcludedDays ?? 0;
-    const serviceDays = Math.max(0, daysIncl(e.hire, to) - excluded);
-    const prevDays = Math.max(0, daysIncl(e.hire, prevEnd) - excluded);
+    const span = terms.eosYearDays === 360 ? days360 : daysIncl;
+    const serviceDays = Math.max(0, span(e.hire, to) - excluded);
+    const prevDays = Math.max(0, span(e.hire, prevEnd) - excluded);
     const accrued = eosAccrued(eWage, serviceDays, terms.eosYearDays);
     const accruedPrev = eosAccrued(eWage, prevDays, terms.eosYearDays);
     const month = accrued - accruedPrev;
@@ -221,8 +247,8 @@ export function runPayroll(period: { start: string; end: string }, terms: Engine
       ref: e.ref, payDays, monthDays, contractual, lines, gross, deductions, net: r2(gross - deductions),
       gosi: { wage: g.wage, employee: g.employee, employer: g.employer, eeRate: g.eeRate, erRate: g.erRate, group: g.group },
       provisions: {
-        eos: { wage: eWage, serviceDays, accrued, month, catchUp, rule: `${years.toFixed(3)} years of service × ${years > 5 ? 'half a month for five years and a month after' : 'half a month a year'} on ${fmt(eWage)} (Art. 84)${excluded ? `; ${excluded} days of unpaid leave beyond 20 excluded (Art. 116)` : ''}` },
-        leave: { balanceDays, dayCost, accrued: balanceDays * dayCost, monthCost: monthly * dayCost, rule: `${balanceDays.toFixed(3)} days (carried ${e.leave.carryoverDays} + ${monthly.toFixed(3)} a month × ${monthIndex} − ${e.leave.usedDaysYtd} taken) × ${fmt(dayCost)} a day (the month ÷ ${divisor})` },
+        eos: { wage: eWage, serviceDays, accrued, month, catchUp, rule: `${years.toFixed(3)} years of service${terms.eosYearDays === 360 ? ' (30-day months, 360 a year)' : ''} × ${years > 5 ? 'half a month for five years and a month after' : 'half a month a year'} on ${fmt(eWage)} (Art. 84)${excluded ? `; ${excluded} days of unpaid leave beyond 20 excluded (Art. 116)` : ''}` },
+        leave: { balanceDays, dayCost, accrued: balanceDays * dayCost, monthCost: (terms.leaveNetMonth ? monthly - (e.leaveUsedThisMonth ?? 0) : monthly) * dayCost, rule: `${balanceDays.toFixed(3)} days (carried ${e.leave.carryoverDays} + ${monthly.toFixed(3)} a month × ${monthIndex} − ${e.leave.usedDaysYtd} taken) × ${fmt(dayCost)} a day (the month ÷ ${divisor})${terms.leaveNetMonth && e.leaveUsedThisMonth ? `; the month's cost nets the ${e.leaveUsedThisMonth} days taken this month` : ''}` },
       },
       flags,
     };

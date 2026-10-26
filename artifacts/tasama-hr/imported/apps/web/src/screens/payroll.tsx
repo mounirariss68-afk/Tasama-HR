@@ -21,6 +21,7 @@ const d0 = (s: string) => new Date(`${s.slice(0, 10)}T00:00:00Z`).getTime();
 const STAGE: Record<string, [string, string, 'primary' | 'warn' | 'success']> = {
   INPUTS: ['Inputs open', 'المدخلات مفتوحة', 'primary'], RUN: ['Run and approval', 'التشغيل والاعتماد', 'warn'], PAID: ['Paid', 'مدفوع', 'success'], NONE: ['No open month', 'لا يوجد شهر مفتوح', 'primary'],
 };
+const FILE_STATE: Record<string, string> = { NOT_BUILT: 'No bank file yet', BUILT: 'Bank file built', IN_PORTAL: 'In the bank portal', APPROVED: 'Approved in the bank', PAID: 'Paid', RECONCILED: 'Paid and reconciled' };
 const FLAG: Record<string, [string, string, 'danger' | 'warn' | undefined]> = {
   BELOW_LAW: ['Below the law', 'أقل من النظام', 'danger'], UNCLEAR: ['Unclear', 'غير واضح', 'warn'], MISSING: ['Not in the handbook', 'غير مذكور في الدليل', undefined],
 };
@@ -51,8 +52,8 @@ function MonthStrip({ rows, today }: { rows: any[]; today: string }) {
             <div className="absolute inset-y-1.5 rounded-s-md bg-primary/25" style={{ left: x(r.start), width: w(r.start, r.cutoff) }} title={t('Inputs open')} />
             <div className="absolute inset-y-1.5 bg-warn/30" style={{ left: x(r.cutoff), width: w(r.cutoff, r.approval) }} title={t('Run and checks')} />
             <div className="absolute inset-y-1.5 rounded-e-md bg-success/30" style={{ left: x(r.approval), width: w(r.approval, r.pay) }} title={t('Client approval and payment')} />
-            {[['cutoff', t('Cut-off')], ['approval', t('Approval')], ['pay', t('Pay day')]].map(([k, l]) => (
-              <span key={k} className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-background bg-foreground/70" style={{ left: x(r[k]) }} title={`${l} ${date(r[k], lang)}`} />
+            {(r.calendar?.stages?.length ? r.calendar.stages.map((st: any) => [st.key, bi(st.label, st.label_ar), st.date, st.state]) : [['cutoff', t('Cut-off'), r.cutoff, ''], ['approval', t('Approval'), r.approval, ''], ['pay', t('Pay day'), r.pay, '']]).map(([k, l, dt, st]: any) => (
+              d0(dt) >= start && d0(dt) <= end ? <span key={k} className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2 border-background ${st === 'DONE' ? 'bg-foreground/35' : st === 'TODAY' ? 'bg-danger' : 'bg-foreground/70'}`} style={{ left: x(dt) }} title={`${l} ${date(dt, lang)}`} /> : null
             ))}
           </div>
         </div>
@@ -87,13 +88,16 @@ export function PayrollMonths() {
         <MonthStrip rows={rows} today={data.today} />
       </Panel>
       <Panel icon={<FileText size={16} />} title={(() => { const o = rows.filter((r) => r.hrms === 'ORACLE').length; const p = rows.length - o; return lang === 'ar' ? `${o} من العملاء يحتفظون بسجل الموظفين في Oracle HCM، و${p} في تسامى HR` : `${o} ${o === 1 ? 'client keeps its' : 'clients keep their'} employee master in Oracle HCM; ${p} ${p === 1 ? 'holds it' : 'hold it'} in Tasama HR`; })()}>
-        <Table><thead><tr><th>{t('Client')}</th><th>{t('Employee master')}</th><th className="text-end">{t('Employees')}</th><th>{t('Cut-off')}</th><th>{t('Pay day')}</th><th>{t('Policy')}</th></tr></thead>
+        <Table><thead><tr><th>{t('Client')}</th><th>{t('Employee master')}</th><th className="text-end">{t('Employees')}</th><th>{t('Cut-off')}</th><th>{t('Pay day')}</th><th>{t('Next on the calendar')}</th><th>{t('Responsible')}</th><th>{t('Bank and file')}</th><th>{t('Policy')}</th></tr></thead>
           <tbody>{rows.map((r) => (
             <tr key={r.key} className="clickable" onClick={() => go('payroll-policies', r.key)}>
               <td className="font-medium">{bi(r.short, r.name_ar)}</td>
               <td>{r.hrms === 'PLATFORM' ? t('Tasama HR') : r.hrms === 'ODOO' ? 'Odoo' : 'Oracle HCM'}</td>
               <td className="tabular-nums text-end">{num(r.employees)}</td>
               <td>{date(r.cutoff, lang)}</td><td>{date(r.pay, lang)}</td>
+              <td>{(() => { const k = r.calendar; if (!k || k.status === 'NONE') return '—'; const n = k.stages.find((st: any) => st.state !== 'DONE'); return <span className="flex flex-wrap items-center gap-1.5">{k.status === 'PROPOSED' ? <Chip tone="warn">{t('Calendar waits on the client')}</Chip> : null}{n ? <span className="text-sm">{bi(n.label, n.label_ar).split(':')[0]} · {date(n.date, lang)}</span> : null}</span>; })()}</td>
+              <td className="text-xs">{r.team ? <><span className="block">{t(r.team.payrollSpecialist)} · {t('payroll')}</span><span className="block text-muted-foreground">{t(r.team.hrOps)} · {t('HR operations')}</span>{r.team.finance ? <span className="block text-muted-foreground">{t(r.team.finance)} · {t('client finance')}</span> : null}</> : '—'}</td>
+              <td className="text-xs">{r.bank ? <><span className="block">{bi(r.bank.name, r.bank.name_ar)}</span><span className="block text-muted-foreground">{t(FILE_STATE[r.fileState] ?? r.fileState)}</span></> : '—'}</td>
               <td>{r.policy ? `${t('Version')} ${r.policy.version}` : '—'}</td>
             </tr>))}</tbody></Table>
       </Panel>
@@ -209,12 +213,28 @@ export function ClientPolicies() {
         <Panel icon={<Scale size={16} />} title={`${bi(data.client.short, data.client.name_ar)}: ${t('version')} ${v.version} ${v.status === 'DRAFT' ? t('waits for a decision') : t('is active')}`}
           action={<PanelAction>{v.status === 'DRAFT' && v.ref ? <Btn small kind="primary" onClick={() => openCase(v.ref, key!)}>{t('Open the decision')}</Btn> : persona?.roles.includes('TASAMA_PAYROLL') ? <Btn small onClick={upload} disabled={busy}>{t('Read a revised handbook')}</Btn> : null}</PanelAction>}>
           <p className="mb-3 text-sm text-muted-foreground">{v.status === 'ACTIVE' ? `${t('Activated by')} ${t(v.activated_by ?? '')} ${t('on')} ${date(v.activated_at ?? v.effective_from, lang)} · ${t('read by')} ${t(v.read_by)}` : `${t('Read by')} ${t(v.read_by)} ${t('from')} ${t(v.source)}`}</p>
-          <TabStrip items={[{ id: 'rules', label: 'Rules' }, { id: 'versions', label: 'Versions' }, { id: 'handbook', label: 'Handbook' }, { id: 'compare', label: 'Compare clients' }]} value={tab} onChange={setTab} />
+          <TabStrip items={[{ id: 'rules', label: 'Rules' }, { id: 'elements', label: 'Elements' }, { id: 'versions', label: 'Versions' }, { id: 'handbook', label: 'Handbook' }, { id: 'compare', label: 'Compare clients' }]} value={tab} onChange={setTab} />
           <div className="mt-4">
             {tab === 'rules' ? (
               <div className="space-y-4">
                 <RuleTiles dims={data.dimensions} rules={rulesBy} changed={data.changed ?? []} selected={dim} onSelect={(n) => setDim(dim === n ? null : n)} />
                 {dim ? <Dimension d={data.dimensions.find((x: any) => x.n === dim)} rules={rulesBy.filter((r) => r.dim === dim)} /> : <p className="text-xs text-muted-foreground">{t('Choose a dimension to see its rules, the clause behind each and the law\'s floor.')}</p>}
+              </div>
+            ) : tab === 'elements' ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">{t('Every element the month can carry, as Tasama lists them: what recurs from the contract, what changes month to month, what is deducted, and which of them count in the GOSI and end-of-service wages.')}</p>
+                {['RECURRING_EARNING', 'NON_RECURRING_EARNING', 'DEDUCTION', 'INFORMATION'].map((g) => { const rows = (data.elements ?? []).filter((e: any) => e.group === g); const inUse = rows.filter((e: any) => e.people).length; return (
+                  <div key={g}>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{bi(rows[0]?.groupLabel?.[0] ?? g, rows[0]?.groupLabel?.[1] ?? g)} · {inUse} {t('of')} {rows.length} {t('in use this month')}</p>
+                    <Table><thead><tr><th>{t('Element')}</th><th>{t('Comes from')}</th><th>{t('GOSI wage')}</th><th>{t('EOS wage')}</th><th>{t('Term')}</th><th className="text-end">{t('People this month')}</th><th className="text-end">{t('Amount')}</th></tr></thead>
+                      <tbody>{rows.map((e: any) => (
+                        <tr key={e.code} className={e.people ? '' : 'text-muted-foreground'}>
+                          <td className="text-sm font-medium">{bi(e.name, e.name_ar)}</td><td className="text-sm">{bi(e.source, e.source_ar)}</td>
+                          <td>{e.gosi ? <Chip tone="primary">{t('Yes')}</Chip> : '—'}</td><td>{e.eos ? <Chip tone="primary">{t('Yes')}</Chip> : '—'}</td>
+                          <td className="text-sm">{e.termMonths ? `${e.termMonths} ${t('months')}` : '—'}</td>
+                          <td className="text-end tabular-nums">{e.people ? num(e.people) : '—'}</td><td className="text-end tabular-nums">{!e.total ? '—' : e.code === 'OT_HOURS' ? `${num(Math.round(e.total))} ${t('h')}` : e.code === 'ABSENT_DAYS' ? `${num(Math.round(e.total))} ${t('days')}` : `SAR ${num(Math.round(e.total))}`}</td>
+                        </tr>))}</tbody></Table>
+                  </div>); })}
               </div>
             ) : tab === 'versions' ? (
               <Table><thead><tr><th>{t('Version')}</th><th>{t('Status')}</th><th>{t('From')}</th><th>{t('Activated by')}</th><th>{t('Read by')}</th><th></th></tr></thead>
@@ -409,7 +429,7 @@ export function PayrollRuns() {
   const [runErr, setRunErr] = useState<string | null>(null);
   const cutPassed = d ? d.period.cutoff < new Date().toISOString().slice(0, 10) : false;
   const startRun = async () => { setBusyRun(true); try { const r: any = await post(`/payroll/runs/${current}/start`); bump(); reload(); openCase(r.ref, current!); } catch (e: any) { setRunErr(e.message); } finally { setBusyRun(false); } };
-  const STATE: Record<string, [string, 'success' | 'warn' | 'primary' | 'danger' | undefined]> = { DRAFT: ['Being prepared', 'warn'], PREPARED: ['Waiting for validation', 'primary'], VALIDATED: ['With the client for approval', 'primary'], APPROVED: ['Approved and written', 'success'], RETURNED: ['Returned by the client', 'danger'] };
+  const STATE: Record<string, [string, 'success' | 'warn' | 'primary' | 'danger' | undefined]> = { DRAFT: ['Being prepared', 'warn'], PREPARED: ['Waiting for validation', 'primary'], VALIDATED: ['Validated; HR operations delivers it to the client', 'primary'], DELIVERED: ['With the client for approval', 'primary'], APPROVED: ['Approved and written', 'success'], RETURNED: ['Returned by the client', 'danger'] };
   const points = [...hist.filter((h) => !d || h.period_name !== d.period.name).map((h) => ({ label: mon(h.period_name), eos: h.eos, leave: h.leave })), ...(d ? [{ label: mon(d.period.name), eos: rows.reduce((s, r) => s + r.eos.accrued, 0), leave: rows.reduce((s, r) => s + r.leave.accrued, 0), draft: true }] : [])];
   return (
     <Screen hero={<Hero tone="surface" eyebrow="Payroll"
@@ -468,19 +488,20 @@ export function PayrollRuns() {
               ) : tab === 'approval' ? (
                 run ? (
                   <div className="space-y-4">
-                    <div className="grid gap-3 md:grid-cols-3">{[
-                      ['Prepared', run.preparer, run.prepared_at, 'Payroll specialist, Tasama'],
-                      ['Validated', run.validator, run.validated_at, 'Payroll lead, Tasama'],
-                      ['Approved', run.approver, run.approved_at, lang === 'ar' ? `${t('HR operations')}، ${name}` : `HR operations, ${name}`],
-                    ].map(([k, who, at, role]: any) => (
-                      <div key={k} className="rounded-xl glass-l3 p-3">
+                    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">{[
+                      ['Prepared', run.preparer, run.prepared_at, 'Payroll specialist, Tasama', false],
+                      ['Validated', run.validator, run.validated_at, 'Payroll manager, Tasama', run.state === 'PREPARED'],
+                      ['Delivered', run.deliverer, run.delivered_at, 'HR operations, Tasama', run.state === 'VALIDATED'],
+                      ...((run.chain ?? []) as any[]).map((l) => [l.role === 'CHRO' ? 'Approved by the CHRO' : 'Approved', l.who, l.at, l.role === 'CHRO' ? (lang === 'ar' ? `${t('CHRO')}، ${name}` : `CHRO, ${name}`) : (lang === 'ar' ? `${t('HR operations')}، ${name}` : `HR operations, ${name}`), l.current]),
+                    ].map(([k, who, at, role, current]: any) => (
+                      <div key={k} className={`rounded-xl p-3 ${current ? 'border border-primary bg-primary/5' : 'glass-l3'}`}>
                         <p className="text-xs text-muted-foreground">{t(k)}</p>
-                        <p className="mt-0.5 text-sm font-semibold">{who ? t(who) : (run.state === 'RETURNED' ? '—' : `${t('Waiting')}${run.waiting_on && !who ? `: ${t(run.waiting_on)}` : ''}`)}</p>
+                        <p className="mt-0.5 text-sm font-semibold">{who ? t(who) : (run.state === 'RETURNED' ? '—' : current ? `${t('Waiting since')} ${date(run.waiting_since, lang)}` : t('Waiting'))}</p>
                         <p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p>
                       </div>))}</div>
                     {run.state === 'RETURNED' ? <p className="text-sm text-danger">{t('Returned by')} {run.returned_by ?? t('the client')}: {run.returned_reason ?? '—'}</p> : null}
                     {run.state !== 'APPROVED' && d ? <div><p className="mb-1 text-xs text-muted-foreground">{t('Approval due')} {date(new Date(Date.parse(d.period.pay) - 4 * 864e5).toISOString(), lang)}</p><ClockBar start={run.created_at} due={new Date(Date.parse(d.period.pay) - 4 * 864e5 + 18 * 3600e3).toISOString()} /></div> : null}
-                    <p className="text-xs text-muted-foreground">{t('The payroll lead never validates a run she prepared; the client\'s HR operations approves every run.')}</p>
+                    <p className="text-xs text-muted-foreground">{t((run.chain ?? []).length > 1 ? 'The payroll manager never validates a run she prepared; Tasama HR operations delivers it; the client\'s contract names two approvers, HR operations then the CHRO.' : 'The payroll manager never validates a run she prepared; Tasama HR operations delivers it; the client\'s HR operations approves every run.')}</p>
                     <MonthDocuments client={current!} />
                   </div>
                 ) : <Empty>{cutPassed ? t('Start the run to prepare it for validation.') : `${t('The run starts after the cut-off on')} ${date(d.period.cutoff, lang)}.`}</Empty>
@@ -609,7 +630,7 @@ function UploadAttendance({ client, onDone }: { client: string; onDone: () => vo
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const load = async (name: string, csv: string) => { setErr(null); setFile({ name, csv }); try { setM(await post<any>(`/payroll/attendance/${client}/map`, { csv })); } catch (e: any) { setErr(e.message); } };
-  const fromFolder = async () => { setBusy(true); try { const r = await fetch(`/api/payroll/attendance/${client}/export`, { headers: { 'x-persona': localStorage.getItem('tasama-persona') ?? '', 'x-client': client } }); const name = (r.headers.get('content-disposition') ?? '').match(/filename="([^"]+)"/)?.[1] ?? 'attendance.csv'; await load(name, await r.text()); } finally { setBusy(false); } };
+  const fromFolder = async (kind: 'device' | 'summary' = 'device') => { setBusy(true); try { const r = await fetch(`/api/payroll/attendance/${client}/export${kind === 'summary' ? '?kind=summary' : ''}`, { headers: { 'x-persona': localStorage.getItem('tasama-persona') ?? '', 'x-client': client } }); const name = (r.headers.get('content-disposition') ?? '').match(/filename="([^"]+)"/)?.[1] ?? 'attendance.csv'; await load(name, await r.text()); } finally { setBusy(false); } };
   const read = async () => { if (!file || !m) return; setBusy(true); try { await post(`/payroll/attendance/${client}/upload`, { fileName: file.name, csv: file.csv, map: m.map }); bump(); onDone(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
   return (
     <div className="space-y-4">
@@ -621,7 +642,14 @@ function UploadAttendance({ client, onDone }: { client: string; onDone: () => vo
           <span>{t('A CSV file, in whatever columns the device writes')}</span>
           <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) f.text().then((x) => load(f.name, x)); }} />
         </label>
-        <Btn small onClick={fromFolder} disabled={busy}>{t('Take this month\'s export from the client\'s shared folder')}</Btn>
+        <span className="flex flex-wrap gap-2"><Btn small onClick={() => fromFolder('device')} disabled={busy}>{t('Take this month\'s export from the client\'s shared folder')}</Btn><Btn small onClick={() => fromFolder('summary')} disabled={busy}>{t('Take the client\'s approved summary instead')}</Btn></span>
+        <p className="text-xs text-muted-foreground">{t('Either the device export, which Hudoor matches to the rosters day by day, or the summary the client\'s management approved: late days, late minutes and absent days per employee.')}</p>
+        </div>
+      ) : m.summary ? (
+        <div className="space-y-3">
+          <p className="text-sm"><span className="font-medium">{file?.name}</span> · {num(m.rows)} {t('employees with a deduction')}. {t('This is the client\'s approved summary, not the device file: there is nothing to match. Hudoor prices each late day and absent day under the client\'s penalty table.')}</p>
+          <Table><thead><tr>{m.headers.map((h: string) => <th key={h}>{h}</th>)}</tr></thead><tbody>{m.sample.map((r: string[], i: number) => <tr key={i}>{r.map((x, j) => <td key={j} className="text-sm">{x}</td>)}</tr>)}</tbody></Table>
+          <div className="flex gap-2"><Btn kind="primary" onClick={read} disabled={busy || !m.map.employee}>{t('Price the summary')}</Btn><Btn onClick={() => { setM(null); setFile(null); }}>{t('Choose another file')}</Btn></div>
         </div>
       ) : (
         <div className="space-y-3">

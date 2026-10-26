@@ -11,7 +11,10 @@ export type RuleRow = { key: string; dim: number; value: string; num?: number | 
 export const ELEMENT_OF: Record<string, string> = { BASIC: 'basic', HOUSING: 'housing', TRANSPORT: 'transport', OTHER_ALW: 'other' };
 export const HCM_OF: Record<string, string> = { basic: 'BASIC', housing: 'HOUSING', transport: 'TRANSPORT', other: 'OTHER_ALW', overtime: 'OVERTIME', gosi: 'GOSI_EE', gosi_er: 'GOSI_ER', gosi_ee_absorbed: 'GOSI_EE_CO', advance: 'ADVANCE_REC', late_fine: 'LATE_FINE', back_pay: 'BACK_PAY', remote_site: 'REMOTE_SITE', gosi_arrears: 'GOSI_ARREARS', leave_encashment: 'LEAVE_ENCASH', eos_award: 'GRATUITY', advance_balance: 'ADVANCE_RECOVERY', notice: 'NOTICE_PAY' };
 
-export function termsFromRules(name: string, rules: RuleRow[]): EngineTerms {
+/** What a client's own policy sets beside the handbook rules (walkthrough addendum §5): the EOS year, the leave day, the GOSI proration. */
+export type ClientTermOverrides = { eosYearDays?: 365 | 360; leaveDayDivisor?: 22 | 30 | 'ENTITLEMENT'; gosiProrate?: boolean; leaveNetMonth?: boolean };
+
+export function termsFromRules(name: string, rules: RuleRow[], o: ClientTermOverrides = {}): EngineTerms {
   const get = (k: string) => rules.find((r) => r.key === k);
   const day = get('dayrate')?.value ?? '';
   const ot = get('overtime.rate');
@@ -21,9 +24,11 @@ export function termsFromRules(name: string, rules: RuleRow[]): EngineTerms {
     gosiElements: ['basic', 'housing'],
     // Art. 2, 84: basic plus the regular allowances. A narrower handbook wage is refused, so it is never read here.
     eosElements: ['basic', 'housing', 'transport', 'other'],
-    eosYearDays: 365,
+    eosYearDays: o.eosYearDays ?? 365,
     leaveElements: ['basic', 'housing', 'transport', 'other'],
-    leaveDayDivisor: 30,
+    leaveDayDivisor: o.leaveDayDivisor ?? 30,
+    gosiProrate: o.gosiProrate ?? false,
+    leaveNetMonth: o.leaveNetMonth ?? false,
     // An unclear rule counts once a reading was chosen for it (WF-26); a refused rule never does.
     overtime: ot && (!ot.flag || (ot.flag === 'UNCLEAR' && ot.resolution)) && /full hourly|gross/i.test(ot.value) ? 'GROSS_1_5' : 'LAW',
     overtimeCapHours: get('overtime.cap')?.num ?? null,

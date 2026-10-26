@@ -4,7 +4,7 @@
  * Seven lanes read the dropped files into a staging area: the client, its roster, its policy, its
  * contracts and letters, the months it paid and its leave. Each lane says what it found and raises
  * the issues it cannot settle. Nothing is written to a client master here; go-live does that after
- * the payroll lead approves.
+ * the payroll manager approves.
  *
  * Arithmetic and matching only. The history is recalculated by the same engine that pays every client.
  */

@@ -108,8 +108,19 @@ const SYNONYMS: Record<string, RegExp> = {
   direction: /in\s*\/\s*out|direction|state|status|الحالة/i,
   device: /terminal|device|reader|الجهاز/i,
 };
+/** The client's approved summary (walkthrough addendum R8): one row per employee with the late minutes and the absent days, not the device's punches. */
+const SUMMARY_SYNONYMS: Record<string, RegExp> = {
+  employee: SYNONYMS.employee,
+  late_minutes: /late\s*(minutes|mins)|minutes\s*late|دقائق التأخير/i,
+  late_days: /late\s*(days|arrivals|count)|lates|أيام التأخير/i,
+  absent_days: /absen(t|ce)\s*days|no[\s-]*show|unpaid\s*days|أيام الغياب/i,
+  approved_by: /approved\s*by|approver|اعتمده/i,
+};
+export const isSummarySheet = (headers: string[]) => headers.some((h) => SUMMARY_SYNONYMS.absent_days.test(h.trim()) || SUMMARY_SYNONYMS.late_minutes.test(h.trim()) || SUMMARY_SYNONYMS.late_days.test(h.trim()));
 export function proposeColumnMap(headers: string[]) {
   const map: Record<string, string | null> = {};
-  for (const [field, re] of Object.entries(SYNONYMS)) map[field] = headers.find((h) => re.test(h.trim())) ?? null;
+  const syn = isSummarySheet(headers) ? SUMMARY_SYNONYMS : SYNONYMS;
+  for (const [field, re] of Object.entries(syn)) map[field] = headers.find((h) => re.test(h.trim())) ?? null;
+  if (syn === SUMMARY_SYNONYMS) map.kind = 'SUMMARY';
   return map;
 }

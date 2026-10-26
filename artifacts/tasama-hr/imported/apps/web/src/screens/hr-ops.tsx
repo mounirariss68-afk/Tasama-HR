@@ -2,10 +2,10 @@
 import { useState, type ReactNode } from 'react';
 import { HeroFeature, PageColumns, Panel, PanelAction, StatTile, StatusRow } from '@cognirise/atelier/layout';
 import { ProvenanceNote } from '@cognirise/atelier/archetypes';
-import { AlertTriangle, Banknote, CalendarClock, DoorOpen, FileWarning, Landmark, Play, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Banknote, CalendarClock, CalendarDays, DoorOpen, FileWarning, Landmark, Play, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { bump, downloadFile, post, useApi } from '../lib/api';
 import { useLang } from '../lib/i18n';
-import { aed, aedShort, ago, date, daysUntil, month, num } from '../lib/format';
+import { aed, aedShort, ago, date, dateShort, daysUntil, month, num } from '../lib/format';
 import { useApp } from '../app/state';
 import { OverviewTabs } from './hr-core';
 import { AgentTag, Bar, Btn, Chip, Empty, Hero, Person, Screen, StatusChip, Table, StatRow, TabStrip } from '../app/ui';
@@ -13,6 +13,7 @@ import { InputRows, InputsBar } from '../app/inputs';
 import { roleName } from '../app/case';
 import { plain } from '../app/decision';
 import { ChangeWaterfall, ClockBar, Columns, SegmentBar } from '../app/viz';
+import { DepartmentSummary } from './costs';
 
 /**
  * HR Workspace › Payroll for the client's HR operations and CHRO (design/payroll-addendum.md §3, §17).
@@ -21,8 +22,8 @@ import { ChangeWaterfall, ClockBar, Columns, SegmentBar } from '../app/viz';
  */
 export function HrPayroll() {
   const [tab, setTab] = useState('month');
-  const tabs = <TabStrip items={[{ id: 'month', label: 'This month' }, { id: 'approval', label: 'Approval' }, { id: 'reports', label: 'Reports' }]} value={tab} onChange={setTab} />;
-  return tab === 'month' ? <PayrollThisMonth tabs={tabs} /> : tab === 'approval' ? <PayrollApproval tabs={tabs} /> : <PayrollReports tabs={tabs} />;
+  const tabs = <TabStrip items={[{ id: 'month', label: 'This month' }, { id: 'approval', label: 'Approval' }, { id: 'calendar', label: 'Calendar' }, { id: 'reports', label: 'Reports' }]} value={tab} onChange={setTab} />;
+  return tab === 'month' ? <PayrollThisMonth tabs={tabs} /> : tab === 'approval' ? <PayrollApproval tabs={tabs} /> : tab === 'calendar' ? <PayrollCalendar tabs={tabs} /> : <PayrollReports tabs={tabs} />;
 }
 
 /** The run as the client approves it: why net pay moved, who prepared and validated it (§18). */
@@ -49,13 +50,64 @@ function PayrollApproval({ tabs }: { tabs: ReactNode }) {
           <ChangeWaterfall from={dx.lastNet} to={dx.thisNet} fromLabel={`${t('Last month')}, ${t('net')}`} toLabel={`${monthName}, ${t('net')}`} steps={dx.steps.map((x: any) => ({ label: t(x.label), amount: x.amount }))} format={(v) => `SAR ${Math.round(v).toLocaleString('en-US')}`} />
         </Panel>
       ) : <Panel icon={<Banknote size={16} />} title={t('The explanation comes once Tasama has validated the run')}><Empty>{t('Nothing to approve yet.')}</Empty></Panel>}
-      {run ? (
-        <Panel icon={<ShieldCheck size={16} />} title={t(run.state === 'APPROVED' ? 'Three different people prepared, validated and approved the run' : 'Two people at Tasama checked the run before it reached you')}
+      {run ? (() => {
+        const chain: any[] = run.chain ?? [];
+        const links = [['Prepared', run.preparer, run.prepared_at, 'Tasama payroll specialist'], ['Validated', run.validator, run.validated_at, 'Tasama payroll manager'], ['Delivered', run.deliverer, run.delivered_at, 'Tasama HR operations'],
+          ...chain.map((l) => [l.role === 'CHRO' ? 'Approved by the CHRO' : 'Approved', l.who, l.at, l.role === 'CHRO' ? 'Your CHRO' : 'Your HR operations', l.current])];
+        const done = links.filter((l) => l[1]).length;
+        const title = run.state === 'APPROVED' ? `${links.length} ${t('people signed the run, in order: Tasama prepared, validated and delivered it; your side approved it')}`
+          : run.state === 'DELIVERED' ? `${t('Three people at Tasama signed the run; it is with')} ${chain.find((l) => l.current)?.label === 'CHRO' ? t('your CHRO') : t('your HR operations')}`
+          : `${done} ${t(done === 1 ? 'person at Tasama has signed the run so far' : 'people at Tasama have signed the run so far')}`;
+        return (
+        <Panel icon={<ShieldCheck size={16} />} title={title}
           action={<PanelAction onClick={() => downloadFile('/api/payroll/package/pdf').catch(() => undefined)}>{t('Download the payroll package')}</PanelAction>}>
-          <div className="grid gap-3 md:grid-cols-3">{[['Prepared', run.preparer, run.prepared_at, 'Tasama payroll specialist'], ['Validated', run.validator, run.validated_at, 'Tasama payroll lead'], ['Approved', run.approver, run.approved_at, 'Your HR operations']].map(([k, who, at, role]: any) => (
-            <div key={k} className="rounded-xl glass-l3 p-3"><p className="text-xs text-muted-foreground">{t(k)}</p><p className="mt-0.5 text-sm font-semibold">{who ?? t('Waiting')}</p><p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p></div>))}</div>
-        </Panel>
-      ) : null}
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">{links.map(([k, who, at, role, current]: any) => (
+            <div key={k} className={`rounded-xl p-3 ${current ? 'border border-primary bg-primary/5' : 'glass-l3'}`}><p className="text-xs text-muted-foreground">{t(k)}</p><p className="mt-0.5 text-sm font-semibold">{who ?? (current ? t('Waiting since') + ' ' + date(run.waiting_since, lang) : t('Waiting'))}</p><p className="text-xs text-muted-foreground">{t(role)}{at ? ` · ${date(at, lang)}` : ''}</p></div>))}</div>
+          {chain.length > 1 ? <p className="mt-3 text-xs text-muted-foreground">{t('Your contract names two approvers: HR operations first, then the CHRO. Nothing is paid before both have signed.')}</p> : null}
+        </Panel>);
+      })() : null}
+    </Screen>
+  );
+}
+
+/** The year's payroll calendar as the client agreed it (design/walkthrough-addendum.md item 5). */
+function PayrollCalendar({ tabs }: { tabs: ReactNode }) {
+  const { t, lang } = useLang();
+  const { openCase, has } = useApp();
+  const { data, reload } = useApi<any>('/payroll/calendar', { poll: 8000 });
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  const months: any[] = data.months;
+  const open = months.find((m) => m.open) ?? months[0];
+  const next = open.stages.find((s: any) => s.state !== 'DONE');
+  const title = data.status === 'APPROVED' ? `${data.year}${t('’s payroll calendar was approved by')} ${data.approved_by} ${t('on')} ${date(data.approved_at, lang)}`
+    : data.status === 'PROPOSED' ? `${data.year}${t('’s payroll calendar waits for your approval')}` : `${t('No calendar is agreed for')} ${data.year}`;
+  const approve = async () => { setBusy(true); try { await post('/payroll/calendar/approve', { year: data.year }); bump(); reload(); } finally { setBusy(false); } };
+  const STAGE: Record<string, [string, string]> = { cutoff: ['Cut-off: your changes are in', 'Cut-off'], calculation: ['Payroll calculated', 'Calculated'], review: ['Reviewed by the payroll manager', 'Reviewed'], delivery: ['Delivered to you', 'Delivered'], approval: ['Approved by you', 'Approved'], bank: ['Uploaded to the bank', 'Bank'], pay: ['Payment date', 'Paid'] };
+  const owner = (o: string) => t(o === 'CLIENT' ? 'You' : o === 'CLIENT_FINANCE' ? 'Your finance' : o === 'TASAMA_HR_OPS' ? 'Tasama HR operations' : o === 'TASAMA_PAYROLL' ? 'Tasama payroll specialist' : 'Tasama payroll manager');
+  return (
+    <Screen hero={<Hero tone="surface" eyebrow="HR Workspace" title={title}
+      lede={t('Agreed once a year: your cut-off, Tasama’s calculation, review and delivery, your approval, the bank upload and the payment date, every month, off weekends and holidays. Wared reminds you the day before your cut-off and your approval date.')}
+      actions={data.canApprove && has('PAYROLL') ? <span className="inline-flex gap-2"><Btn kind="primary" onClick={approve} disabled={busy}>{t('Approve the calendar')}</Btn>{data.ref ? <Btn onClick={() => openCase(data.ref)}>{t('Ask for a date to move')}</Btn> : null}</span> : data.ref ? <Btn onClick={() => openCase(data.ref)}>{t('How it was agreed')}</Btn> : undefined}
+      feature={next ? <HeroFeature label={next.state === 'TODAY' ? 'Today' : 'Next on the calendar'} value={dateShort(next.date, lang)} support={<span className="text-xs text-muted-foreground">{t(STAGE[next.key][0])} · {owner(next.owner)}</span>} /> : undefined} />}>
+      {tabs}
+      <Panel icon={<CalendarClock size={16} />} title={`${month(open.period, lang)}: ${open.stages.filter((s: any) => s.state === 'DONE').length} ${t('of')} ${open.stages.length} ${t('stages done')}`} action={<AgentTag id="wared" />}>
+        <ol className="grid gap-2 md:grid-cols-7">{open.stages.map((s: any) => (
+          <li key={s.key} className={`rounded-xl p-3 ${s.state === 'TODAY' ? 'border border-primary bg-primary/5' : s.state === 'DONE' ? 'glass-l3 opacity-70' : 'glass-l3'}`}>
+            <p className="text-lg font-semibold tabular-nums">{dateShort(s.date, lang)}</p>
+            <p className="mt-0.5 text-xs font-medium">{t(STAGE[s.key][0])}</p>
+            <p className="text-[11px] text-muted-foreground">{owner(s.owner)}{s.moved ? ` · ${t('moved')}` : ''}</p>
+          </li>))}</ol>
+      </Panel>
+      <Panel icon={<CalendarDays size={16} />} title={`${t('The twelve months of')} ${data.year}`}>
+        <Table><thead><tr><th>{t('Month')}</th>{open.stages.map((s: any) => <th key={s.key}>{t(STAGE[s.key][1])}</th>)}</tr></thead>
+          <tbody>{months.map((m) => (
+            <tr key={m.period} className={m.open ? 'bg-primary/5 font-semibold' : m.stages[6].state === 'DONE' ? 'text-muted-foreground' : ''}>
+              <td>{month(m.period, lang).split(' ')[0]}</td>
+              {m.stages.map((s: any) => <td key={s.key} className="whitespace-nowrap tabular-nums">{dateShort(s.date, lang)}{s.moved ? <> <span className="text-[10px] text-muted-foreground">{t('moved')}</span></> : null}</td>)}
+            </tr>))}</tbody></Table>
+        <p className="mt-2 text-xs text-muted-foreground">{t('A date marked “moved” left a weekend or a public holiday: the payment date to the working day before, the stages between the cut-off and it to the working day after. The cut-off stays on its day.')}</p>
+      </Panel>
     </Screen>
   );
 }
@@ -78,6 +130,7 @@ function PayrollReports({ tabs }: { tabs: ReactNode }) {
         <Table><thead><tr><th>{t('Month')}</th><th className="text-end">{t('People')}</th><th className="text-end">{t('Gross')}</th><th className="text-end">{t('Net')}</th><th className="text-end">{t('Employer cost on top')}</th></tr></thead>
           <tbody>{[...m].reverse().map((x) => <tr key={x.period_name}><td>{month(x.period_name, lang)}</td><td className="text-end tabular-nums">{x.people}</td><td className="text-end tabular-nums">{aed(x.gross, lang)}</td><td className="text-end tabular-nums">{aed(x.net, lang)}</td><td className="text-end tabular-nums">{aed(x.employer, lang)}</td></tr>)}</tbody></Table>
       </Panel>
+      <DepartmentSummary d={data.departments} />
     </Screen>
   );
 }

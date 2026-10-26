@@ -147,6 +147,12 @@ cases.post('/requests/:ref/decide', async (req, res) => {
       if (r.payload?.prepared_by === p.key) return res.status(403).json({ error: `${p.display_name} prepared this run, so someone else validates it.` });
       req.body.edits = { ...(req.body.edits ?? {}), validated_by_name: p.display_name };
     }
+    if (r.current_step === 'deliver') req.body.edits = { ...(req.body.edits ?? {}), delivered_by_name: p.display_name };
+  }
+  // WF-39, the handover (walkthrough addendum R41): sharing the files ticks every item Tasama HR operations has not ticked yet.
+  if (r.workflow_id === 'WF-39' && r.current_step === 'prepare' && req.body.decision === 'APPROVED') {
+    const { shareItems } = await import('../tasama/handover.js');
+    await shareItems(pool, 'all', p.display_name);
   }
   // WF-36, a returned salary (§20): the new IBAN must pass its check digits and differ from the one returned.
   if (r.workflow_id === 'WF-36' && r.payload?.kind === 'PAYMENT_RETURNED' && req.body.decision === 'APPROVED') {

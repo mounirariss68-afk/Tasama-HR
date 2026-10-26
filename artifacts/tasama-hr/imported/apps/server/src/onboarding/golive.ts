@@ -1,5 +1,5 @@
 /**
- * Go-live (design/payroll-addendum.md §13, §19, WF-24): once the payroll lead approves, the staged client
+ * Go-live (design/payroll-addendum.md §13, §19, WF-24): once the payroll manager approves, the staged client
  * becomes a Tasama HR client like the other five. Its schemas are created and the master is written from
  * what the lanes read. The client's issues become cases for its HR operations, and its first month opens.
  *

@@ -1,7 +1,7 @@
 /**
  * Qaid: a paid month becomes four journals in the client's ledger (design/payroll-addendum.md §21, FIN-02 to FIN-05).
  * Every line takes its account from the client's account map; a line with no account, or a journal that does
- * not balance, is never posted. Qaid proposes an account for what is unmapped; the payroll lead approves it.
+ * not balance, is never posted. Qaid proposes an account for what is unmapped; the payroll manager approves it.
  */
 import type { PoolClient } from 'pg';
 import JSZip from 'jszip';
@@ -117,7 +117,7 @@ export async function proposeAccounts(c: PoolClient, period: string) {
   return out;
 }
 
-/** The payroll lead approves Qaid's proposals and the journals; they are rebuilt with the approved accounts. */
+/** The payroll manager approves Qaid's proposals and the journals; they are rebuilt with the approved accounts. */
 export async function approveJournals(c: PoolClient, period: string, by: string, requestId: number | null = null, at = now()) {
   await c.query(`UPDATE layer.account_map SET status='APPROVED', approved_by=$1, approved_at=$2 WHERE status='PROPOSED'`, [by, at]);
   const js = await buildJournals(c, period, requestId);
@@ -157,6 +157,9 @@ export async function startJournals(c: PoolClient, period: string, requester: nu
   const open = (await c.query(`SELECT 1 FROM layer.requests WHERE workflow_id='WF-34' AND payload->>'period'=$1 AND status IN ('WAITING','RUNNING','ESCALATED')`, [period])).rows.length;
   const posted = (await c.query(`SELECT 1 FROM layer.journals WHERE period_name=$1 AND state='POSTED'`, [period])).rows.length;
   if (open || posted) return null;
+  // Nothing reaches the ledger before the bank's report reconciles with the payroll (walkthrough addendum R37).
+  const rec = (await c.query(`SELECT reconciliation FROM layer.payments WHERE period_name=$1 AND kind='REGULAR' ORDER BY id DESC LIMIT 1`, [period])).rows[0]?.reconciliation;
+  if (rec && !rec.reconciled) return null;
   const { startCase } = await import('../engine/core.js');
   const month = new Date(`${period}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   const monthAr = new Date(`${period}-01T00:00:00Z`).toLocaleString('ar', { month: 'long', year: 'numeric', timeZone: 'UTC' });
