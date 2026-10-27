@@ -21,7 +21,7 @@ import { bankByCode } from '../domain/banks.js';
 import { journalFile } from '../payroll/journals.js';
 import { explain } from '../payroll/differences.js';
 import { tasamaTrail } from '../tasama/service.js';
-import { packagePdf, packageXlsx, reportsXlsx } from '../payroll/package.js';
+import { packagePdf, packageXlsx, reportsXlsx, paymentFileXlsx } from '../payroll/package.js';
 import { deviceExport, summaryExport, proposeMap, headersOf, ingest, justify } from '../attendance/service.js';
 import { PENALTY_TABLE, FINE_CAP_DAYS } from '../domain/attendance.js';
 import { personaOf, isPayrollTeam, isTasama, type Persona, isHrOpsTeam } from './session.js';
@@ -457,6 +457,15 @@ payroll.get('/payroll/payments/:client/:id/file/:which', async (req, res) => {
   const f = await withClient(c.key, () => paymentFiles(pool, Number(req.params.id)));
   if (!f) return res.status(404).json({ error: 'No such payment' });
   const file = req.params.which === 'wps' ? f.wps : f.bank;
+  // ?as=xlsx: the same file as a workbook for a person to review; the bank and Mudad still get the text file.
+  if (req.query.as === 'xlsx') {
+    const lines = await withClient(c.key, async () => (await pool.query(`SELECT l.employee_no, l.name, l.iban, l.bank_code, l.amount::float amount, l.status FROM layer.payment_lines l WHERE l.payment_id=$1 ORDER BY l.employee_no`, [f.payment.id])).rows);
+    const buf = await paymentFileXlsx({ name: file.name, format: file.format.name, text: file.text, total: Number(f.payment.total), valueDate: f.payment.vd, ref: f.payment.file_ref,
+      lines: lines.map((l: any) => ({ employee_no: l.employee_no, name: l.name, iban: l.iban, bank: bankByCode(l.bank_code)?.name ?? l.bank_code, amount: l.amount, status: l.status })) }, c.name);
+    res.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('content-disposition', `attachment; filename="${file.name.replace(/\.[a-z]+$/i, '')} (review).xlsx"`);
+    return res.send(buf);
+  }
   res.setHeader('content-type', `${file.format.type === 'CSV' ? 'text/csv' : 'text/plain'}; charset=utf-8`);
   res.setHeader('content-disposition', `attachment; filename="${file.name}"`);
   res.send(file.text);

@@ -125,3 +125,26 @@ export async function reportsXlsx(months: any[], clientName: string, departments
   wb.creator = `Tasama HR Services for ${clientName}`;
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
+
+/**
+ * A bank file or WPS file as a workbook for a person to review (prototype owner, 27 October 2026): the lines in
+ * columns on one sheet, the file exactly as the bank or Mudad receives it on a second. The bank still gets the text file.
+ */
+export async function paymentFileXlsx(x: { name: string; format: string; text: string; lines: { employee_no: string; name: string; iban: string; bank: string; amount: number; status: string }[]; total: number; valueDate: string; ref: string }, clientName: string): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Lines');
+  ws.columns = [{ header: 'Employee no.', key: 'no', width: 14 }, { header: 'Name', key: 'name', width: 28 }, { header: 'IBAN', key: 'iban', width: 28 }, { header: 'Bank', key: 'bank', width: 24 }, { header: 'Amount (SAR)', key: 'amount', width: 14 }, { header: 'Status', key: 'status', width: 12 }];
+  for (const l of x.lines) ws.addRow({ no: l.employee_no, name: l.name, iban: l.iban, bank: l.bank, amount: l.amount, status: l.status });
+  ws.addRow({});
+  ws.addRow({ name: 'Total', amount: x.total });
+  ws.getRow(1).font = { bold: true };
+  ws.eachRow((row, i) => { if (i > 1) row.getCell('amount').numFmt = '#,##0.00'; });
+  const wf = wb.addWorksheet('File as sent');
+  wf.columns = [{ header: `${x.format} · ${x.name} · value date ${x.valueDate} · ${x.ref}`, key: 'line', width: 140 }];
+  for (const line of x.text.split(/\r?\n/)) wf.addRow({ line });
+  wf.getRow(1).font = { bold: true };
+  wf.getColumn(1).font = { name: 'Consolas', size: 10 };
+  wf.getRow(1).font = { bold: true, name: 'Calibri', size: 11 };
+  wb.creator = `Tasama HR Services for ${clientName}`;
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}

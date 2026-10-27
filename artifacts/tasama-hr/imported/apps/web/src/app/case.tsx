@@ -532,7 +532,7 @@ function Remind({ c, reload }: { c: any; reload: () => void }) {
           <div className="flex items-center gap-2 text-xs text-muted-foreground"><AgentTag id="raqeeb" showChip={false} />{t('drafted this from the case. Edit it before you send.')}</div>
           <p className="text-sm"><span className="text-muted-foreground">{t('To')}:</span> {draft.to.name}, {t(draft.to.role)} &lt;{draft.to.email}&gt;</p>
           <input className="input h-10 w-full text-sm" aria-label={t('Subject')} value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />
-          <textarea className="input w-full py-2 text-sm leading-relaxed" style={{ height: "17rem" }} dir="auto" aria-label={t('Message')} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
+          <textarea className="input w-full resize-y py-2 text-sm leading-relaxed" style={{ height: '11rem', maxHeight: '40vh' }} dir="auto" aria-label={t('Message')} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />
           <p className="text-[11px] text-muted-foreground">{t('No email leaves the prototype: the reminder appears in their Tasama HR notifications and on the case.')}</p>
         </div>
       ) : null}
@@ -656,6 +656,8 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
       </DecisionBar>
     </div>
   ) : c.canRemind && frame !== 'stage' ? <Remind c={c} reload={reload} /> : null;
+  // The reminder editor is long: in the inbox reader, whose footer has no room, it scrolls with the body (the owner's 27 October review).
+  const remindInBody = Boolean(c.canRemind && !c.canDecide && frame !== 'stage' && frame !== 'drawer');
 
   if (frame === 'stage') return (
     <div className="space-y-4">
@@ -671,7 +673,7 @@ export function CaseView({ caseRef, frame = 'inbox', onDone }: { caseRef: string
       {actions ? <footer className="shrink-0 border-t border-border/60 bg-background/80 px-6 py-3 backdrop-blur">{actions}</footer> : null}
     </div>
   );
-  return <InboxReader header={header} actions={actions} className="lg:sticky lg:top-3 lg:h-[calc(100dvh-20rem)] lg:min-h-[34rem] lg:self-start">{body}</InboxReader>;
+  return <InboxReader header={header} actions={remindInBody ? undefined : actions} className="lg:sticky lg:top-3 lg:h-[calc(100dvh-20rem)] lg:min-h-[34rem] lg:self-start">{body}{remindInBody ? <div className="mt-5 border-t border-border/60 pt-4">{actions}</div> : null}</InboxReader>;
 }
 
 /** One inbox row: initials, who, what, and one status. */

@@ -111,7 +111,7 @@
 | `layer.payments` gains the reconciliation (bank total, payroll net, matched lines, differences) | R37 |
 | `layer.handovers` (client, checklist state, shared at, signed by, closed at); WF-39 | R41 |
 | `tasama.activation_checklist` on the client onboarding; the activation request date starts the SLA | R40 |
-| `clients.ts`: `team.payrollSpecialist`, `team.hrOps` (Nasser and Lama at every client until Tasama confirms Yasser's and Ahmad's split) | R3, R15 |
+| `clients.ts`: `team.payrollSpecialist`, `team.hrOps` (Nasser and Lama at every client). Confirmed 27 October: Ahmed's two specialists are Yasser and Imad; adding them as personas with the clients split between them is left for later in the project | R3, R15 |
 | Seed: one Saudi employee over 50 at Red Sea Global with a 12% raise two months ago; Saudi Coffee's approved attendance summary beside its device export; no handover on the demo day, the scenario opens one at SEVEN | R22, R8, R41 |
 | `SEED_VERSION` 16 → 17 | — |
 
@@ -120,5 +120,7 @@
 New scenario **Handing a client back** (Tasama level): the checklist shared, the client signs, Tasama closes inside the SLA. `npm run check` gains checks for the element catalogue, the over-50 check on the draft, the 360 EOS, the proration, the reconciliation, the handover and the activation checklist. The Director plays 21 scenarios.
 
 **Effort:** about 2.5 Claude sessions.
+
+**Added 27 October** after the owner's review: the bank file and the WPS file also download as a workbook for review (the lines in columns, the file as sent on a second sheet; the bank and Mudad still get the text file); the reminder editor in a case's pinned footer scrolls inside itself, it was unreachable below the fold.
 
 **Not built, on purpose:** a third approval link (CEO) has no client persona; the weekly lateness report to the client's manager (R35) is noted, Hudoor runs monthly; GOSI's rates stay a table in `domain/payroll/gosi.ts` that a new rule extends (R20).

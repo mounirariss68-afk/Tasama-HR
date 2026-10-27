@@ -2131,6 +2131,8 @@ export const AR: Record<string, string> = {
   "from the files": "من الملفات",
   "Responsible": "المسؤول",
   "Paid to": "يُصرف إلى",
+  "The file": "الملف",
+  "Excel to review": "إكسل للمراجعة",
   "payment date": "تاريخ الصرف",
   "Bank and file": "البنك والملف",
   "No bank file yet": "لا ملف بنك بعد",

@@ -58,10 +58,10 @@ function Funnel({ clients, selected, onSelect }: { clients: any[]; selected: str
 
 function FilePane({ f, href, client }: { f: any; href: string; client: string }) {
   const { t, bi } = useLang();
-  const download = async () => {
-    const r = await fetch(href, { headers: { 'x-persona': localStorage.getItem('tasama-persona') ?? '', 'x-client': client } });
+  const download = async (as: 'file' | 'xlsx' = 'file') => {
+    const r = await fetch(as === 'xlsx' ? `${href}?as=xlsx` : href, { headers: { 'x-persona': localStorage.getItem('tasama-persona') ?? '', 'x-client': client } });
     const url = URL.createObjectURL(await r.blob());
-    const a = document.createElement('a'); a.href = url; a.download = f.name; a.click(); URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.href = url; a.download = as === 'xlsx' ? `${f.name.replace(/\.[a-z]+$/i, '')} (review).xlsx` : f.name; a.click(); URL.revokeObjectURL(url);
   };
   return (
     <div className="min-w-0 rounded-xl glass-l3 p-3">
@@ -70,7 +70,7 @@ function FilePane({ f, href, client }: { f: any; href: string; client: string })
           <p className="truncate text-sm font-semibold">{bi(f.format, f.format_ar)}</p>
           <p className="text-xs text-muted-foreground">{num(f.lines)} {t('rows')}{f.illustrative ? ` · ` : ''}{f.illustrative ? <Chip tone="warn">{t('Illustrative layout')}</Chip> : null}</p>
         </div>
-        <Btn small onClick={download}><Download size={13} /> {t('Download')}</Btn>
+        <span className="flex shrink-0 gap-1"><Btn small onClick={() => download('file')}><Download size={13} /> {t('The file')}</Btn><Btn small onClick={() => download('xlsx')}>{t('Excel to review')}</Btn></span>
       </div>
       <pre dir="ltr" className="mt-2 max-h-40 overflow-auto rounded-lg bg-muted/50 p-2 font-mono text-[10.5px] leading-relaxed scroll-thin">{f.preview}</pre>
       <p className="mt-2 text-[11px] text-muted-foreground">{t(f.basis)}</p>
